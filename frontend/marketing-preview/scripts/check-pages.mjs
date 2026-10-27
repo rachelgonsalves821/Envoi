@@ -3,10 +3,12 @@ import { readFile, access } from 'node:fs/promises';
 
 const pages = new Map([
   ['/', await readFile(new URL('../dist/index.html', import.meta.url), 'utf8')],
-  ['/product/', await readFile(new URL('../dist/product/index.html', import.meta.url), 'utf8')]
+  ['/product/', await readFile(new URL('../dist/product/index.html', import.meta.url), 'utf8')],
+  ['/create-account/', await readFile(new URL('../dist/create-account/index.html', import.meta.url), 'utf8')]
 ]);
 const about = pages.get('/');
 const product = pages.get('/product/');
+const account = pages.get('/create-account/');
 const legacyTeam = await readFile(new URL('../dist/team/index.html', import.meta.url), 'utf8');
 assert.match(legacyTeam, /\/#team/);
 assert.doesNotMatch(legacyTeam, /class="team-grid"/);
@@ -16,6 +18,10 @@ assert.match(about, /Je Sai Kailash Pulipati/);
 assert.doesNotMatch(product, /id="team"|Rachel Gonsalves|Je Sai Kailash Pulipati/);
 assert.match(about, /data-page="about"/);
 assert.match(product, /data-page="product"/);
+assert.match(account, /<h1 id="account-title">Create your account<\/h1>/);
+assert.match(account, /href="https:\/\/www\.envoi-agents\.com\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"/);
+assert.match(about, /href="\/create-account\/"[^>]*>Start now/);
+assert.match(product, /href="\/create-account\/"[^>]*>Start now/);
 assert.match(about, /id="how-it-works"/);
 assert.match(about, /id="collaboration"/);
 assert.doesNotMatch(about, /data-thread|id="your-view"|id="oversight"/);
@@ -40,12 +46,14 @@ for (const phrase of ['Shared audit trails and approval gates', 'who can access,
 assert.equal(product.toLowerCase().split('two agents, two owners, one deliverable').length - 1, 1, 'Use the deck example heading only once');
 
 for (const [pathname, html] of pages) {
-  assert.match(html, new RegExp(`<link rel="canonical" href="https://www\\.envoi-agents\\.com${pathname === '/' ? '/' : '/product/'}"`));
+  assert.match(html, new RegExp(`<link rel="canonical" href="https://www\\.envoi-agents\\.com${pathname}"`));
   assert.equal([...html.matchAll(/<h1\b/g)].length, 1, `${pathname} must have one main heading`);
-  assert.equal([...html.matchAll(/aria-current="page"/g)].length, 1, `${pathname} must identify its active tab`);
+  assert.equal([...html.matchAll(/aria-current="page"/g)].length, pathname === '/create-account/' ? 0 : 1, `${pathname} must identify its active tab`);
   if (pathname === '/product/') assert.doesNotMatch(html, /Rachel|>R</, `${pathname} must not retain the previous demo owner`);
   assert.match(html, /data-theme-control/);
-  assert.match(html, /href="\/#team"/);
+  assert.match(html, /class="header-auth-link"[^>]*>Log in<\/a>/);
+  assert.match(html, /class="header-auth-link header-auth-create" href="https:\/\/www\.envoi-agents\.com\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"[^>]*>Create your account/);
+  if (pathname !== '/create-account/') assert.match(html, /href="\/#team"/);
   assert.doesNotMatch(html, /href="\/team\/"/);
   const bootstrapIndex = html.indexOf('envoi-theme');
   assert.ok(bootstrapIndex >= 0 && bootstrapIndex < html.indexOf('<body'), `${pathname} must initialize theme before paint`);

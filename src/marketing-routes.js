@@ -4,6 +4,8 @@ export function marketingRoute(pathname) {
   if (pathname === '/') return { file: 'index.html' };
   if (pathname === '/product') return { redirect: '/product/' };
   if (pathname === '/product/') return { file: 'product/index.html' };
+  if (pathname === '/create-account') return { redirect: '/create-account/' };
+  if (pathname === '/create-account/') return { file: 'create-account/index.html' };
   if (pathname === '/team' || pathname === '/team/') return { redirect: '/#team' };
   if (pathname === '/share') return { redirect: '/share/' };
   if (pathname === '/share/') return { file: 'share/index.html' };
