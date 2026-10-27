@@ -134,6 +134,7 @@ function WorkspaceApp() {
   const humanRef = useRef(human);
   humanRef.current = human;
   const loadAccountRef = useRef<() => Promise<void>>(async () => undefined);
+  const revalidateAccountRef = useRef<(quiet?: boolean) => Promise<void>>(async () => undefined);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -214,7 +215,12 @@ function WorkspaceApp() {
     if (broadcast) publishSessionEnd();
   }, [clearPrivateState]);
 
-  const expireSession = useCallback(() => endSession(), [endSession]);
+  // A single failed request does not prove the browser session has ended.
+  // Check the account in the background while keeping the inbox mounted;
+  // only a confirmed 401 may replace it with the sign-in screen.
+  const expireSession = useCallback(() => {
+    if (bootRef.current === 'ready' && hadAuthenticatedSession.current) void revalidateAccountRef.current(true);
+  }, []);
 
   const loseWorkspaceAccess = useCallback((workspaceId: string) => {
     if (activeWorkspace.current !== workspaceId) return;
@@ -313,7 +319,7 @@ function WorkspaceApp() {
       const nextConfig = await api.authConfig();
       if (!isCurrentSession(generation)) return;
       setConfig(nextConfig);
-      const nextHuman = await api.me();
+      const nextHuman = await api.me(undefined, false);
       if (!isCurrentSession(generation)) return;
       humanRef.current = nextHuman;
       setHuman(nextHuman);
@@ -348,13 +354,13 @@ function WorkspaceApp() {
       if (!isCurrentSession(generation)) return;
       if (nextConfig) setConfig(nextConfig);
       if (caught instanceof ApiError && caught.status === 401) {
-        expireSession();
+        endSession();
       } else {
         setError(caught instanceof Error ? caught.message.replace(/\bEnvoi\b/gi, 'Envoi') : 'Envoi could not load your workspace.');
         setBoot('error');
       }
     }
-  }, [clearPrivateState, config, expireSession, loadView, loadWorkspaceDirectory]);
+  }, [clearPrivateState, config, endSession, loadView, loadWorkspaceDirectory]);
 
   loadAccountRef.current = loadAccount;
 
@@ -376,7 +382,7 @@ function WorkspaceApp() {
     try {
       const result = await withReadDeadline(controller, signal => validateWorkspaceReturn(human.id, workspace.id, config?.provider || '', signal, {
         snapshot: signal => api.sessionView(workspace.id, signal),
-        identity: signal => api.me(signal),
+        identity: signal => api.me(signal, false),
         directory: loadWorkspaceDirectory,
         legacyView: signal => api.humanView(workspace.id, undefined, signal)
       }), quiet ? QUIET_VALIDATION_TIMEOUT_MS : SESSION_VALIDATION_TIMEOUT_MS);
@@ -406,7 +412,7 @@ function WorkspaceApp() {
       }
     } catch (caught) {
       if (!isCurrentSession(generation) || validation.current !== controller) return;
-      if (caught instanceof ApiError && caught.status === 401) expireSession();
+      if (caught instanceof ApiError && caught.status === 401) endSession();
       else if (quiet) setSyncNotice('We could not confirm your session after you returned. Your workspace will keep retrying.');
       else {
         setError(errorMessage(caught));
@@ -414,8 +420,7 @@ function WorkspaceApp() {
         setSessionCheck('error');
       }
     } finally { if (validation.current === controller) validation.current = null; }
-  }, [boot, config, expireSession, human, loadAccount, loadWorkspaceDirectory, loseWorkspaceAccess, workspace]);
-  const revalidateAccountRef = useRef(revalidateAccount);
+  }, [boot, config, endSession, human, loadAccount, loadWorkspaceDirectory, loseWorkspaceAccess, workspace]);
   revalidateAccountRef.current = revalidateAccount;
 
   useEffect(() => { if (!isPreview && !isLandingPreview) void loadAccount(); }, [isPreview, isLandingPreview]);
@@ -561,9 +566,15 @@ function WorkspaceApp() {
   if (isLandingPreview) return <LandingPage signInPath={`${import.meta.env.VITE_PUBLIC_URL || 'https://www.envoi-agents.com'}/api/auth/workos/sign-in`} />;
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} onLogout={hadAuthenticatedSession.current && !signingOut.current ? () => { void logout(); } : undefined} />;
-  if (boot === 'signedOut' && config) return config.provider === 'workos'
-    ? <LandingPage signInPath={window.location.pathname === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : window.location.pathname === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
-    : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
+  if (boot === 'signedOut' && config) {
+    if (config.provider === 'workos') {
+      if (window.location.pathname === '/app') return authNotice
+        ? <AuthScreen config={config} notice={authNotice} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />
+        : <PublicSiteRedirect />;
+      return <LandingPage signInPath={window.location.pathname === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : window.location.pathname === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />;
+    }
+    return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
+  }
   if (boot === 'setup' && human) return <><SignOutControl onLogout={() => { void logout(); }} /><WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} /></>;
   if (boot === 'error') return <FailureScreen message={error} title={signingOut.current ? 'Sign out incomplete' : undefined} retryLabel={signingOut.current ? 'Retry sign out' : undefined} onRetry={signingOut.current ? logout : loadAccount} onLogout={signingOut.current || hadAuthenticatedSession.current ? () => { void logout(); } : undefined} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
@@ -602,6 +613,11 @@ function WorkspaceApp() {
 
 export function SignOutControl({ onLogout }: { onLogout: () => void }) {
   return <div className="account-actions"><button type="button" className="button secondary compact" onClick={onLogout}><LogOut size={16} aria-hidden="true" />Sign out</button></div>;
+}
+
+function PublicSiteRedirect() {
+  useEffect(() => { window.location.replace('/'); }, []);
+  return <LoadingScreen />;
 }
 
 export function LoadingScreen({ checking = false, onLogout }: { checking?: boolean; onLogout?: () => void }) {
