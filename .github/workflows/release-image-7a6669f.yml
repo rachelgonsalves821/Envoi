@@ -1,0 +1,50 @@
+name: One-off beta container image 7a6669f
+
+on:
+  push:
+    branches: [codex/release-image-7a6669f]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7a6669f7b6b80b25ef53ad19e291f876c180afef
+      - name: Verify exact approved source
+        run: test "$(git rev-parse HEAD)" = 7a6669f7b6b80b25ef53ad19e291f876c180afef
+      - name: Pull base image with retry
+        run: |
+          for attempt in 1 2 3 4; do
+            if docker pull public.ecr.aws/docker/library/node:22-alpine; then
+              docker tag public.ecr.aws/docker/library/node:22-alpine node:22-alpine
+              exit 0
+            fi
+            if docker pull node:22-alpine; then exit 0; fi
+            sleep $((attempt * 15))
+          done
+          exit 1
+      - name: Build approved container
+        run: |
+          docker build -f Dockerfile.cloudflare \
+            --label org.opencontainers.image.revision=7a6669f7b6b80b25ef53ad19e291f876c180afef \
+            -t envoi-ui:7a6669f .
+          docker image inspect envoi-ui:7a6669f \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+            | grep -Fx 7a6669f7b6b80b25ef53ad19e291f876c180afef
+      - name: Save and hash image
+        run: |
+          docker save -o image.tar envoi-ui:7a6669f
+          sha256sum image.tar > image.tar.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: envoi-ui-image-7a6669f
+          path: |
+            image.tar
+            image.tar.sha256
+          retention-days: 1
+          compression-level: 1
