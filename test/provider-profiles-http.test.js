@@ -3,7 +3,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { api, backends, remoteServer, documents, freshOwner, connect, exchange, assertTokenResponse, stored, providerClient } from './agent-remote-auth-token-harness.js';
+import { readFile } from 'node:fs/promises';
+import { api, backends, remoteServer, documents, freshOwner, connect, exchange, assertTokenResponse, stored, providerClient, restart } from './agent-remote-auth-token-harness.js';
+const discoveryFixture=JSON.parse(await readFile(new URL('./contract-fixtures/provider-event-wake-discovery/discover-events-capability.json',import.meta.url),'utf8'));
 const key=crypto.generateKeyPairSync('ed25519').privateKey.export({format:'der',type:'pkcs8'}).toString('base64');
 const client={...providerClient,wakeOrigins:['https://callbacks.envoi-provider.com']};
 for(const backend of backends)test(`[${backend.name}] real MCP profiles use derived installation authority and owner-only Grok controls`,{timeout:90000},async t=>{
@@ -21,7 +23,7 @@ for(const backend of backends)test(`[${backend.name}] real MCP profiles use deri
   const status=await tool('envoi_wake_status');assert.equal(status.ok,true);assert.equal(status.result.httpWake.subscription.status,'pending');
   const active=await tool('envoi_wake_activate',{subscriptionId:id,challenge});assert.equal(active.ok,true,JSON.stringify(active));assert.equal(active.result.subscription.status,'active');
   const ended=await tool('envoi_wake_end',{subscriptionId:id});assert.equal(ended.ok,true);assert.equal(ended.result.subscription.status,'ended');
-  const discovered=await rpc('server/discover',{},'2026-07-28');assert.equal(discovered.status,200,discovered.text);assert.deepEqual(discovered.payload.result.capabilities,{tools:{},events:{}});
+  const discovered=await rpc('server/discover',{},'2026-07-28');assert.equal(discovered.status,200,discovered.text);assert.deepEqual(discovered.payload,discoveryFixture.response.body);
   const cursor=await rpc('events/subscribe',{name:'envoi.work_available',arguments:{},delivery:{mode:'webhook',url:'https://localhost/no-contact',secret:'whsec_'+Buffer.alloc(32,4).toString('base64')},cursor:'99999999999999999999'},'2026-07-28');
   assert.equal(cursor.status,200,cursor.text);assert.equal(cursor.payload.error.code,-32602,'future cursor is rejected before callback origin/DNS checks');
   const route=`/api/inboxes/${registration.agentInboxId}/agents/${registration.agentId}/wake-targets/grok`;
@@ -30,4 +32,31 @@ for(const backend of backends)test(`[${backend.name}] real MCP profiles use deri
   const foreign=await freshOwner(server);assert.equal((await api(server.baseUrl,route,{session:foreign.session})).status,403);
   const invalid=await api(server.baseUrl,route,{session:who.session,method:'PUT',body:{url:'https://localhost/no-contact',secret:'invalid'}});assert.equal(invalid.payload.code,'WAKE_TARGET_INVALID');
   const removed=await api(server.baseUrl,route,{session:who.session,method:'DELETE',body:{}});assert.equal(removed.status,200,removed.text);assert.deepEqual(removed.payload,{});
+});
+
+for(const backend of backends)test(`[${backend.name}] complete remote MCP discovery retains legacy tools and lifecycle gates`,{timeout:90000},async t=>{
+  let server=await remoteServer(t,backend,{env:{ENVOI_HTTP_WAKE_V1:'true',ENVOI_MCP_EVENTS_V1:'true',ENVOI_MCP_WAKE_V1:'false',ENVOI_GROK_TRIGGER_V1:'false',ENVOI_MCP_EVENTS_CALLBACK_ORIGINS:'',ENVOI_GROK_TRIGGER_ORIGINS:'',ENVOI_WAKE_SIGNING_KEYS:JSON.stringify([{kid:'discovery-http',privateKey:key,activeFrom:'2026-01-01T00:00:00Z'}])}});
+  const scope='envoi.agent envoi.send envoi.files envoi.cases';
+  const docs=documents(t,server),who=await freshOwner(server),grant=await connect(server,who,{scope,grantedPermissions:['receive_agent_messages','send_agent_messages','create_assets','execute_cases']}),tokens=assertTokenResponse(await exchange(server,grant),scope);
+  const {registration}=await stored(docs,grant.registrationId);
+  const rpc=(method,params={},version='2026-07-28',token=tokens.access_token)=>api(server.baseUrl,'/mcp',{...(token?{token}:{}),body:{jsonrpc:'2.0',id:1,method,params},headers:{accept:'application/json, text/event-stream','mcp-protocol-version':version}});
+  const discover=await rpc('server/discover');assert.equal(discover.status,200,discover.text);assert.deepEqual(discover.payload,discoveryFixture.response.body);
+  const anonymous=await rpc('server/discover',{},'2026-07-28',null);assert.equal(anonymous.status,401);assert.match(anonymous.headers.get('www-authenticate'),/resource_metadata=/);
+  const legacy=await rpc('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'legacy-test',version:'1'}},'2025-11-25');
+  assert.deepEqual(legacy.payload.result,{protocolVersion:'2025-11-25',capabilities:{tools:{listChanged:false}},serverInfo:{name:'envoi',version:'0.1.0'}});
+  const oldDiscovery=await rpc('server/discover',{},'2025-11-25');assert.equal(oldDiscovery.payload.error.code,-32601);
+  const oldTools=await rpc('tools/list',{},'2025-11-25'),newTools=await rpc('tools/list');assert.equal(oldTools.payload.result.tools.length,19);assert.deepEqual(newTools.payload.result,oldTools.payload.result);
+  const agentRoute=`/api/inboxes/${registration.agentInboxId}/agents/${registration.agentId}`;
+  assert.equal((await api(server.baseUrl,`${agentRoute}/pause`,{session:who.session,body:{}})).status,200);
+  const paused=await rpc('server/discover');assert.equal(paused.status,409,paused.text);assert.equal(paused.payload.code,'AGENT_PAUSED');
+  assert.equal((await api(server.baseUrl,`${agentRoute}/resume`,{session:who.session,body:{}})).status,200);
+  assert.deepEqual((await rpc('server/discover')).payload,discoveryFixture.response.body);
+  server=await restart(t,server,{ENVOI_MCP_EVENTS_V1:'false'});
+  const disabled=await rpc('server/discover');assert.equal(disabled.status,200,disabled.text);assert.equal(disabled.payload.error.code,-32601);
+  assert.equal((await rpc('tools/call',{name:'envoi_agent_info',arguments:{}})).status,400,'MCP 2026 tools stay unavailable while the extension is off');
+  assert.equal((await rpc('tools/call',{name:'envoi_agent_info',arguments:{}},'2025-11-25')).status,200);
+  server=await restart(t,server,{ENVOI_MCP_EVENTS_V1:'true'});
+  assert.deepEqual((await rpc('server/discover')).payload,discoveryFixture.response.body);
+  assert.equal((await api(server.baseUrl,`${agentRoute}/installations/${registration.installationId}/revoke`,{session:who.session,body:{}})).status,200);
+  const revoked=await rpc('server/discover');assert.equal(revoked.status,401,revoked.text);assert.equal(revoked.payload.code,'CREDENTIAL_REVOKED');
 });

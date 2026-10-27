@@ -169,3 +169,15 @@ test('a running container is stale only when it reports a different configured r
   assert.equal(releaseIsStale('', 'b'.repeat(40)), false);
   assert.equal(releaseIsStale('short', null), false);
 });
+
+test('human signup mode and quota reach the container and participate in settings restart', async () => {
+  const closed = selectEnvironment({ ENVOI_HUMAN_SIGNUP_MODE: 'invite-only', ENVOI_PUBLIC_SIGNUP_LIMIT: '100' }, CONTAINER_ENV_KEYS);
+  const open = selectEnvironment({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100' }, CONTAINER_ENV_KEYS);
+  assert.equal(open.ENVOI_HUMAN_SIGNUP_MODE, 'public');
+  assert.equal(open.ENVOI_PUBLIC_SIGNUP_LIMIT, '100');
+  assert.notEqual(await environmentFingerprint(closed), await environmentFingerprint(open));
+  assert.notEqual(await environmentFingerprint(open), await environmentFingerprint({ ...open, ENVOI_PUBLIC_SIGNUP_LIMIT: '99' }));
+  const defaults = selectEnvironment({}, CONTAINER_ENV_KEYS);
+  assert.equal(defaults.ENVOI_HUMAN_SIGNUP_MODE, undefined);
+  assert.equal(defaults.ENVOI_PUBLIC_SIGNUP_LIMIT, undefined);
+});

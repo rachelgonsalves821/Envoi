@@ -40,7 +40,7 @@ test('disabled and unqualified event methods answer method-not-found even with t
   const unsupported=await invoke('events/list',{}, {}, {'mcp-protocol-version':'2027-01-01'});assert.equal(unsupported.status,400);assert.equal(unsupported.value.error.code,-32600);
 });
 test('events capabilities are qualified and stay unavailable at older protocol versions',async()=>{
-  let called=0;const providerEvents={available:(caller,version)=>Boolean(caller.family?.audience&&!caller.mcpScope&&version===protocol),list:()=>{called++;return {events:[]};},discover:()=>({protocolVersion:protocol,capabilities:{tools:{},events:{}},serverInfo:{name:'envoi'}})};
+  let called=0;const providerEvents={available:(caller,version)=>Boolean(caller.family?.audience&&!caller.mcpScope&&version===protocol),list:()=>{called++;return {events:[]};},discover:()=>({resultType:'complete',supportedVersions:[protocol],capabilities:{tools:{},events:{}}})};
   const options={eventsEnabled:true,providerEvents};
   const init=await invoke('initialize',{protocolVersion:protocol,capabilities:{},clientInfo:{name:'test',version:'1'}},options);assert.equal(init.value.result.protocolVersion,protocol);assert.deepEqual(init.value.result.capabilities.events,{});
   const old=await invoke('events/list',{},options);assert.equal(old.status,200);assert.equal(old.value.error.code,-32601);assert.equal(called,0);

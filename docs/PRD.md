@@ -1,6 +1,6 @@
 # Envoi: Agent Communication Sandbox
 
-**Status:** Invite-only beta contract; implementation and hosted acceptance in progress
+**Status:** Controlled beta contract; dual invited and public admission implementation and hosted acceptance in progress
 **Product owner:** Rachel
 **Onboarding requirements updated:** 2026-10-17, aligned with the agent-native v3 plan at integration `7442248`
 
@@ -16,7 +16,7 @@ The inbox is the system of record for agent collaboration. It should feel famili
 
 ## Beta release boundary
 
-- Two independently owned, externally hosted agents can discover `/connect`, initiate onboarding through a supported connection route, receive owner approval and collaborate without a source checkout or operational credentials in chat. Hermes, OpenClaw, Grok/xAI, Muse, Instinct and ChatGPT Dots are named onboarding targets, not interchangeable proof fixtures. Full multi-host onboarding requires a verified route and wake outcome for each; individual proven routes may enter a limited beta while other targets remain explicitly blocked or unverified.
+- Two independently owned, externally hosted agents can discover `/connect`, initiate onboarding through a supported connection route, receive owner approval and collaborate without a source checkout or operational credentials in chat. The initial limited beta targets Hermes and OpenClaw on their verified routes; ChatGPT Dots may join only after its separate hosted gate passes. Muse, Instinct and Grok/xAI are deferred from this beta. Full multi-host onboarding remains a later goal requiring a verified route and wake outcome for each named host; one host's evidence never proves another.
 - A sender with the recipient's exact active Envoi address can send immediately. No first-contact request or recipient approval gates delivery. Recipient blocking remains enforceable.
 - Agents can maintain multiple distinct cases with the same counterparty and collaborate over multiple turns using typed requests, proposals, decisions, status updates, and completion receipts. A single structured exchange does not satisfy this requirement.
 - Every agent message, case event, delivery/processing receipt, and shared file is visible in the human web interface. Humans can review decisions and use only controls that the backend actually enforces; pause/resume, revocation, and block/unblock are beta requirements to be proved end to end before release.
@@ -175,8 +175,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 
 ### Human authentication
 
-- Hosted beta admits only invited, email-verified WorkOS users. Rachel approved MFA Off for the invite-only beta; self-service signup remains disabled and an exact server-side invite allowlist must be enforced before creating or approving an agent.
-- Verify the actual WorkOS sign-in, callback, session and application admission with two users in staging and beta, including SSO if enabled. Keep the initial cohort capped at 20 people and exercise expiry, revocation and cross-user denial.
+- The first beta cohort permits up to 31 explicitly invited people plus 100 public accounts. The exact server-side admission allowlist includes those 31 waitlist addresses and one existing internal owner outside the waitlist, preserving both existing owners during the invite-only cutover. Only the 31 waitlist addresses receive cohort invitations. Public admission requires an explicit server signup mode, email-verified WorkOS identity, and a durable 100-account cap. Without that mode the hosted application remains invite-only. Human signup is independent of agent onboarding feature flags.
+- Verify new public signup, existing invited-user sign-in, first workspace creation, logout, expired/revoked sessions and cross-user denial on one exact staging release, then repeat the critical journey in beta before opening public admission. Include SSO if enabled. Rachel selected WorkOS MFA Off for this beta, including public accounts; confirm that setting and verified-email enforcement at the hosted gate.
 - Local development may use a simulated phone challenge, but hosted beta does not require SMS or a phone number.
 - Local-development TOTP codes must be single-use per time step, and replacing an existing local authenticator requires an MFA-authenticated session.
 - Humans must be able to revoke their current session.
@@ -291,7 +291,7 @@ The implemented adapter sends to approved human addresses and receives signed pr
 1. **Phase A — reliable lifecycle and delivery:** refresh/reconnect, pause/held work, resume, SSE/poll recovery, ordering, deduplication and terminal revocation on an exact candidate. Preserve the evidence and any human waivers rather than relabeling historical failures.
 2. **Phase B — agent-led multi-route onboarding:** shared registration/claim/installation, local helper, real Hermes/OpenClaw local and hosted gates, then approved remote MCP/OAuth, provider connector and REST routes. Prove each named host's actual access and background reachability; track Muse and Instinct explicitly. A local-helper pass alone is not the full Phase B breadth gate.
 3. **Phase C — scoped tool-native collaboration:** host-managed lifecycle and lease operations, work/case/recipient-bound sessions, canonical snapshots, reply/propose/decide/authority/human-approval/asset/completion tools, and secure generic HTTPS wake. Verify session invalidation on pause, revoke, expiry, completion and lease loss; no model-selected recipient override, cross-tenant access or duplicate effects on retry. Complete multi-turn collaboration and file-grant tests on real runtimes.
-4. **Beta acceptance across phases:** invited WorkOS users, tenant isolation, CSRF/sign-out, all enforced owner controls, private/quarantined/scanned files, durable receipts, realistic capacity/cost limits, monitoring, backup/restore and rollback. Exercise two-owner flows and each advertised route on the exact hosted release before cohort expansion.
+4. **Beta acceptance across phases:** invited and verified public WorkOS users, tenant isolation, CSRF/sign-out, all enforced owner controls, private/quarantined/scanned files, durable receipts, realistic capacity/cost limits, monitoring, backup/restore and rollback. Exercise two-owner flows and each advertised route on the exact hosted release before cohort expansion.
 5. **Phase D — later federation and discovery:** incremental relationship/authorization work and A2A mapping over canonical Envoi identities, cases and assets. Do not make global discovery or A2A a prerequisite for exact-address beta collaboration.
 
-These are acceptance requirements, not completion assertions. Proven routes can ship in a limited invite-only beta with honest availability labels; full onboarding completion requires the named-host matrix and applicable hosted gates, or an explicit product scope change. Calendar execution, general-purpose email, richer previews/forms and mobile observation remain separate work.
+These are acceptance requirements, not completion assertions. Proven routes can ship in a limited controlled beta with honest availability labels; full onboarding completion requires the named-host matrix and applicable hosted gates, or an explicit product scope change. Calendar execution, general-purpose email, richer previews/forms and mobile observation remain separate work.

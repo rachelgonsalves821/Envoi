@@ -5355,3 +5355,39 @@ Fixtures: `legacy-default`, `legacy-none`, `legacy-private-key-jwt`, `legacy-cli
 ### 4. Approval boundary
 
 Publication and schema checks approve no runtime behavior. The human approves this exact amendment SHA after client review; the task's request to fix it in this chat assigns preparation ownership and does not silently approve an unpublished wire-contract amendment. Prior approved remote-auth, MCP events/wake, gateway and Hermes/OpenClaw gates remain credited.
+
+---
+
+## `provider-event-wake-discovery v1`
+
+**Bounded amendment to `provider-event-wake v1` §2, approved by the human on 2026-10-25.** The direct approval and limited Lane A exception are attributed in [6402135050](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6402135050), for proposal SHA-256 `637ff3a31d2d0e0c86e8fbb761c6240394b9739cc9c0c034023f98d8467c1219`. Publication and implementation are draft PRs into `integration/agent-native`; a new-source deployment remains separate.
+
+### 1. Complete discovery result
+
+For a qualifying active installation using MCP protocol `2026-07-28`, `POST /mcp` with JSON-RPC method `server/discover` returns HTTP 200 and this result:
+
+```json
+{
+  "resultType": "complete",
+  "supportedVersions": ["2026-07-28"],
+  "capabilities": { "tools": {}, "events": {} }
+}
+```
+
+The JSON-RPC envelope retains `jsonrpc: "2.0"` and the request ID. The result is closed: the initialize-shaped `protocolVersion` and `serverInfo` fields are replaced by `resultType` and `supportedVersions` for this method. Legacy `initialize` negotiation and the 19 general tools retain their existing behavior. This matches the [current host discovery format](https://developers.openai.com/plugins/build/mcp-events).
+
+This amendment supersedes only the response result in the original `provider-event-wake/discover-events-capability.json` vector. That original fixture remains byte-for-byte historical evidence; implementations and private Events clients consume the independently registered amendment vector instead. The base registry entry and every other approved fixture remain unchanged.
+
+### 2. Existing authorization and delivery gates
+
+The existing OAuth audience, installation, permission and MCP version checks still select who may discover events. Disabled or non-qualifying families and older protocols retain method-not-found behavior. Paused and revoked installations retain their transport-level denials. The event catalog, subscription arguments/storage/quotas, secret custody, signatures, callback origin/address/verification checks and all callback defaults retain their approved behavior.
+
+Discovery creates no subscription or delivery authority. Callback origins remain empty until actual provider evidence is reviewed. A complete discovery response, successful catalog scan or HTTP 200 is not a closed-app execution or work-settlement result.
+
+### 3. Publication and implementation checks
+
+Canonical directory: `test/contract-fixtures/provider-event-wake-discovery/`. `schemas.json` defines the exact closed result and fixture envelope; `discover-events-capability.json` carries the HTTP request and amended response. Publication validation imports no runtime service and tests malformed, incompatible and authority-bearing results. The private Events client must consume this vector and reject incompatible envelopes without exposing remote messages or credentials.
+
+Implementation checks cover the actual HTTP discovery response, unchanged legacy initialization/general tools, existing unavailable-family/version behavior, pause/revoke denial and private-client response validation. Existing subscription/delivery tests continue unchanged. Run both required lane suites and exact-head CI. Hosted catalog refresh, subscription/callback verification, private host work custody and closed-app execution remain separate acceptance work.
+
+Rollback is a source rollback of the bounded discovery and private-client change. It needs no data migration, new grant, credential rotation, namespace change or database restore. No rollout flag or existing hosted acceptance is changed by this publication.

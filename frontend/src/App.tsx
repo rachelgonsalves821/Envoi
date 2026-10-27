@@ -12,7 +12,7 @@ import {
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
 import LandingPage from './LandingPage';
-import { ConnectPage } from './onboarding/ConnectPage';
+import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
 import { ClaimPage } from './onboarding/ClaimPage';
 import { AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
@@ -689,7 +689,7 @@ function AuthScreen({ config, notice, resumePhoneSession, onAuthenticated }: { c
           {config.provider === 'workos' ? (
             <>
               <p className="eyebrow">Secure workspace</p><h2>Continue to Envoi</h2>
-              <p className="supporting">Accept your invitation, then sign in securely with WorkOS.</p>
+              <p className="supporting">{config.inviteOnly ? 'Accept your invitation, then sign in securely with WorkOS.' : 'Sign in with WorkOS, or create your Envoi account.'}</p>
               <a className="button primary wide" href={config.signInPath || '/api/auth/workos/sign-in'}>Sign in securely</a>
               {!config.inviteOnly && <a className="button secondary wide" href={config.signUpPath || '/api/auth/workos/sign-up'}>Create an account</a>}
             </>
@@ -778,7 +778,7 @@ export function AppShell(props: ShellProps) {
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [advancedConnectOpen, setAdvancedConnectOpen] = useState(false);
   const [connectResult, setConnectResult] = useState<EnrollmentResult | null>(null);
   const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -955,7 +955,7 @@ export function AppShell(props: ShellProps) {
           <NavItem section="inbox" label="All inboxes" icon={<Inbox />} count={counts.inbox} active={workspace.id === rootWorkspace.id && section === 'inbox'} onClick={() => chooseInbox(rootWorkspace)} />
           <NavItem section="needsMe" label="Needs you" icon={<Hand />} count={counts.needsMe} active={workspace.id === rootWorkspace.id && section === 'needsMe'} onClick={() => chooseInbox(rootWorkspace, 'needsMe')} attention />
           <NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === rootWorkspace.id && section === 'completed'} onClick={() => chooseInbox(rootWorkspace, 'completed')} />
-          <div className="nav-section-heading"><span>Agents</span><button aria-label="Add agent" onClick={() => { setNavOpen(false); setConnectDialogOpen(true); }}><Plus size={15} /></button></div>
+          <div className="nav-section-heading"><span>Agents</span><button aria-label="Add agent" onClick={() => { setNavOpen(false); chooseSection('integrations'); }}><Plus size={15} /></button></div>
           {agentEntries.map(({ agent, inbox }, index) => {
             const name = agent.name;
             const expanded = expandedAgents.includes(agent.id);
@@ -988,14 +988,14 @@ export function AppShell(props: ShellProps) {
         {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
-{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={() => setConnectDialogOpen(true)} />}
-            {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={() => setConnectDialogOpen(true)} />}
-            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onConnect={() => setConnectDialogOpen(true)} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
+{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={() => chooseSection('integrations')} />}
+            {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={() => chooseSection('integrations')} />}
+            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onAdvancedConnect={() => setAdvancedConnectOpen(true)} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
           </main>
         ) : (
           <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}`}>
-{!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={() => setConnectDialogOpen(true)} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
+{!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={() => chooseSection('integrations')} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
             {selectedCase && <main id="main-content" className="case-main">
 <CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
             </main>}
@@ -1006,7 +1006,7 @@ export function AppShell(props: ShellProps) {
       {toast && <div className="toast"><Check size={16} />{toast}</div>}
       {folderDialogOpen && <Modal title="Create folder" dismissible={!folderBusy} onClose={() => setFolderDialogOpen(false)}><CreateInboxFolderContent busy={folderBusy} error={folderError} onClose={() => setFolderDialogOpen(false)} onCreate={name => void createFolder(name)} /></Modal>}
       {folderToDelete && <Modal title="Delete folder?" dismissible={!folderBusy} onClose={() => setFolderToDelete(null)}><p className="dialog-copy">Delete “{folderToDelete.name}”? Conversations in this folder will stay in All inboxes.</p><FormError message={folderError} /><div className="dialog-actions"><button className="button secondary" disabled={folderBusy} onClick={() => setFolderToDelete(null)}>Cancel</button><button className="button destructive" disabled={folderBusy} onClick={() => void deleteFolder()}>{folderBusy ? 'Deleting…' : 'Delete folder'}</button></div></Modal>}
-      {connectDialogOpen && <EnrollmentDialog workspace={rootWorkspace} agentDomain={queueView.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={connectResult} setResult={setConnectResult} onRefresh={onRefresh} onClose={() => { setConnectDialogOpen(false); setConnectResult(null); }} />}
+      {advancedConnectOpen && <EnrollmentDialog workspace={rootWorkspace} agentDomain={queueView.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={connectResult} setResult={setConnectResult} onRefresh={onRefresh} onClose={() => { setAdvancedConnectOpen(false); setConnectResult(null); }} />}
     </div>
   );
 }
@@ -1489,7 +1489,7 @@ function PoliciesPage({ entries, onConnect }: { entries: AgentEntry[]; onConnect
   </PageFrame>;
 }
 
-function IntegrationsPage({ entries, humanId, canManageInbox, onConnect, onSelectWorkspace, onPermissions, onRefresh, onRefreshAgent, notify }: { view: HumanView; workspace: Workspace; entries: AgentEntry[]; humanId: string; canManageInbox: boolean; onConnect: () => void; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onPermissions: () => void; onRefresh: () => Promise<unknown>; onRefreshAgent: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
+function IntegrationsPage({ entries, humanId, canManageInbox, onAdvancedConnect, onSelectWorkspace, onPermissions, onRefresh, onRefreshAgent, notify }: { view: HumanView; workspace: Workspace; entries: AgentEntry[]; humanId: string; canManageInbox: boolean; onAdvancedConnect: () => void; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onPermissions: () => void; onRefresh: () => Promise<unknown>; onRefreshAgent: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'setup' | 'paused'>('all');
   const visibleEntries = entries.filter(({ agent }) => {
@@ -1498,8 +1498,9 @@ function IntegrationsPage({ entries, humanId, canManageInbox, onConnect, onSelec
     return matchesQuery && matchesStatus;
   });
   return <div className="agents-page"><div className="agents-heading"><div><p className="eyebrow">YOUR WORKSPACE</p><h1>Manage agents</h1><p>Connect an agent, review its access, and see its work in one place.</p></div></div>
-    <section className="agents-onboard-hero"><div><p className="eyebrow">GET STARTED</p><h2>Bring your agents together.</h2><p>Each agent gets its own Envoi address and a secure workspace. Choose a platform to start setup.</p>{canManageInbox && <div className="onboarding-start"><button className="button primary" onClick={onConnect}>Connect an agent <ArrowRight size={16} /></button></div>}</div><div className="agents-hero-logos" aria-hidden="true">{agentCatalog.slice(0, 6).map(item => <span key={item.id}><img src={item.logo} alt="" width="42" height="42" /></span>)}</div></section>
-    {entries.length ? <section className="agents-list-section" aria-label="Connected agents"><div className="agents-list-topline"><div><h2>Your agent team</h2><p>{entries.length} {entries.length === 1 ? 'agent' : 'agents'} in this workspace</p></div></div><div className="agents-toolbar"><label className="agents-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search agents</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search agents" /></label><label className="agents-filter"><span className="sr-only">Filter agents by status</span><ListFilter size={17} aria-hidden="true" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">All statuses</option><option value="active">Active</option><option value="setup">Needs setup</option><option value="paused">Paused</option></select></label></div><div className="agents-table-head" aria-hidden="true"><span>Agent</span><span>Work</span><span>Status & access</span><span>Actions</span></div>{visibleEntries.length ? <div className="integration-grid">{visibleEntries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <div className="agents-filter-empty"><p>No agents match these filters.</p><button className="button secondary" onClick={() => { setQuery(''); setStatusFilter('all'); }}>Clear filters</button></div>}</section> : <div className="agents-empty"><span className="agents-empty-icon"><Bot size={24} aria-hidden="true" /></span><div><h2>No agents connected yet</h2><p>Start with a platform above. Your connected agents and their inboxes will appear here.</p></div></div>}
+    <section className="agents-onboard-hero"><div><p className="eyebrow">GET STARTED</p><h2>Bring your agents together.</h2><p>Each agent gets its own Envoi address and a secure workspace. Choose a platform to start setup.</p>{canManageInbox && <ConnectionActions />}</div><div className="agents-hero-logos" aria-hidden="true">{agentCatalog.slice(0, 6).map(item => <span key={item.id}><img src={item.logo} alt="" width="42" height="42" /></span>)}</div></section>
+    {canManageInbox && <details className="onboarding-advanced"><summary>Advanced · Quick Connect</summary><p>Legacy setup and frozen-agent re-onboarding.</p><button className="button secondary" onClick={onAdvancedConnect}>Set up with legacy Quick Connect</button></details>}
+    {entries.length ? <section className="agents-list-section" aria-label="Connected agents"><div className="agents-list-topline"><div><h2>Your agent team</h2><p>{entries.length} {entries.length === 1 ? 'agent' : 'agents'} in this workspace</p></div></div><div className="agents-toolbar"><label className="agents-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search agents</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search agents" /></label><label className="agents-filter"><span className="sr-only">Filter agents by status</span><ListFilter size={17} aria-hidden="true" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">All statuses</option><option value="active">Active</option><option value="setup">Needs setup</option><option value="paused">Paused</option></select></label></div><div className="agents-table-head" aria-hidden="true"><span>Agent</span><span>Work</span><span>Status & access</span><span>Actions</span></div>{visibleEntries.length ? <div className="integration-grid">{visibleEntries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <div className="agents-filter-empty"><p>No agents match these filters.</p><button className="button secondary" onClick={() => { setQuery(''); setStatusFilter('all'); }}>Clear filters</button></div>}</section> : <div className="agents-empty"><span className="agents-empty-icon"><Bot size={24} aria-hidden="true" /></span><div><h2>No agents connected yet</h2><p>Use the connection options above to begin. Your connected agents and their inboxes will appear here.</p></div></div>}
     {canManageInbox && <div className="agents-secondary"><OwnerClaims key={humanId} humanId={humanId} onSelectAgent={(agentId, address) => { const entry = entries.find(item => item.inbox.kind === 'agent' && (item.agent.id === agentId || item.agent.address === address)); if (entry) void onSelectWorkspace(entry.inbox); }} /></div>}
   </div>;
 }
