@@ -1,6 +1,8 @@
 export const scopedMcpStdioSource = String.raw`
 import { once } from 'node:events';
+import { randomBytes } from 'node:crypto';
 const maximum = 262144;
+const connectionId = randomBytes(16).toString('hex');
 let protocolVersion = '2025-11-25';
 async function main() {
   const url = new URL(process.env.ENVOI_SCOPED_MCP_URL || '');
@@ -11,7 +13,8 @@ async function main() {
     if (Buffer.byteLength(line) > maximum) throw new Error();
     const response = await fetch(url, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(120000),
-      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', 'mcp-protocol-version': protocolVersion },
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', 'mcp-protocol-version': protocolVersion,
+        'x-envoi-mcp-connection': connectionId },
       body: line
     });
     if (!response.ok) { await response.body?.cancel(); throw new Error(); }

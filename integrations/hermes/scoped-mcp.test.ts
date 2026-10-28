@@ -7,12 +7,12 @@ import { CaseSessionChannel } from '../../sdk/typescript/src/case-session';
 import { scopedTurnHandler } from '../agent-bridges/scoped-turn';
 import { contractRegistry, loadContractFixture } from '../contract-fixtures/setup';
 
-function harness(label = 'one') {
+function harness(label = 'one', queue?: Parameters<typeof bindScopedMcpTurn>[1]) {
   const controller = new AbortController();
   const effect = vi.fn(async () => ({ messageRef: `message_${label}` }));
   const turn = { instruction: 'Scoped', signal: controller.signal, context: { agentAddress: `${label}@example.com` }, snapshot: {},
     tools: [{ name: 'envoi_case_reply', inputSchema: { type: 'object' } }], callTool: effect } as unknown as ScopedModelTurn;
-  const binding = bindScopedMcpTurn(turn);
+  const binding = bindScopedMcpTurn(turn, queue);
   const rpc = async (method: string, params?: unknown, id: string | number = 1) => JSON.parse((await binding.dispatch(JSON.stringify({ jsonrpc: '2.0', id, method, params })))!);
   const call = () => rpc('tools/call', { name: 'envoi_case_reply', arguments: { text: label, idempotencyKey: label } });
   const initialize = async () => {
@@ -131,6 +131,19 @@ describe('Hermes immutable per-turn MCP boundary', () => {
     expect(results.every(reply => reply.error)).toBe(true);
     expect(test.effect).toHaveBeenCalledTimes(1);
     expect(test.binding.active).toBe(false);
+  });
+
+  it('invalidates the shared queue before a fatal call can release another transport', async () => {
+    const queue = { pending: 0, tail: Promise.resolve<unknown>(undefined), closed: false };
+    const first = harness('first', queue), second = harness('second', queue);
+    await Promise.all([first.initialize(), second.initialize()]);
+    first.effect.mockRejectedValueOnce(new EnvoiError('Expired', undefined, 'CASE_SESSION_EXPIRED'));
+    try {
+      const results = await Promise.all([first.call(), second.call()]);
+      expect(results.every(reply => reply.error)).toBe(true);
+      expect(first.effect).toHaveBeenCalledTimes(1); expect(second.effect).not.toHaveBeenCalled();
+      expect(first.binding.active).toBe(false); expect(second.binding.active).toBe(false);
+    } finally { first.binding.close(); second.binding.close(); }
   });
 
   it('suppresses success when closed between operation completion and dispatch resumption', async () => {
