@@ -37,6 +37,12 @@ it('discards an inaccessible saved inbox and loads the current account workspace
   expect(readSnapshot.mock.calls.map(([id]) => id)).toEqual(['old-account', 'current']);
 });
 
+it('does not open a saved inbox when its authorized view is denied', async () => {
+  const denied = new Error('Access denied');
+  await expect(loadInitialWorkspace('saved', async () => [workspace('saved')], async () => { throw denied; }))
+    .rejects.toBe(denied);
+});
+
 it('does not request a view when the account has no workspace', async () => {
   const readSnapshot = vi.fn(async () => view('saved'));
   await expect(loadInitialWorkspace('saved', async () => [], readSnapshot))
