@@ -163,3 +163,18 @@ Delayed reconciliation, parked-server recovery, timeout and cleanup are tested
 with simulated Hermes Runs API responses and a real disposable loopback MCP
 relay. These tests are not real-Hermes acceptance. Je must rerun Gate B-local
 rows 8–9 (and the gate's required full matrix) on the integrated new SHA.
+
+## Scoped session MCP reconnects
+
+The canonical Gateway can start one stdio process to discover an editor's MCP
+tools, then another when the admitted turn begins. Each process initializes its
+own MCP connection. The private relay keeps that protocol state separate while
+sharing the same case authority, serialized tool-call queue and sixteen-call
+pending limit. Closing the turn closes every connection; a restarted process
+does not gain permissions or inherit another connection's initialization.
+
+The selected Hermes environment needs its ACP and MCP dependencies and the
+configured model provider's dependencies. Gateway readiness and successful
+onboarding do not establish that a real model turn can process work or reply.
+Keep failed turn journals, and verify processing and canonical replies before
+claiming live acceptance.

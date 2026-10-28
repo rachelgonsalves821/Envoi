@@ -8,7 +8,9 @@ const versions = new Set(['2025-03-26', '2025-06-18', '2025-11-25']);
 const errorCodes = new Set<string>(schema.schema.definitions.toolErrorEnvelope.properties.code.enum);
 const ended = Symbol('ended');
 
-export function bindScopedMcpTurn(turn: ScopedModelTurn) {
+export interface ScopedMcpCallQueue { pending: number; tail: Promise<unknown>; closed: boolean }
+
+export function bindScopedMcpTurn(turn: ScopedModelTurn, queue: ScopedMcpCallQueue = { pending: 0, tail: Promise.resolve(), closed: false }) {
   const tools = structuredClone(turn.tools);
   const allowed = new Set(tools.map(tool => tool.name));
   const callTool = turn.callTool.bind(turn);
@@ -16,20 +18,19 @@ export function bindScopedMcpTurn(turn: ScopedModelTurn) {
   let ready = false;
   let closed = false;
   let listed = false;
-  let pending = 0;
-  let tail: Promise<unknown> = Promise.resolve();
   let stop!: () => void;
   const stopped = new Promise<never>((_resolve, reject) => { stop = () => reject(ended); });
   void stopped.catch(() => {});
   function close() {
     if (closed) return;
     closed = true;
+    queue.closed = true;
     turn.signal.removeEventListener('abort', close);
     stop();
   }
   turn.signal.addEventListener('abort', close, { once: true });
   if (turn.signal.aborted) close();
-  const available = () => !closed && !turn.signal.aborted;
+  const available = () => !closed && !queue.closed && !turn.signal.aborted;
   const failure = (id: unknown, code: number, message: string) => JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } });
   const result = (id: unknown, value: unknown) => JSON.stringify({ jsonrpc: '2.0', id, result: value });
   const toolResult = (id: unknown, envelope: unknown, isError: boolean) => result(id, { content: [{ type: 'text', text: JSON.stringify(envelope) }], isError });
@@ -73,9 +74,9 @@ export function bindScopedMcpTurn(turn: ScopedModelTurn) {
         || typeof params.name !== 'string' || !allowed.has(params.name as CaseToolName) || !object(params.arguments)) return failure(id, -32602, 'Invalid scoped tool call');
       const name = params.name as CaseToolName;
       const input = params.arguments as CaseToolInputs[typeof name];
-      if (pending >= 16) return toolResult(id, { ok: false, tool: name, code: 'TOOL_BUSY', message: 'Case tool is busy', retryable: true }, true);
-      pending++;
-      const operation = tail.then(async () => {
+      if (queue.pending >= 16) return toolResult(id, { ok: false, tool: name, code: 'TOOL_BUSY', message: 'Case tool is busy', retryable: true }, true);
+      queue.pending++;
+      const operation = queue.tail.then(async () => {
         if (!available()) throw ended;
         try {
           const value = await callTool(name, input);
@@ -88,8 +89,8 @@ export function bindScopedMcpTurn(turn: ScopedModelTurn) {
           throw error;
         }
       });
-      tail = operation.catch(() => {});
-      void operation.finally(() => { pending--; }).catch(() => {});
+      queue.tail = operation.catch(() => {});
+      void operation.finally(() => { queue.pending--; }).catch(() => {});
       try {
         const value = await Promise.race([operation, stopped]);
         if (!available()) throw ended;
