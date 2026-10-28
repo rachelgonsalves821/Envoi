@@ -57,6 +57,7 @@ async function setup() {
   const extra = new Map<string, Fixture>(), effects = new Set<string>();
   let claimable = true, currentStatus = 'terminal', outcome = 'completed', admissionId = 'admission_fixture';
   let serverSpec: Record<string, any> | undefined, onPrompt: () => Promise<void> = async () => {};
+  let mcpConnectionId = '1'.repeat(32);
   const inputs = new Set<string>();
   let lostSubmit = false, loseReceipt = false, sourceCapabilities = ['acp-editor-policy-v1', 'acp-session-mcp-v1'];
   let controlCapabilities = ['session-authority-v1', 'durable-admission-v1', 'event-replay-v1'];
@@ -76,7 +77,8 @@ async function setup() {
   async function mcp(method: string, params?: Record<string, unknown>) {
     const environment = Object.fromEntries(serverSpec!.env.map((entry: { name: string; value: string }) => [entry.name, entry.value]));
     const response = await fetch(environment.ENVOI_SCOPED_MCP_URL, { method: 'POST', headers: {
-      authorization: 'Bearer ' + environment.ENVOI_SCOPED_MCP_TOKEN, 'content-type': 'application/json'
+      authorization: 'Bearer ' + environment.ENVOI_SCOPED_MCP_TOKEN, 'content-type': 'application/json',
+      'x-envoi-mcp-connection': mcpConnectionId
     }, body: JSON.stringify({ jsonrpc: '2.0', ...(method === 'notifications/initialized' ? {} : { id: 'fixture_call' }), method, ...(params ? { params } : {}) }) });
     return response.status === 204 ? null : response.json();
   }
@@ -114,7 +116,15 @@ async function setup() {
       if (request.method === 'session.resume') return { session_id: 'hermes_session_fixture', subscription_id: 'subscription_fixture',
         pending: currentStatus === 'terminal' ? [] : [{ ...receipt(), input_id: rpcRequests.find(entry => entry.method === 'prompt.submit')?.params.input_id }] };
       if (request.method === 'prompt.submit') {
-        if (!inputs.has(params.input_id)) { inputs.add(params.input_id); modelText.push(params.text); await onPrompt(); }
+        if (!inputs.has(params.input_id)) {
+          inputs.add(params.input_id); modelText.push(params.text);
+          // Like the real Gateway, execution rediscovers the editor server with a new stdio process.
+          mcpConnectionId = '2'.repeat(32);
+          const initialized = await mcp('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'inert-daemon', version: '1' } });
+          expect(initialized.error).toBeUndefined();
+          await mcp('notifications/initialized'); await mcp('tools/list');
+          await onPrompt();
+        }
         if (lostSubmit) { lostSubmit = false; this.close(); return; }
         return receipt();
       }

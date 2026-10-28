@@ -40,8 +40,9 @@ function shim(server: Awaited<ReturnType<typeof startScopedMcpRelay>>['mcpServer
     notify({ jsonrpc: '2.0', id, method, params }); return response;
   };
   const initialize = async () => {
-    await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
+    const response = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
     notify({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    return response;
   };
   return { child, rpc, notify, initialize, exited, stderr: () => stderr,
     async close() { child.stdin.end(); await exited; reader.close(); } };
@@ -55,6 +56,101 @@ function connection(relay: Awaited<ReturnType<typeof startScopedMcpRelay>>) {
 }
 
 describe('private Hermes stdio transport (Node fixtures, not Hermes)', () => {
+  it('allows Hermes to reconnect its stdio server between discovery and execution', async () => {
+    const source = turn(); const relay = await startScopedMcpRelay(source.model);
+    const discovery = shim(relay.mcpServer);
+    let execution: ReturnType<typeof shim> | undefined;
+    try {
+      expect((await discovery.initialize()).error).toBeUndefined();
+      expect((await discovery.rpc('tools/list')).result.tools).toEqual(source.model.tools);
+      await discovery.close();
+      execution = shim(relay.mcpServer);
+      expect((await execution.initialize()).error).toBeUndefined();
+      expect((await execution.rpc('tools/list')).result.tools).toEqual(source.model.tools);
+      expect((await execution.rpc('tools/call', reply())).result.isError).toBe(false);
+      expect(source.effect).toHaveBeenCalledTimes(1);
+      const duplicate = await execution.rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
+      expect(duplicate.error.code).toBe(-32602);
+    } finally { await discovery.close(); await execution?.close(); await relay.close(); }
+  });
+
+  it('requires each new stdio transport to initialize before invoking the turn tools', async () => {
+    const source = turn(); const relay = await startScopedMcpRelay(source.model);
+    const first = shim(relay.mcpServer), second = shim(relay.mcpServer);
+    try {
+      await first.initialize();
+      expect((await second.rpc('tools/call', reply())).error.code).toBe(-32000);
+      expect(source.effect).not.toHaveBeenCalled();
+      expect((await second.initialize()).error).toBeUndefined();
+      expect((await second.rpc('tools/call', reply())).result.isError).toBe(false);
+      expect(source.effect).toHaveBeenCalledTimes(1);
+    } finally { await Promise.all([first.close(), second.close(), relay.close()]); }
+  });
+
+  it('keeps one serialized, bounded call queue across transports', async () => {
+    const source = turn(); const relay = await startScopedMcpRelay(source.model); const local = connection(relay);
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    source.effect.mockImplementation(async () => { await blocked; return { messageRef: 'shared' }; });
+    const post = async (client: string, request: unknown) => {
+      const response = await fetch(local.url, { method: 'POST', headers: { ...local.headers, 'x-envoi-mcp-connection': client }, body: JSON.stringify(request) });
+      return response.status === 204 ? null : response.json() as Promise<any>;
+    };
+    const clients = ['1'.repeat(32), '2'.repeat(32)];
+    try {
+      for (const client of clients) {
+        await post(client, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } } });
+        await post(client, { jsonrpc: '2.0', method: 'notifications/initialized' });
+      }
+      const responses = Array.from({ length: 17 }, (_, index) => post(clients[index % 2], { jsonrpc: '2.0', id: index + 2, method: 'tools/call', params: reply(String(index)) }));
+      const busy = await Promise.race(responses);
+      expect(busy.result.isError).toBe(true);
+      expect(JSON.parse(busy.result.content[0].text).code).toBe('TOOL_BUSY');
+      expect(source.effect).toHaveBeenCalledTimes(1);
+      release();
+      const all = await Promise.all(responses);
+      expect(all.filter(result => result.result.isError)).toHaveLength(1);
+      expect(source.effect).toHaveBeenCalledTimes(16);
+    } finally { release?.(); await relay.close(); }
+  });
+
+  it('bounds authenticated transport identities and rejects a missing or malformed identity', async () => {
+    const source = turn(); const relay = await startScopedMcpRelay(source.model); const local = connection(relay);
+    const post = (client?: string) => fetch(local.url, { method: 'POST', headers: { ...local.headers, ...(client === undefined ? {} : { 'x-envoi-mcp-connection': client }) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) });
+    try {
+      expect((await post()).status).toBe(400);
+      expect((await post('invalid')).status).toBe(400);
+      for (let index = 0; index < 32; index++) {
+        const response = await post(index.toString(16).padStart(32, '0')); expect(response.status).toBe(200); await response.body?.cancel();
+      }
+      expect((await post('f'.repeat(32))).status).toBe(429);
+      expect(source.effect).not.toHaveBeenCalled();
+    } finally { await relay.close(); }
+  });
+
+  it('stops queued calls on every transport immediately when one tool loses authority', async () => {
+    const source = turn(); const relay = await startScopedMcpRelay(source.model); const local = connection(relay);
+    let reject!: (error: Error) => void;
+    source.effect.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const post = async (client: string, request: unknown) => {
+      const response = await fetch(local.url, { method: 'POST', headers: { ...local.headers, 'x-envoi-mcp-connection': client }, body: JSON.stringify(request) });
+      await response.body?.cancel(); return response.status;
+    };
+    const clients = ['1'.repeat(32), '2'.repeat(32)];
+    try {
+      for (const client of clients) {
+        await post(client, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } } });
+        await post(client, { jsonrpc: '2.0', method: 'notifications/initialized' });
+      }
+      const first = post(clients[0], { jsonrpc: '2.0', id: 2, method: 'tools/call', params: reply('first') });
+      await vi.waitFor(() => expect(source.effect).toHaveBeenCalledTimes(1));
+      const second = post(clients[1], { jsonrpc: '2.0', id: 3, method: 'tools/call', params: reply('second') });
+      reject(new Error('Authority lost'));
+      expect(await first).toBe(410); expect(await second).toBe(410);
+      expect(source.effect).toHaveBeenCalledTimes(1); expect(relay.active).toBe(false);
+    } finally { reject?.(new Error('Cleanup')); await relay.close(); }
+  });
+
   it('runs the actual standalone shim through initialization, discovery and one bound tool call', async () => {
     const source = turn(); const relay = await startScopedMcpRelay(source.model); const client = shim(relay.mcpServer);
     try {
