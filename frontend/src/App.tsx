@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
+import { loadInitialWorkspace } from './initial-workspace';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
@@ -233,14 +234,14 @@ function WorkspaceApp() {
     }
   }, []);
 
-  const loadView = useCallback(async (workspaceId: string, quiet = false) => {
+  const loadView = useCallback(async (workspaceId: string, quiet = false, initialView?: HumanView) => {
     const generation = sessionGeneration();
     if (!quiet) activeWorkspace.current = workspaceId;
     if (activeWorkspace.current !== workspaceId) throw new SessionRequestCancelled();
     const ticket = viewOrder.current.begin();
     if (!quiet) setView(null);
     try {
-      const next = await api.humanView(workspaceId, undefined, viewRequests.current.signal);
+      const next = initialView ?? await api.humanView(workspaceId, undefined, viewRequests.current.signal);
       if (!isCurrentSession(generation) || !viewOrder.current.isCurrent(ticket) || activeWorkspace.current !== workspaceId) throw new SessionRequestCancelled();
       checkViewIdentity(next, workspaceId);
       setView(current => {
@@ -310,11 +311,9 @@ function WorkspaceApp() {
     try {
       setBoot('loading');
       setError('');
-      const nextConfig = await api.authConfig();
+      const [nextConfig, nextHuman] = await Promise.all([api.authConfig(), api.me(undefined, false)]);
       if (!isCurrentSession(generation)) return;
       setConfig(nextConfig);
-      const nextHuman = await api.me();
-      if (!isCurrentSession(generation)) return;
       humanRef.current = nextHuman;
       setHuman(nextHuman);
       if (nextHuman.auth?.assurance === 'phone') {
@@ -324,10 +323,9 @@ function WorkspaceApp() {
       }
       hadAuthenticatedSession.current = true;
       publishSessionIdentity(nextHuman.id);
-      const nextWorkspaces = await loadWorkspaceDirectory();
-      if (!isCurrentSession(generation)) return;
       const savedId = localStorage.getItem(WORKSPACE_KEY);
-      const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
+      const { selected, view: initialView } = await loadInitialWorkspace(savedId, loadWorkspaceDirectory, id => api.humanView(id, undefined, viewRequests.current.signal));
+      if (!isCurrentSession(generation)) return;
       if (!selected) {
         setWorkspace(null);
         rememberSessionStatus('active');
@@ -337,7 +335,7 @@ function WorkspaceApp() {
       }
       setWorkspace(selected);
       localStorage.setItem(WORKSPACE_KEY, selected.id);
-      await loadView(selected.id);
+      await loadView(selected.id, false, initialView);
       if (!isCurrentSession(generation)) return;
       rememberSessionStatus('active');
       setAuthNotice('');
