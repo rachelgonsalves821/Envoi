@@ -5,6 +5,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ConnectorSetupError } from '../connector/adapter';
 import { EnvoiError } from '../../sdk/typescript/src/index';
+import { PermanentWorkError } from '../../sdk/typescript/src/connector';
 import type { ScopedModelTurn } from '../agent-bridges/scoped-turn';
 import type { ScopedRunStore } from '../grok/scoped-store';
 import { startScopedMcpRelay } from './scoped-relay';
@@ -247,7 +248,9 @@ export function hermesScopedTurn(host: HermesScopedHost, runs: ScopedRunStore, o
           signal.throwIfAborted();
           const current = receipt(await wire.rpc('prompt.receipt', { session_id: sessionId, admission_id: state.admissionId }, signal), sessionId, state.admissionId);
           if (current.status === 'terminal') {
-            if (current.outcome !== 'completed') throw failure('HERMES_TURN_NOT_COMPLETED');
+            if (['failed', 'interrupted', 'cancelled', 'rejected'].includes(current.outcome))
+              throw new PermanentWorkError('HERMES_TURN_NOT_COMPLETED');
+            if (current.outcome !== 'completed') throw failure('HERMES_EXECUTION_UNCERTAIN');
             record.completed = true; await runs.save(record); return;
           }
           if (current.status === 'unknown' || recovered) throw failure('HERMES_EXECUTION_UNCERTAIN');

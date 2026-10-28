@@ -51,9 +51,14 @@ A completed record performs no provider operation. Otherwise recovery attaches
 to the original session without a replacement MCP capability, reads its captured
 admission, or repeats the exact unacknowledged input ID and text. The vendor owns
 admission deduplication. Terminal completed receipts can finish original work;
-unknown, failed, interrupted or live recovered admissions never cause a replacement
-model turn. Uncertain creation stops before any prompt was submitted. Preserve
-the journal and reconcile with the owner; do not delete it to force retries.
+failed, interrupted, cancelled and rejected terminal admissions settle only that
+work as permanently failed, using its current fenced lease. The canonical failure
+must acknowledge the exact work before the loop continues. It does not mark the
+journal completed, retry the provider or send a replacement message. The owner
+can review the failed task on the website and decide whether to initiate new work.
+Unknown or live recovered admissions never cause a replacement model turn or
+automatic permanent settlement. Uncertain creation stops before any prompt was
+submitted. Preserve the journal; do not delete it to force retries.
 
 Before human-wait, the shared handler durably completes the journal. Its signal
 then invalidates MCP. All aborts/deadlines close that binding before cancellation.

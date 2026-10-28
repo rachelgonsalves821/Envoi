@@ -238,6 +238,15 @@ export class ConnectorContractError extends Error {
   }
 }
 
+/** Trusted scoped host: this exact work cannot be retried. Never means processed. */
+export class PermanentWorkError extends EnvoiError {
+  constructor(code: string) {
+    if (!/^[A-Z][A-Z0-9_]{0,119}$/.test(code)) throw new TypeError('Invalid permanent work reason');
+    super('The runtime turn failed permanently; retain its journal and canonical failure receipt', undefined, code);
+    this.name = 'PermanentWorkError';
+  }
+}
+
 export class ConnectorCredentialsError extends EnvoiError {
   constructor() {
     super('Connector credentials are missing or expired; ask the owner to reconnect this existing agent', undefined, 'CREDENTIAL_EXPIRED');
@@ -852,7 +861,7 @@ export class EnvoiConnector {
     });
   }
 
-  /** Claims and processes one canonical message. Requires the server's fenced work routes. */
+  /** Handles canonical work. True means work was consumed, including a permanent failure; consult its receipt for success. */
   processWorkOnce(signal?: AbortSignal): Promise<boolean> {
     if (this.workInFlight) { this.workFollowup = true; return this.workInFlight; }
     this.workInFlight = (async () => {
@@ -1031,6 +1040,18 @@ export class EnvoiConnector {
         && !(error instanceof EnvoiError && (error.code === 'CASE_CONTROLLED'
           || scoped && ['CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED', 'WORK_LEASE_STALE', 'WORK_NOT_ELIGIBLE', 'WORK_NOT_FOUND', 'FEATURE_DISABLED', 'AUTHENTICATION_REQUIRED'].includes(error.code ?? '')))
         && Date.parse(leaseExpiresAt) > Date.now()) {
+        if (scoped && error instanceof PermanentWorkError) {
+          const failed = await this.postWork<{ workId: string; status: string }>(`${workPath}/fail`, {
+            leaseToken: work.leaseToken, retryable: false, reasonCode: error.code
+          }, undefined, undefined, true);
+          // stopRenewal intentionally aborted workAbort; only the owner signal and
+          // captured lease deadline still fence this settlement acknowledgement.
+          if (signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now())
+            throw new EnvoiError('Work lease was interrupted during failure settlement', undefined, 'REQUEST_CANCELLED');
+          if (!failed || failed.workId !== work.workId || failed.status !== 'failed') throw new ConnectorContractError();
+          settled = true;
+          return true;
+        }
         await this.postWork(`${workPath}/fail`, { leaseToken: work.leaseToken, retryable: true, reasonCode: 'HANDLER_FAILED' }, undefined, undefined, !!scoped).catch(() => {});
       }
       if (interrupted && !renewalError && error instanceof EnvoiError && !error.code)
