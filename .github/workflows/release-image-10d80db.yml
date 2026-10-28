@@ -1,0 +1,42 @@
+name: One-off beta container image 10d80db
+
+on:
+  push:
+    branches: [codex/release-image-10d80db]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 10d80dbb51a9be12835031ac93261a9e32f0c0df
+      - name: Verify exact approved source
+        run: test "$(git rev-parse HEAD)" = 10d80dbb51a9be12835031ac93261a9e32f0c0df
+      - name: Authenticate to temporary Cloudflare registry access
+        env:
+          CF_REGISTRY_PUSH_PASSWORD: ${{ secrets.CF_REGISTRY_PUSH_10D80DB }}
+        run: |
+          test -n "$CF_REGISTRY_PUSH_PASSWORD"
+          printf '%s' "$CF_REGISTRY_PUSH_PASSWORD" | docker login registry.cloudflare.com --username v1 --password-stdin
+      - name: Pull base image with retry
+        run: |
+          for attempt in 1 2 3 4; do
+            if docker pull public.ecr.aws/docker/library/node:22-alpine; then
+              docker tag public.ecr.aws/docker/library/node:22-alpine node:22-alpine
+              exit 0
+            fi
+            if docker pull node:22-alpine; then exit 0; fi
+            sleep $((attempt * 15))
+          done
+          exit 1
+      - name: Build and push exact main image
+        run: |
+          image=registry.cloudflare.com/54a5d6c680bd813fa60f8e088b098b8d/sinaloa-beta-release:onboarding-10d80db
+          docker build -f Dockerfile.cloudflare --label org.opencontainers.image.revision=10d80dbb51a9be12835031ac93261a9e32f0c0df -t "$image" .
+          docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' | grep -Fx 10d80dbb51a9be12835031ac93261a9e32f0c0df
+          docker push "$image"
