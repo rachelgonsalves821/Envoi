@@ -41,20 +41,7 @@ export function ConnectPage({ initialAvailability, origin = typeof window === 'u
   </main>;
 }
 
-/** Primary workspace actions consume the same availability as the common host flow. */
-export function ConnectionActions({ initialAvailability }: { initialAvailability?: unknown } = {}) {
-  const [available, setAvailable] = useState(() => {
-    try { return initialAvailability ? connectionOffer(initialAvailability).localHelper : false; }
-    catch { return false; }
-  });
-  useEffect(() => {
-    const stop = new AbortController();
-    void readConnectionOffer(stop.signal).then(offer => {
-      if (!stop.signal.aborted) setAvailable(offer.localHelper);
-    }).catch(() => { if (!stop.signal.aborted) setAvailable(false); });
-    return () => stop.abort();
-  }, []);
-  return available
-    ? <div className="onboarding-start"><a className="button primary" href="/connect">Connect an agent</a><a className="button secondary" href="/claim">Enter a claim code</a></div>
-    : <div className="onboarding-start"><a href="/connect">Check available connections</a></div>;
+/** Owner setup stays in the workspace. The public /connect guide remains for agent-led setup. */
+export function ConnectionActions({ onConnect }: { onConnect: () => void }) {
+  return <div className="onboarding-start"><button type="button" className="button primary" onClick={onConnect}>Connect an agent</button></div>;
 }
