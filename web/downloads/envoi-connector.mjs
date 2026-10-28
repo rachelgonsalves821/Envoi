@@ -9087,27 +9087,31 @@ var pi = (e) => typeof e == "object" && !!e && !Array.isArray(e), mi = /* @__PUR
 	"2025-06-18",
 	"2025-11-25"
 ]), hi = new Set(hr.schema.definitions.toolErrorEnvelope.properties.code.enum), gi = Symbol("ended");
-function _i(e) {
-	let t = structuredClone(e.tools), n = new Set(t.map((e) => e.name)), r = e.callTool.bind(e), i = !1, a = !1, o = !1, s = !1, c = 0, l = Promise.resolve(), u, d = new Promise((e, t) => {
-		u = () => t(gi);
+function _i(e, t = {
+	pending: 0,
+	tail: Promise.resolve(),
+	closed: !1
+}) {
+	let n = structuredClone(e.tools), r = new Set(n.map((e) => e.name)), i = e.callTool.bind(e), a = !1, o = !1, s = !1, c = !1, l, u = new Promise((e, t) => {
+		l = () => t(gi);
 	});
-	d.catch(() => {});
-	function f() {
-		o || (o = !0, e.signal.removeEventListener("abort", f), u());
+	u.catch(() => {});
+	function d() {
+		s || (s = !0, t.closed = !0, e.signal.removeEventListener("abort", d), l());
 	}
-	e.signal.addEventListener("abort", f, { once: !0 }), e.signal.aborted && f();
-	let p = () => !o && !e.signal.aborted, m = (e, t, n) => JSON.stringify({
+	e.signal.addEventListener("abort", d, { once: !0 }), e.signal.aborted && d();
+	let f = () => !s && !t.closed && !e.signal.aborted, p = (e, t, n) => JSON.stringify({
 		jsonrpc: "2.0",
 		id: e,
 		error: {
 			code: t,
 			message: n
 		}
-	}), h = (e, t) => JSON.stringify({
+	}), m = (e, t) => JSON.stringify({
 		jsonrpc: "2.0",
 		id: e,
 		result: t
-	}), g = (e, t, n) => h(e, {
+	}), h = (e, t, n) => m(e, {
 		content: [{
 			type: "text",
 			text: JSON.stringify(t)
@@ -9115,99 +9119,101 @@ function _i(e) {
 		isError: n
 	});
 	return Object.freeze({
-		close: f,
+		close: d,
 		get discovered() {
-			return s;
+			return c;
 		},
 		get active() {
-			return p();
+			return f();
 		},
 		async dispatch(e) {
-			if (typeof e != "string" || Buffer.byteLength(e) > 262144) return m(null, -32600, "Invalid MCP request");
-			let o;
+			if (typeof e != "string" || Buffer.byteLength(e) > 262144) return p(null, -32600, "Invalid MCP request");
+			let s;
 			try {
-				o = JSON.parse(e);
+				s = JSON.parse(e);
 			} catch {
-				return m(null, -32700, "Invalid JSON");
+				return p(null, -32700, "Invalid JSON");
 			}
-			if (!pi(o) || o.jsonrpc !== "2.0" || typeof o.method != "string" || Object.keys(o).some((e) => ![
+			if (!pi(s) || s.jsonrpc !== "2.0" || typeof s.method != "string" || Object.keys(s).some((e) => ![
 				"jsonrpc",
 				"id",
 				"method",
 				"params"
-			].includes(e))) return m(null, -32600, "Invalid MCP request");
-			let u = Object.hasOwn(o, "id"), _ = o.id;
-			if (u && !(typeof _ == "string" && _.length > 0 && _.length <= 128 || typeof _ == "number" && Number.isSafeInteger(_))) return m(null, -32600, "Invalid MCP request identity");
-			if (!p()) return u ? m(_, -32e3, "Case turn is unavailable") : null;
-			if (o.method === "ping") return u ? h(_, {}) : null;
-			if (o.method === "initialize") return !u || i || !pi(o.params) || typeof o.params.protocolVersion != "string" || !pi(o.params.capabilities) || !pi(o.params.clientInfo) ? u ? m(_, -32602, "Invalid initialization") : null : (i = !0, h(_, {
-				protocolVersion: mi.has(o.params.protocolVersion) ? o.params.protocolVersion : "2025-11-25",
+			].includes(e))) return p(null, -32600, "Invalid MCP request");
+			let l = Object.hasOwn(s, "id"), g = s.id;
+			if (l && !(typeof g == "string" && g.length > 0 && g.length <= 128 || typeof g == "number" && Number.isSafeInteger(g))) return p(null, -32600, "Invalid MCP request identity");
+			if (!f()) return l ? p(g, -32e3, "Case turn is unavailable") : null;
+			if (s.method === "ping") return l ? m(g, {}) : null;
+			if (s.method === "initialize") return !l || a || !pi(s.params) || typeof s.params.protocolVersion != "string" || !pi(s.params.capabilities) || !pi(s.params.clientInfo) ? l ? p(g, -32602, "Invalid initialization") : null : (a = !0, m(g, {
+				protocolVersion: mi.has(s.params.protocolVersion) ? s.params.protocolVersion : "2025-11-25",
 				capabilities: { tools: { listChanged: !1 } },
 				serverInfo: {
 					name: "envoi-scoped-turn",
 					version: "1.0.0"
 				}
 			}));
-			if (o.method === "notifications/initialized") return i && !u && (a = !0), u ? m(_, -32600, "Expected initialized notification") : null;
-			if (!u) return null;
-			if (!a) return m(_, -32e3, "Initialize this MCP connection first");
-			if (o.method === "tools/list") return o.params !== void 0 && (!pi(o.params) || Object.keys(o.params).length) ? m(_, -32602, "Invalid tool list parameters") : (s = !0, h(_, { tools: t.map((e) => ({
+			if (s.method === "notifications/initialized") return a && !l && (o = !0), l ? p(g, -32600, "Expected initialized notification") : null;
+			if (!l) return null;
+			if (!o) return p(g, -32e3, "Initialize this MCP connection first");
+			if (s.method === "tools/list") return s.params !== void 0 && (!pi(s.params) || Object.keys(s.params).length) ? p(g, -32602, "Invalid tool list parameters") : (c = !0, m(g, { tools: n.map((e) => ({
 				name: e.name,
 				inputSchema: e.inputSchema
 			})) }));
-			if (o.method !== "tools/call") return m(_, -32601, "MCP method is unavailable");
-			let v = o.params;
-			if (!pi(v) || Object.keys(v).some((e) => ![
+			if (s.method !== "tools/call") return p(g, -32601, "MCP method is unavailable");
+			let _ = s.params;
+			if (!pi(_) || Object.keys(_).some((e) => ![
 				"name",
 				"arguments",
 				"_meta"
-			].includes(e)) || typeof v.name != "string" || !n.has(v.name) || !pi(v.arguments)) return m(_, -32602, "Invalid scoped tool call");
-			let y = v.name, b = v.arguments;
-			if (c >= 16) return g(_, {
+			].includes(e)) || typeof _.name != "string" || !r.has(_.name) || !pi(_.arguments)) return p(g, -32602, "Invalid scoped tool call");
+			let v = _.name, y = _.arguments;
+			if (t.pending >= 16) return h(g, {
 				ok: !1,
-				tool: y,
+				tool: v,
 				code: "TOOL_BUSY",
 				message: "Case tool is busy",
 				retryable: !0
 			}, !0);
-			c++;
-			let x = l.then(async () => {
-				if (!p()) throw gi;
+			t.pending++;
+			let b = t.tail.then(async () => {
+				if (!f()) throw gi;
 				try {
-					let e = await r(y, b);
-					if (!p()) throw gi;
+					let e = await i(v, y);
+					if (!f()) throw gi;
 					return e;
 				} catch (e) {
-					throw e instanceof Or && e.code && hi.has(e.code) || e instanceof L && e.code === "TOOL_ARGUMENTS_INVALID" || f(), e;
+					throw e instanceof Or && e.code && hi.has(e.code) || e instanceof L && e.code === "TOOL_ARGUMENTS_INVALID" || d(), e;
 				}
 			});
-			l = x.catch(() => {}), x.finally(() => {
-				c--;
+			t.tail = b.catch(() => {}), b.finally(() => {
+				t.pending--;
 			}).catch(() => {});
 			try {
-				let e = await Promise.race([x, d]);
-				if (!p()) throw gi;
-				let t = g(_, {
+				let e = await Promise.race([b, u]);
+				if (!f()) throw gi;
+				let t = h(g, {
 					ok: !0,
-					tool: y,
+					tool: v,
 					result: e
 				}, !1);
-				return Buffer.byteLength(t) > 1e6 ? m(_, -32603, "Scoped result exceeds its limit") : t;
+				return Buffer.byteLength(t) > 1e6 ? p(g, -32603, "Scoped result exceeds its limit") : t;
 			} catch (e) {
-				return !p() || e === gi ? m(_, -32e3, "Case turn is unavailable") : e instanceof Or && e.code && hi.has(e.code) ? g(_, {
+				return !f() || e === gi ? p(g, -32e3, "Case turn is unavailable") : e instanceof Or && e.code && hi.has(e.code) ? h(g, {
 					ok: !1,
-					tool: y,
+					tool: v,
 					code: e.code,
 					message: "Case tool refused the operation",
 					retryable: e.code === "TOOL_BUSY"
-				}, !0) : e instanceof L && e.code === "TOOL_ARGUMENTS_INVALID" ? m(_, -32602, "Invalid case tool arguments") : (f(), m(_, -32e3, "Case turn is unavailable"));
+				}, !0) : e instanceof L && e.code === "TOOL_ARGUMENTS_INVALID" ? p(g, -32602, "Invalid case tool arguments") : (d(), p(g, -32e3, "Case turn is unavailable"));
 			}
 		}
 	});
 }
 var vi = String.raw`
 import { once } from 'node:events';
+import { randomBytes } from 'node:crypto';
 const maximum = 262144;
+const connectionId = randomBytes(16).toString('hex');
 let protocolVersion = '2025-11-25';
 async function main() {
   const url = new URL(process.env.ENVOI_SCOPED_MCP_URL || '');
@@ -9218,7 +9224,8 @@ async function main() {
     if (Buffer.byteLength(line) > maximum) throw new Error();
     const response = await fetch(url, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(120000),
-      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', 'mcp-protocol-version': protocolVersion },
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', 'mcp-protocol-version': protocolVersion,
+        'x-envoi-mcp-connection': connectionId },
       body: line
     });
     if (!response.ok) { await response.body?.cancel(); throw new Error(); }
@@ -9258,58 +9265,77 @@ main().catch(() => { process.stderr.write('Scoped MCP transport unavailable\n');
 `;
 async function yi(e) {
 	e.signal.throwIfAborted();
-	let t = _i(e), n = b(32).toString("hex"), r = Buffer.from(n), i = "", a = null, o = (e, t, n) => {
+	let t = /* @__PURE__ */ new Map(), n = {
+		pending: 0,
+		tail: Promise.resolve(void 0),
+		closed: !1
+	}, r = !1, i = () => !r && !n.closed && !e.signal.aborted, a = () => {
+		r = !0;
+		for (let e of t.values()) e.close();
+	}, o = b(32).toString("hex"), s = Buffer.from(o), c = "", l = null, u = (e, t, n) => {
 		e.writeHead(t, {
 			"content-type": "application/json",
 			"cache-control": "no-store"
 		}), e.end(n);
-	}, s = T((e, t) => {
-		c(e, t).catch(() => {
-			t.headersSent ? t.destroy() : o(t, 502, JSON.stringify({ error: "Scoped MCP request unavailable" }));
+	}, d = T((e, t) => {
+		f(e, t).catch(() => {
+			t.headersSent ? t.destroy() : u(t, 502, JSON.stringify({ error: "Scoped MCP request unavailable" }));
 		});
 	});
-	async function c(e, n) {
-		if (e.headers.host !== i || e.headers.origin !== void 0) return o(n, 403);
-		if (e.url !== "/mcp") return o(n, 404);
-		let a = Buffer.from((e.headers.authorization || "").replace(/^Bearer /, ""));
-		if (!e.headers.authorization?.startsWith("Bearer ") || a.length !== r.length || !S(a, r)) return o(n, 401);
-		if (!t.active) return o(n, 410);
-		if (e.method !== "POST") return o(n, 405);
-		if (!String(e.headers["content-type"] || "").startsWith("application/json")) return o(n, 415);
-		if (Number(e.headers["content-length"]) > 262144) {
-			o(n, 413), e.resume();
+	async function f(r, o) {
+		if (r.headers.host !== c || r.headers.origin !== void 0) return u(o, 403);
+		if (r.url !== "/mcp") return u(o, 404);
+		let l = Buffer.from((r.headers.authorization || "").replace(/^Bearer /, ""));
+		if (!r.headers.authorization?.startsWith("Bearer ") || l.length !== s.length || !S(l, s)) return u(o, 401);
+		if (!i()) return u(o, 410);
+		if (r.method !== "POST") return u(o, 405);
+		if (!String(r.headers["content-type"] || "").startsWith("application/json")) return u(o, 415);
+		if (Number(r.headers["content-length"]) > 262144) {
+			u(o, 413), r.resume();
 			return;
 		}
-		let s = [], c = 0;
-		for await (let t of e) {
-			if (c += t.length, c > 262144) return o(n, 413);
-			s.push(t);
+		let d = r.headers["x-envoi-mcp-connection"];
+		if (typeof d != "string" || !/^[a-f0-9]{32}$/.test(d)) return u(o, 400);
+		let f = t.get(d);
+		if (!f) {
+			if (t.size >= 32) return u(o, 429);
+			f = _i({
+				...e,
+				tools: e.tools,
+				signal: AbortSignal.any([e.signal]),
+				callTool: e.callTool.bind(e)
+			}, n), t.set(d, f);
 		}
-		let l = await t.dispatch(Buffer.concat(s).toString("utf8"));
-		return t.active ? l === null ? o(n, 204) : o(n, 200, l) : o(n, 410);
+		let p = [], m = 0;
+		for await (let e of r) {
+			if (m += e.length, m > 262144) return u(o, 413);
+			p.push(e);
+		}
+		let h = await f.dispatch(Buffer.concat(p).toString("utf8"));
+		return f.active || a(), i() ? h === null ? u(o, 204) : u(o, 200, h) : u(o, 410);
 	}
 	try {
 		await new Promise((e, t) => {
-			s.once("error", t), s.listen(0, "127.0.0.1", e);
+			d.once("error", t), d.listen(0, "127.0.0.1", e);
 		});
 	} catch (e) {
-		throw t.close(), e;
+		throw a(), e;
 	}
-	let l = s.address();
-	if (!l || typeof l == "string") throw t.close(), s.close(), Error("Private MCP relay unavailable");
-	i = `127.0.0.1:${l.port}`;
-	let u = `http://${i}/mcp`, d = () => (t.close(), e.signal.removeEventListener("abort", f), a ||= new Promise((e) => {
-		s.close(() => e()), s.closeAllConnections();
-	}), a), f = () => {
-		d();
+	let p = d.address();
+	if (!p || typeof p == "string") throw a(), d.close(), Error("Private MCP relay unavailable");
+	c = `127.0.0.1:${p.port}`;
+	let m = `http://${c}/mcp`, h = () => (a(), e.signal.removeEventListener("abort", g), l ||= new Promise((e) => {
+		d.close(() => e()), d.closeAllConnections();
+	}), l), g = () => {
+		h();
 	};
-	return e.signal.addEventListener("abort", f, { once: !0 }), e.signal.aborted && (await d(), e.signal.throwIfAborted()), Object.freeze({
-		close: d,
+	return e.signal.addEventListener("abort", g, { once: !0 }), e.signal.aborted && (await h(), e.signal.throwIfAborted()), Object.freeze({
+		close: h,
 		get active() {
-			return t.active;
+			return i();
 		},
 		get discovered() {
-			return t.discovered;
+			return [...t.values()].some((e) => e.discovered);
 		},
 		mcpServer: Object.freeze({
 			name: `envoi_turn_${b(8).toString("hex")}`,
@@ -9321,10 +9347,10 @@ async function yi(e) {
 			],
 			env: [{
 				name: "ENVOI_SCOPED_MCP_URL",
-				value: u
+				value: m
 			}, {
 				name: "ENVOI_SCOPED_MCP_TOKEN",
-				value: n
+				value: o
 			}]
 		})
 	});
