@@ -234,6 +234,34 @@ describe('production Hermes scoped composition with inert authenticated daemon t
     scenario.reclaim(); const recovered = await scenario.open(); await expect(recovered.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toThrow();
     expect(scenario.modelText).toHaveLength(1); expect(await scenario.journal()).toMatchObject({ completed: false });
   });
+  it.each(['failed', 'interrupted', 'cancelled', 'rejected'])('settles a saved terminal %s turn as failed without replacing it or stopping later work', async outcome => {
+    const scenario = await setup(); scenario.setStatus('unknown');
+    const original = await scenario.open();
+    await expect(original.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toThrow();
+    await original.close();
+    const filename = path.join(scenario.directory, 'scoped-runs', scenario.work.workId + '.json');
+    const journal = await readFile(filename, 'utf8');
+    scenario.setStatus('terminal', outcome); scenario.reclaim();
+    const recovered = await scenario.open();
+    await expect(recovered.connector.scopedWakeWorkDriver().processWorkOnce()).resolves.toBe(true);
+    const failed = scenario.fetcher.mock.calls.filter(([url]) => String(url).endsWith('/fail')).at(-1)!;
+    expect(JSON.parse(String(failed[1]?.body))).toEqual({ leaseToken: scenario.work.leaseToken, retryable: false, reasonCode: 'HERMES_TURN_NOT_COMPLETED' });
+    expect(await readFile(filename, 'utf8')).toBe(journal);
+    expect(scenario.rpcRequests.filter(entry => entry.method === 'session.create')).toHaveLength(1);
+    expect(scenario.rpcRequests.filter(entry => entry.method === 'prompt.submit')).toHaveLength(1);
+    expect(scenario.effects.size).toBe(0);
+    expect(scenario.fetcher.mock.calls.some(([url]) => String(url).endsWith('/complete'))).toBe(false);
+    await expect(recovered.connector.scopedWakeWorkDriver().processWorkOnce()).resolves.toBe(false);
+  });
+  it('refuses an unrecognized terminal outcome without permanently failing or completing the work', async () => {
+    const scenario = await setup(); scenario.setStatus('terminal', 'unrecognized');
+    const bridge = await scenario.open();
+    await expect(bridge.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toMatchObject({ code: 'HERMES_EXECUTION_UNCERTAIN' });
+    const failed = scenario.fetcher.mock.calls.find(([url]) => String(url).endsWith('/fail'))!;
+    expect(JSON.parse(String(failed[1]?.body)).retryable).toBe(true);
+    expect(await scenario.journal()).toMatchObject({ completed: false });
+    expect(scenario.effects.size).toBe(0);
+  });
   it('records human wait before stopping the vendor turn and refuses late scoped callbacks', async () => {
     const scenario = await setup();
     const authority = fixture('case-tools/authority-check-needs-human'); scenario.addTool(authority);

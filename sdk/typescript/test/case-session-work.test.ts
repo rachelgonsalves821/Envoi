@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EnvoiConnector, assertHumanDecisionMessage, type CaseSessionWorkHandler, type ConnectorSession, type WorkLease } from '../src/connector';
+import { EnvoiConnector, PermanentWorkError, ConnectorContractError, assertHumanDecisionMessage, type CaseSessionWorkHandler, type ConnectorSession, type WorkLease } from '../src/connector';
+import { EnvoiError } from '../src/index';
 import { CaseSessionChannel } from '../src/case-session';
 import { contractRegistry, loadContractFixture } from '../../../integrations/contract-fixtures/setup';
 
@@ -23,7 +24,8 @@ function harness(process: CaseSessionWorkHandler['process'] = async () => {}, su
     id: 'msg_example', caseId: 'case_example', senderAgentId: 'agent_counterparty', recipientAgentId: 'agent_example', text: 'UNTRUSTED_MESSAGE_SENTINEL',
     from: { agentId: 'agent_counterparty', address: 'counterparty@envoi.mail' }
   } };
-  const controls = { available: true, mintFailures: 0, endFailures: 0, renewalFailure: false, mcpDenials: [] as string[], complete: undefined as undefined | (() => Promise<Response>) };
+  const controls = { available: true, mintFailures: 0, endFailures: 0, renewalFailure: false, mcpDenials: [] as string[],
+    fail: undefined as undefined | (() => Promise<Response>), complete: undefined as undefined | (() => Promise<Response>) };
   const order: string[] = [];
   let minted = 0;
   const fetcher = vi.fn(async (input: string | URL | Request, options?: RequestInit) => {
@@ -42,8 +44,8 @@ function harness(process: CaseSessionWorkHandler['process'] = async () => {}, su
       const payload = work.message.kind === 'humanDecision'
         ? (loadContractFixture(contract, 'session-created-human-decision.json') as Record<string, any>).response.body
         : published().response.body;
-      Object.assign(payload.session, { id: `case_session_run${minted}`, token: `envoi_case_session_PLACEHOLDER_run${minted}`, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900_000).toISOString() });
-      payload.lease.leaseExpiresAt = work.leaseExpiresAt;
+      Object.assign(payload.session, { workId: work.workId, id: `case_session_run${minted}`, token: `envoi_case_session_PLACEHOLDER_run${minted}`, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900_000).toISOString() });
+      Object.assign(payload.lease, { workId: work.workId, leaseExpiresAt: work.leaseExpiresAt });
       return Response.json(payload, { status: 201 });
     }
     if (operation === 'end') {
@@ -60,7 +62,7 @@ function harness(process: CaseSessionWorkHandler['process'] = async () => {}, su
       const state = operation === 'complete' ? 'processed' : 'acknowledged';
       return Response.json({ workId: work.workId, status: state, receipt: { messageId: work.message.id, state } });
     }
-    if (operation === 'fail') return Response.json({ failed: true });
+    if (operation === 'fail') return controls.fail ? controls.fail() : Response.json({ workId: work.workId, status: 'failed' });
     throw new Error(`Unexpected offline test route: ${operation}`);
   });
   const handler: CaseSessionWorkHandler = {
@@ -77,6 +79,63 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('scoped trusted-host work loop', () => {
+  it('records a permanent scoped failure, then processes later work with the same connector', async () => {
+    let failed = false;
+    const test = harness(async () => {
+      if (!failed) { failed = true; throw new PermanentWorkError('HERMES_TURN_NOT_COMPLETED'); }
+    });
+    await expect(test.connector.processWorkOnce()).resolves.toBe(true);
+    const failure = test.requests().find(request => request.path.endsWith('/fail'))!;
+    expect(JSON.parse(String(failure.options?.body))).toEqual({ leaseToken: test.work.leaseToken, retryable: false, reasonCode: 'HERMES_TURN_NOT_COMPLETED' });
+    expect(test.order.indexOf('end')).toBeLessThan(test.order.indexOf('fail'));
+    expect(test.order).not.toContain('complete');
+    test.work.workId = 'msg_later'; test.work.message.id = 'msg_later';
+    await expect(test.connector.processWorkOnce()).resolves.toBe(true);
+    expect(test.requests().filter(request => request.path.endsWith('/complete')).map(request => request.path))
+      .toEqual(['/api/agent/work/msg_later/complete']);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['wrong-work', 'retryable', 'malformed', 'null'])('refuses an invalid %s permanent failure settlement', async variant => {
+    const test = harness(async () => { throw new PermanentWorkError('HERMES_TURN_NOT_COMPLETED'); });
+    test.controls.fail = async () => Response.json(variant === 'wrong-work' ? { workId: 'msg_other', status: 'failed' }
+      : variant === 'retryable' ? { workId: test.work.workId, status: 'retryable' } : variant === 'null' ? null : { failed: true });
+    const result = test.connector.processWorkOnce();
+    if (variant === 'null') await expect(result).rejects.toMatchObject({ code: 'CASE_SESSION_TRANSPORT_ERROR' });
+    else await expect(result).rejects.toBeInstanceOf(ConnectorContractError);
+    expect(test.order.filter(operation => operation === 'fail')).toHaveLength(1);
+    expect(test.order).not.toContain('complete');
+  });
+
+  it('preserves an unacknowledged permanent settlement for a fenced retry', async () => {
+    const test = harness(async () => { throw new PermanentWorkError('HERMES_TURN_NOT_COMPLETED'); });
+    test.controls.fail = async () => { throw new Error('Lost failure receipt'); };
+    await expect(test.connector.processWorkOnce()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    expect(test.order.filter(operation => operation === 'fail')).toHaveLength(1);
+    expect(test.order).not.toContain('complete');
+  });
+
+  it.each(['cancelled', 'expired'])('does not accept permanent settlement after the host was %s', async variant => {
+    const stop = new AbortController();
+    const test = harness(async () => { throw new PermanentWorkError('HERMES_TURN_NOT_COMPLETED'); });
+    test.controls.fail = async () => {
+      if (variant === 'cancelled') stop.abort();
+      else vi.setSystemTime(new Date(Date.parse(test.work.leaseExpiresAt) + 1));
+      return Response.json({ workId: test.work.workId, status: 'failed' });
+    };
+    await expect(test.connector.processWorkOnce(stop.signal)).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
+    expect(test.order).not.toContain('complete');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not interpret an ordinary runtime error code as a permanent disposition', async () => {
+    const test = harness(async () => { throw new EnvoiError('Unknown execution', undefined, 'HERMES_TURN_NOT_COMPLETED'); });
+    await expect(test.connector.processWorkOnce()).rejects.toMatchObject({ code: 'HERMES_TURN_NOT_COMPLETED' });
+    const failure = test.requests().find(request => request.path.endsWith('/fail'))!;
+    expect(JSON.parse(String(failure.options?.body)).retryable).toBe(true);
+    expect(test.order).not.toContain('complete');
+  });
+
   it.each(['approved', 'declined', 'expired'])('processes %s human-decision work through its case-bound tool channel', async outcome => {
     const source = loadContractFixture(contract, 'claimed-human-decision.json') as Record<string, any>;
     const work = source.response.body.work as WorkLease;

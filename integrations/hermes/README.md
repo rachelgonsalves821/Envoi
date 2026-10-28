@@ -29,8 +29,13 @@ the approved trusted-owner beta boundary.
 
 The existing bounded scoped journal retains the daemon session, admission and
 stable `input_id`. Recovery reads the original receipt or repeats only the exact
-unacknowledged submission identity. Unknown/failed/interrupted results, uncertain
-session creation, or a live recovered admission require operator reconciliation.
+unacknowledged submission identity. A validated terminal failed, interrupted,
+cancelled or rejected admission settles that work as permanently failed under
+case-session v1 §7.2, retaining its reason on the website. The connector can then
+handle later work. This is not processing success: its journal remains incomplete,
+the original model admission is never replaced, and no automatic reply is claimed.
+Unknown results, uncertain session creation, or a live recovered admission still
+require operator reconciliation.
 Old MCP capabilities are closed rather than rebound to a fresh session.
 Completed work and human-wait are durable dedupe checkpoints. Abort invalidates
 MCP first, then attempts bounded cancellation and exact-generation interruption.
