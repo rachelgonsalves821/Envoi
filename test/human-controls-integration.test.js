@@ -41,6 +41,39 @@ async function owner(baseUrl, suffix) {
   return { session, human: verified.payload.human, ...enrolled.payload };
 }
 
+test('workspace owner can revise approved agent permissions and changes gate existing credentials', async t => {
+  const server = await launch();
+  t.after(server.stop);
+  const [alice, bob] = await Promise.all([owner(server.baseUrl, '4301'), owner(server.baseUrl, '4302')]);
+  const route = `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/permissions`;
+  const original = alice.agent.permissions;
+  const narrowed = original.filter(permission => permission !== 'send_agent_messages');
+  const change = { permissions: narrowed, expectedPermissions: original };
+  assert.equal((await api(server.baseUrl, route, { body: change })).status, 401);
+  assert.equal((await api(server.baseUrl, route, { session: bob.session, body: change })).status, 403);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: { permissions: ['unknown', 'receive_agent_messages'], expectedPermissions: original } })).status, 400);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: { permissions: ['send_agent_messages'], expectedPermissions: original } })).status, 400);
+  const updated = await api(server.baseUrl, route, { session: alice.session, body: change });
+  assert.equal(updated.status, 200, JSON.stringify(updated.payload));
+  assert.deepEqual(updated.payload.agent.permissions, narrowed);
+  const send = () => api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/messages`, { token: alice.agentApiToken, key: crypto.randomUUID(), body: { senderAgentId: alice.agent.id, recipientEmail: bob.agent.address, caseId: 'permission_update_case', text: 'Check current permission' } });
+  assert.equal((await send()).status, 403, 'the existing credential cannot send after permission is removed');
+  const stale = await api(server.baseUrl, route, { session: alice.session, body: { permissions: original, expectedPermissions: original } });
+  assert.deepEqual([stale.status, stale.payload.code], [409, 'PERMISSIONS_CHANGED']);
+  const oauthFamilyPath = path.join(server.dataDir, 'auth', 'agent-credential-families', alice.inbox.id, alice.agent.id, 'family_oauth_guard.json');
+  await writeFile(oauthFamilyPath, JSON.stringify({ id: 'family_oauth_guard', audience: 'https://www.envoi-agents.com/mcp', revokedAt: null, refreshExpiresAt: new Date(Date.now() + 60_000).toISOString() }));
+  const oauthWidening = await api(server.baseUrl, route, { session: alice.session, body: { permissions: original, expectedPermissions: narrowed } });
+  assert.deepEqual([oauthWidening.status, oauthWidening.payload.code], [409, 'OAUTH_RECONSENT_REQUIRED']);
+  await rm(oauthFamilyPath);
+  const restored = await api(server.baseUrl, route, { session: alice.session, body: { permissions: original, expectedPermissions: narrowed } });
+  assert.equal(restored.status, 200, JSON.stringify(restored.payload));
+  assert.equal((await send()).status, 202, 'the same credential can send after its owner restores permission');
+  const view = await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/human-view`, { session: alice.session });
+  assert.ok(view.payload.recentEvents.some(event => event.type === 'agent.permissions_updated'));
+  assert.equal((await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/revoke`, { session: alice.session, body: {} })).status, 200);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: { permissions: original, expectedPermissions: original } })).status, 409);
+});
+
 test('removal retains a read-only archive or deletes only the owned inbox and survives restart', async t => {
   let server = await launch();
   t.after(() => server.stop());

@@ -1011,7 +1011,7 @@ export function AppShell(props: ShellProps) {
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
 {section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={openConnect} />}
-            {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={openConnect} />}
+{section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={openConnect} onRefresh={refreshAgentInbox} notify={setToast} />}
             {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onConnect={openConnect} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
           </main>
@@ -1496,9 +1496,32 @@ export function FileItem({ asset, workCase, creator, inboxId, notify, onOpenCase
 
 const PLANNED_ACTION_GATES = ['Calendar availability', 'Hold times', 'Submit forms', 'Spend money'];
 
-function PoliciesPage({ entries, onConnect }: { entries: AgentEntry[]; onConnect: () => void }) {
-  return <PageFrame eyebrow="" title="Permissions" description="See each agent’s bounded permissions.">
-    {entries.length === 0 ? <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Connect an agent to see its permissions." action={<button className="button secondary" onClick={onConnect}>Connect an agent</button>} /> : <><div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
+export function PoliciesPage({ entries, onConnect, onRefresh, notify }: { entries: AgentEntry[]; onConnect: () => void; onRefresh: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
+  const [editing, setEditing] = useState<AgentEntry | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  function openEditor(entry: AgentEntry) {
+    setEditing(entry);
+    setSelected(entry.agent.permissions);
+    setError('');
+  }
+  async function save() {
+    if (!editing) return;
+    setBusy(true); setError('');
+    try {
+      const hidden = editing.agent.permissions.filter(permission => !AGENT_PERMISSION_OPTIONS.some(option => option.id === permission));
+      await api.updateAgentPermissions(editing.inbox.id, editing.agent.id, [...selectedAgentPermissions(selected), ...hidden], editing.agent.permissions);
+      const inboxId = editing.inbox.id;
+      setEditing(null);
+      notify(`${editing.agent.name}’s permissions updated.`);
+      try { await onRefresh(inboxId); }
+      catch { notify('Permissions saved. Refresh to see the latest access.'); }
+    } catch (caught) { setError(errorMessage(caught)); }
+    finally { setBusy(false); }
+  }
+  return <PageFrame eyebrow="" title="Permissions" description="Review and update what each agent can do.">
+    {entries.length === 0 ? <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Connect an agent to see its permissions." action={<button className="button secondary" onClick={onConnect}>Connect an agent</button>} /> : <><div className="permission-editor-actions">{entries.filter(entry => entry.view.canManageInbox && entry.agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(entry.agent.status)).map(entry => <button key={entry.agent.id} type="button" className="button secondary compact" onClick={() => openEditor(entry)}>Edit {entry.agent.name}’s permissions</button>)}</div><div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
       <div className="permission-table-head" role="row"><span role="columnheader">Action</span>{entries.map(({ agent }) => <span role="columnheader" key={agent.id}>{agent.name}</span>)}</div>
       {AGENT_PERMISSION_OPTIONS.map(option => <div className="permission-table-row" role="row" key={option.id}><div role="cell"><strong>{option.label}</strong><small>{option.description}</small></div>{entries.map(entry => {
         const { agent } = entry;
@@ -1508,6 +1531,12 @@ function PoliciesPage({ entries, onConnect }: { entries: AgentEntry[]; onConnect
       {PLANNED_ACTION_GATES.map(label => <div className="permission-table-row" role="row" key={label}><div role="cell"><strong>{label}</strong><small>Permission gating is not available yet. Execution is disabled.</small></div>{entries.map(({ agent }) => <div role="cell" key={agent.id} data-agent={agent.name}><span className="permission-pill off" aria-label={`${label} unavailable for ${agent.name}`}>Unavailable</span></div>)}</div>)}
     </div>
     <MonadPermissionPanel agents={entries.filter(entry => entry.view.canManageInbox).map(({ agent, inbox }) => ({ id: agent.id, name: agent.name, inboxId: inbox.id }))} /></>}
+    {editing && <Modal title={`Edit ${editing.agent.name}’s permissions`} onClose={() => setEditing(null)} dismissible={!busy}>
+      <p>Changes apply to future agent actions. Earlier activity stays in the record.</p>
+      <AgentPermissionPicker selected={selected} onChange={setSelected} />
+      <FormError message={error} />
+      <div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => setEditing(null)}>Cancel</button><button type="button" className="button primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save permissions'}</button></div>
+    </Modal>}
   </PageFrame>;
 }
 

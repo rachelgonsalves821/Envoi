@@ -134,6 +134,7 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 .app-shell .agent-presence { background: #edf4f9; color: var(--ink2); }
 .app-shell .page-empty { color: var(--ink); }
 .app-shell .permission-table { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; }
+.app-shell .permission-editor-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px; }
 .app-shell .permission-table-head { background: #edf4f9; }
 .app-shell .permission-table-row { min-width: 0; }
 .app-shell .permission-table-row strong { color: var(--ink); font-weight: 600; }

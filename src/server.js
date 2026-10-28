@@ -5380,6 +5380,49 @@ async function route(req, res) {
     return json(res, 200, { agent: publicAgent(result.agent), ...(result.credentials || {}) });
   }
 
+  const updateAgentPermissions = suffix.match(/^agents\/([^/]+)\/permissions$/);
+  if (req.method === 'POST' && updateAgentPermissions) {
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Verified human session required');
+    if (!await canManageInbox(human, inbox, { maxAgeMs: 0 })) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(updateAgentPermissions[1], 'agentId');
+    const input = await body(req, 4096);
+    const validSet = value => Array.isArray(value) && value.length >= 1 && value.length <= allowedPermissions.size
+      && value.every(permission => typeof permission === 'string' && allowedPermissions.has(permission))
+      && new Set(value).size === value.length && value.includes('receive_agent_messages');
+    if (!input || typeof input !== 'object' || Array.isArray(input) || !validSet(input.permissions) || !validSet(input.expectedPermissions)) {
+      return fail(res, 400, 'Choose valid agent permissions and include the permissions you last saw');
+    }
+    const result = await withInboxMutation(inboxId, async writeAudit => {
+      const currentInbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
+      if (!currentInbox || !await canManageInbox(await auth.getHuman(req), currentInbox, { maxAgeMs: 0 })) throw codedError(403, 'PERMISSION_DENIED', 'Workspace administrator required');
+      const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (currentInbox.kind !== 'agent' || currentInbox.ownerAgentId !== agentId || !agent) throw codedError(404, 'AGENT_NOT_FOUND', 'Owned agent not found');
+      if (agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) throw codedError(409, 'AGENT_NOT_APPROVED', 'Only approved agents can have their permissions changed');
+      const current = agent.permissions || [];
+      const sameSet = (left, right) => left.length === right.length && left.every(permission => right.includes(permission));
+      if (!sameSet(current, input.expectedPermissions)) throw codedError(409, 'PERMISSIONS_CHANGED', 'These permissions changed. Refresh and try again.');
+      if (sameSet(current, input.permissions)) return agent;
+      const added = input.permissions.filter(permission => !current.includes(permission));
+      if (added.length) {
+        const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
+        if (families.some(family => family.audience && !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())) {
+          throw codedError(409, 'OAUTH_RECONSENT_REQUIRED', 'Reconnect this OAuth agent to grant more permissions.');
+        }
+      }
+      const updatedAt = store.now();
+      const updated = { ...agent, permissions: input.permissions, accessGeneration: (agent.accessGeneration || 0) + 1, updatedAt };
+      if (await monadAccess.active(inboxId)) {
+        try { await monadPermissions.ensurePermission(inboxId, updated); }
+        catch { throw codedError(503, 'MONAD_PERMISSION_UNAVAILABLE', 'Could not verify the new permissions on Monad. Try again.'); }
+      }
+      await store.putJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`), updated);
+      await writeAudit('agent.permissions_updated', { agentId, humanId: human.id, previousPermissions: current, permissions: updated.permissions }, updatedAt);
+      return updated;
+    });
+    return json(res, 200, { agent: publicAgent(result) });
+  }
+
   const removeAgent = suffix.match(/^agents\/([^/]+)\/remove$/);
   if (req.method === 'POST' && removeAgent) {
     const human = await auth.getHuman(req);
