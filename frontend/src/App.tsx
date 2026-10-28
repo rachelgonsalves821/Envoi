@@ -759,7 +759,7 @@ function WorkspaceSetup({ human, onCreate }: { human: Human; onCreate: (name: st
           try { await onCreate(String(new FormData(event.currentTarget).get('name'))); }
           catch (caught) { setError(errorMessage(caught)); setBusy(false); }
         }}>
-          <Field label="Workspace name" name="name" placeholder="Rachel’s operations" required />
+          <Field label="Workspace name" name="name" placeholder="Name your workspace" required />
           <FormError message={error} />
           <button className="button primary" disabled={busy}>{busy ? 'Creating workspace…' : 'Create workspace'}</button>
         </form>
