@@ -14,6 +14,13 @@ const invalid=()=>rpc(-32602,'Invalid params');
 const callbackError=reason=>rpc(-32015,'CallbackEndpointError',reason);
 const closed=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>keys.includes(key));
 const empty=value=>closed(value,[])&&Object.keys(value).length===0;
+// Common protocol metadata is inert; only method-specific parameters reach validation/storage.
+function eventParams(params){
+  if(!params||typeof params!=='object'||Array.isArray(params))throw invalid();
+  if(Object.hasOwn(params,'_meta')&&(!params._meta||typeof params._meta!=='object'||Array.isArray(params._meta)))throw invalid();
+  const {_meta,...methodParams}=params;
+  return methodParams;
+}
 function secretBytes(secret){
   if(typeof secret!=='string'||secret.length>94||!/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(secret))throw invalid();
   const text=secret.slice(6),bytes=Buffer.from(text,'base64');
@@ -64,9 +71,9 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
   const grokAvailable=()=>{if(!grokTriggerEnabled)throw wakeError(404,'FEATURE_DISABLED');};
   return {available,events:providerEvents,
     discover(identity,version){requireEvents(identity,version);return {resultType:'complete',supportedVersions:[providerEventsProtocolVersion],capabilities:{tools:{},events:{}}};},
-    list(identity,params={},version){requireEvents(identity,version);if(!empty(params))throw invalid();return {events:providerEvents};},
+    list(identity,params={},version){requireEvents(identity,version);params=eventParams(params);if(!empty(params))throw invalid();return {events:providerEvents};},
     async subscribe(identity,params,version){
-      requireEvents(identity,version);paramsValid(params,true);const binding=bound(identity);await validateCursor(binding,params.cursor??null);let url;
+      requireEvents(identity,version);params=eventParams(params);paramsValid(params,true);const binding=bound(identity);await validateCursor(binding,params.cursor??null);let url;
       try{url=checked(params.delivery.url,callbacks);}catch(error){throw callbackError(error.reason==='origin_not_allowed'?'origin_not_allowed':'address_not_allowed');}
       await httpWake.reserveProfileCreate(binding,'mcp_events',identityId(binding,params.name,url));
       const cache=cachePath(binding,url),oneWayKey=hash(`${params.delivery.secret}\n${allowlistDigest}`);
@@ -93,7 +100,7 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
       for(const event of history.events||[])await httpWake.queueProfile(sub,event.type,event.reason,event.cursor);
       return {id,refreshBefore:sub.expiresAt,cursor:history.cursor||null,truncated:Boolean(history.truncated)};
     },
-    async unsubscribe(identity,params,version){requireEvents(identity,version);paramsValid(params,false);const binding=bound(identity);let url;try{url=destination.canonical(params.delivery.url);}catch{throw invalid();}const id=identityId(binding,params.name,url);const sub=(await httpWake.profileRecords(binding,'mcp_events')).find(sub=>sub.id===id);if(sub)await httpWake.endProfile(binding,id);await store.deleteJson(cachePath(binding,url));return {};},
+    async unsubscribe(identity,params,version){requireEvents(identity,version);params=eventParams(params);paramsValid(params,false);const binding=bound(identity);let url;try{url=destination.canonical(params.delivery.url);}catch{throw invalid();}const id=identityId(binding,params.name,url);const sub=(await httpWake.profileRecords(binding,'mcp_events')).find(sub=>sub.id===id);if(sub)await httpWake.endProfile(binding,id);await store.deleteJson(cachePath(binding,url));return {};},
     async putGrok(identity,params){
       grokAvailable();const binding=bound(identity);if(!binding.installationId||!binding.familyId)throw wakeError(400,'WAKE_TARGET_INVALID','installation_required');
       if(!closed(params,['url','secret'])||typeof params.url!=='string')throw wakeError(400,'WAKE_TARGET_INVALID','secret_invalid');
