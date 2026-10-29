@@ -133,8 +133,10 @@
 .app-shell .case-row.inbox-message-row.is-unread { background: var(--bg); }
 .app-shell .case-row.inbox-message-row:hover { background: var(--fill2); }
 .app-shell .case-row.inbox-message-row.selected { background: var(--accent-soft); }
-.app-shell .case-row.inbox-message-row .case-row-copy { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr) minmax(0,1.4fr); align-items: center; gap: 12px; }
-.app-shell .inbox-message-row .case-row-copy > .thread-sender, .app-shell .inbox-message-row .case-row-copy > strong, .app-shell .inbox-message-row .case-preview { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .case-row.inbox-message-row .case-row-copy { display: grid; grid-template-columns: minmax(0,.65fr) minmax(0,2.35fr); align-items: center; gap: 16px; }
+.app-shell .inbox-message-row .case-row-copy > .thread-sender, .app-shell .inbox-message-row .thread-summary { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .inbox-message-row .thread-summary strong { font-size: 14px; font-weight: 600; color: var(--ink); }
+.app-shell .inbox-message-row .thread-summary .case-preview { display: inline; font-size: 13px; font-weight: 400; color: var(--ink2); }
 .app-shell .case-row.inbox-message-row .case-row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: 0 1 104px; min-width: 0; max-width: 22%; }
 .app-shell .inbox-message-row .case-row-meta > * { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-shell .case-row.inbox-message-row.is-unread .thread-sender, .app-shell .case-row.inbox-message-row.is-unread strong { font-weight: 700; }
