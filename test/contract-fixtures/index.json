@@ -902,6 +902,45 @@
       "fixtures": [
         "discover-events-capability.json"
       ]
+    },
+    {
+      "id": "provider-event-wake-request-metadata",
+      "version": 1,
+      "status": "approved",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-event-wake-request-metadata-v1",
+      "dir": "provider-event-wake-request-metadata",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "list-no-metadata.json",
+        "list-empty-metadata.json",
+        "list-inert-metadata.json",
+        "subscribe-inert-metadata.json",
+        "unsubscribe-inert-metadata.json",
+        "list-metadata-null.json",
+        "list-metadata-array.json",
+        "list-metadata-string.json",
+        "list-metadata-number.json",
+        "list-metadata-boolean.json",
+        "list-unknown-field.json",
+        "subscribe-metadata-null.json",
+        "subscribe-metadata-array.json",
+        "subscribe-metadata-string.json",
+        "subscribe-metadata-number.json",
+        "subscribe-metadata-boolean.json",
+        "subscribe-unknown-field.json",
+        "subscribe-nested-argument-metadata.json",
+        "subscribe-nested-delivery-metadata.json",
+        "unsubscribe-metadata-null.json",
+        "unsubscribe-metadata-array.json",
+        "unsubscribe-metadata-string.json",
+        "unsubscribe-metadata-number.json",
+        "unsubscribe-metadata-boolean.json",
+        "unsubscribe-unknown-field.json",
+        "unsubscribe-nested-argument-metadata.json",
+        "unsubscribe-nested-delivery-metadata.json",
+        "list-cursor-still-refused.json",
+        "list-limit-still-refused.json"
+      ]
     }
   ]
 }

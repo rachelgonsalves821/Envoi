@@ -1,0 +1,16 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "list-cursor-still-refused",
+  "kind": "event-request-parameters",
+  "description": "list cursor still refused",
+  "method": "events/list",
+  "params": {
+    "_meta": {},
+    "cursor": null
+  },
+  "expected": {
+    "valid": false,
+    "errorCode": -32602
+  }
+}
