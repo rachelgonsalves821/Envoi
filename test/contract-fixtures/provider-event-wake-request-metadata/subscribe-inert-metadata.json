@@ -1,0 +1,35 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "subscribe-inert-metadata",
+  "kind": "event-request-parameters",
+  "description": "subscribe inert metadata",
+  "method": "events/subscribe",
+  "params": {
+    "name": "envoi.work_available",
+    "arguments": {},
+    "delivery": {
+      "mode": "webhook",
+      "url": "https://callbacks.envoi-provider.com/events",
+      "secret": "whsec_BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+    },
+    "_meta": {
+      "example.com/acceptance": "METADATA_ONLY_SYNTHETIC",
+      "authority": {
+        "agentId": "ignored",
+        "permissions": [
+          "ignored"
+        ]
+      },
+      "nested": [
+        null,
+        true,
+        1
+      ]
+    }
+  },
+  "expected": {
+    "valid": true,
+    "errorCode": null
+  }
+}

@@ -215,3 +215,58 @@ parity('canonical owner decisions wake extension hosts using an approved opaque 
   assert.equal(delivered.name,'envoi.work_available');assert.deepEqual(delivered.data,{reason:'work_due'});
   assert.equal(delivered.cursor,'00000000000000000013');assert.equal(JSON.stringify(delivered).includes('human_decision'),false);
 });
+
+
+const metadataRegistry=JSON.parse(await readFile(new URL('./contract-fixtures/index.json',import.meta.url),'utf8'));
+const metadataEntry=metadataRegistry.contracts.find(row=>row.id==='provider-event-wake-request-metadata');
+const metadataFixtures=await Promise.all(metadataEntry.fixtures.map(name=>readFile(new URL('./contract-fixtures/provider-event-wake-request-metadata/'+name,import.meta.url),'utf8').then(JSON.parse)));
+parity('Events methods consume approved metadata vectors without relaxing parameters or persisting metadata',async(t,kind)=>{
+  const h=await harness(t,kind);
+  for(const fixture of metadataFixtures){
+    const method=fixture.method.split('/')[1],params=structuredClone(fixture.params),before=h.sent.length;
+    if(!fixture.expected.valid){
+      if(method==='list')assert.throws(()=>h.provider.list(identity,params,protocol),{rpcCode:-32602},fixture.id);
+      else await assert.rejects(()=>h.provider[method](identity,params,protocol),{rpcCode:-32602},fixture.id);
+      assert.equal(h.sent.length,before,fixture.id+': invalid input causes no verification or delivery');
+      continue;
+    }
+    const result=await h.provider[method](identity,params,protocol);
+    if(method==='list')assert.deepEqual(result.events.map(event=>event.name),['envoi.work_available','envoi.control_changed']);
+    else if(method==='subscribe'){
+      assert.match(result.id,/^evtsub_/);
+      const records=await h.http.profileRecords(binding,'mcp_events');
+      assert.equal(records.length,1);
+      assert.equal(JSON.stringify(records).includes('METADATA_ONLY_SYNTHETIC'),false);
+      assert.equal(Object.hasOwn(records[0],'_meta'),false);
+    }else assert.deepEqual(result,{});
+    assert.equal(JSON.stringify([result,h.sent,h.audits]).includes('METADATA_ONLY_SYNTHETIC'),false);
+    assert.deepEqual(fixture.params,params,'caller input is not mutated');
+  }
+});
+parity('metadata changes do not change subscription identity, verification, renewal or unsubscribe fencing',async(t,kind)=>{
+  const h=await harness(t,kind);const first=await h.provider.subscribe(identity,parameters(),protocol);
+  h.advance(1000);
+  const renewed=await h.provider.subscribe(identity,parameters({_meta:{agentId:'foreign',permissions:['ignored'],marker:'META_NOT_AUTHORITY'}}),protocol);
+  assert.equal(renewed.id,first.id);assert.notEqual(renewed.refreshBefore,first.refreshBefore);assert.equal(h.sent.length,1);
+  let records=await h.http.profileRecords(binding,'mcp_events');assert.equal(records.length,1);assert.equal(records[0].installationId,binding.installationId);
+  assert.equal(JSON.stringify([records,h.sent,h.audits,renewed]).includes('META_NOT_AUTHORITY'),false);
+  const {secret:ignored,...delivery}=parameters().delivery;
+  assert.deepEqual(await h.provider.unsubscribe(identity,{name:parameters().name,arguments:{},delivery,_meta:{marker:'META_NOT_AUTHORITY'}},protocol),{});
+  records=await h.http.profileRecords(binding,'mcp_events');assert.equal(records[0].status,'ended');assert.equal(records[0].secretEncrypted,undefined);
+  assert.deepEqual(await h.provider.unsubscribe(identity,{name:parameters().name,arguments:{},delivery},protocol),{});
+});
+test('metadata validation follows Events qualification and cannot bypass an empty callback allowlist',async t=>{
+  const h=await harness(t);const disabled=createProviderEventWake({...h.providerOptions,httpWake:createHttpWake(h.options),mcpEventsEnabled:false});
+  for(const provider of [h.provider,disabled])for(const method of ['list','subscribe','unsubscribe']){
+    const who=provider===disabled?identity:{...identity,mcpScope:{caseId:'synthetic'}};
+    const call=()=>provider[method](who,{_meta:null},protocol);
+    if(method==='list')assert.throws(call,{rpcCode:-32601});else await assert.rejects(call,{rpcCode:-32601});
+  }
+  for(const method of ['list','subscribe','unsubscribe']){
+    const call=()=>h.provider[method](identity,{_meta:null},'2025-11-25');
+    if(method==='list')assert.throws(call,{rpcCode:-32601});else await assert.rejects(call,{rpcCode:-32601});
+  }
+  let resolved=0;const inert=createProviderEventWake({...h.providerOptions,httpWake:createHttpWake(h.options),env:{},resolveDestination:async()=>{resolved++;throw Error('must not resolve');}});
+  await assert.rejects(()=>inert.subscribe(identity,parameters({_meta:{delivery:{url:'https://callbacks.envoi-provider.com/events'},callbackOriginAllowlist:['https://callbacks.envoi-provider.com']}}),protocol),{rpcCode:-32015,reason:'origin_not_allowed'});
+  assert.equal(resolved,0);
+});

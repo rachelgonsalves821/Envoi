@@ -5391,3 +5391,24 @@ Canonical directory: `test/contract-fixtures/provider-event-wake-discovery/`. `s
 Implementation checks cover the actual HTTP discovery response, unchanged legacy initialization/general tools, existing unavailable-family/version behavior, pause/revoke denial and private-client response validation. Existing subscription/delivery tests continue unchanged. Run both required lane suites and exact-head CI. Hosted catalog refresh, subscription/callback verification, private host work custody and closed-app execution remain separate acceptance work.
 
 Rollback is a source rollback of the bounded discovery and private-client change. It needs no data migration, new grant, credential rotation, namespace change or database restore. No rollout flag or existing hosted acceptance is changed by this publication.
+
+
+## provider-event-wake-request-metadata v1
+
+Additive amendment of provider-event-wake v1 section 2 method parameters. The human directly approved proposal SHA-256 `1d91e9ecbfd3e3955cce371ebb21025f60d0835a469819da7fcb90bc5079ad34` and its bounded Lane A publication/implementation exception in this chat on 2026-10-25: "Approve contract and bounded fix here". This agent-written attribution is recorded in [6405202058](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6405202058). Integration and new-source deployment remain separate.
+
+### 1. Common metadata and closed method arguments
+
+For `events/list`, `events/subscribe` and `events/unsubscribe`, after existing authority and protocol gates, an optional own top-level `params._meta` must be a non-null JSON object, excluding arrays. Ignore it when applying the unchanged closed method schema. Its arbitrary JSON members are inert: never interpret, persist, log, audit, echo or use them as identity, permissions, callback, arguments, cursor, idempotency or delivery state. The existing complete MCP request cap remains 64 KiB; metadata creates no extra budget or execution path. Absent metadata and an empty object are valid. Present null, array, string, numeric or boolean metadata is the existing sanitized JSON-RPC `-32602 Invalid params`.
+
+After removing only this own top-level field, list still accepts no method-specific keys and returns the identical two public definitions; cursor, limit and every other extra list key remain invalid. Subscribe/unsubscribe retain all required fields and nested closed schemas. Nested metadata inside arguments or delivery remains invalid. No metadata property can supply an omitted required field or relax a value check.
+
+### 2. Existing protections and compatibility
+
+Authentication, installation/audience/permission qualification, lifecycle denials, flags and protocol gates keep their existing order and outcomes. Disabled/unqualified/older-protocol methods remain missing; paused/revoked installations retain their transport denials. Deterministic subscription identity, secret custody, TTL/replay, quotas, destination allowlist/address/verification, cache, signatures, queue and end behavior are unchanged. Server discovery, legacy initialize, general tools and Grok do not change. This metadata rule is common to the three Events methods; only list rejection was observed in the diagnostic, and no unseen subscription traffic is claimed.
+
+### 3. Executable publication and rollout
+
+Independent synthetic parameter vectors and schemas are registered under `test/contract-fixtures/provider-event-wake-request-metadata/`. They cover inert/malformed metadata, unknown fields, nested metadata and retained list cursor/limit refusals; parent authority and callback vectors keep their original bytes and remain in force. These are parameter-acceptance vectors, not fabricated HTTP observations. Runtime tests must consume them, verify FileStore/PostgreSQL effects and metadata non-persistence, and exercise real HTTP parsing, size and unchanged method gates.
+
+Publish the contract and implementation as separate draft PRs into integration/agent-native. A later exact source/image deployment needs its own reviewed window and authorization. The callback allowlist remains empty until real origin evidence is approved. Rollback removes the isolated implementation increment and restores metadata rejection without migration, rotation or data deletion. Catalog success alone is not hosted wake acceptance.
