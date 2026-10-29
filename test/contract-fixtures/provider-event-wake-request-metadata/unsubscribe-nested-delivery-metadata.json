@@ -1,0 +1,21 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "unsubscribe-nested-delivery-metadata",
+  "kind": "event-request-parameters",
+  "description": "unsubscribe nested delivery metadata",
+  "method": "events/unsubscribe",
+  "params": {
+    "name": "envoi.work_available",
+    "arguments": {},
+    "delivery": {
+      "mode": "webhook",
+      "url": "https://callbacks.envoi-provider.com/events",
+      "_meta": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "errorCode": -32602
+  }
+}

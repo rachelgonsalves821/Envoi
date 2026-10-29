@@ -1,0 +1,13 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "list-no-metadata",
+  "kind": "event-request-parameters",
+  "description": "list no metadata",
+  "method": "events/list",
+  "params": {},
+  "expected": {
+    "valid": true,
+    "errorCode": null
+  }
+}

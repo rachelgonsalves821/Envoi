@@ -1,0 +1,16 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "list-limit-still-refused",
+  "kind": "event-request-parameters",
+  "description": "list limit still refused",
+  "method": "events/list",
+  "params": {
+    "_meta": {},
+    "limit": 1
+  },
+  "expected": {
+    "valid": false,
+    "errorCode": -32602
+  }
+}
