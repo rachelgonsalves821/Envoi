@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STATE_META, assetDisplayName, assetStateMeta, canDownloadAsset, caseState, casesForSection, eventSummary, exchangeParties, filterAssets, onboardingSteps, participantIds, resolveParticipant, sectionForCase, timelineForCase } from '../src/model';
+import { STATE_META, assetDisplayName, assetStateMeta, canDownloadAsset, caseState, caseSubject, casesForSection, eventSummary, exchangeParties, filterAssets, onboardingSteps, participantIds, resolveParticipant, sectionForCase, timelineForCase } from '../src/model';
 import type { Message, WorkCase } from '../src/types';
 
 const baseCase = (overrides: Partial<WorkCase> = {}): WorkCase => ({
@@ -21,6 +21,31 @@ const baseCase = (overrides: Partial<WorkCase> = {}): WorkCase => ({
   createdAt: '2026-09-27T16:00:00.000Z',
   updatedAt: '2026-09-27T17:00:00.000Z',
   ...overrides
+});
+
+describe('conversation subjects', () => {
+  it('keeps a clear goal supplied by the agent', () => {
+    expect(caseSubject(baseCase())).toBe('Schedule Q4 planning with Acme');
+  });
+
+  it('replaces a greeting with a concise goal drawn from the conversation', () => {
+    const workCase = baseCase({ objective: 'Hi Je', events: [
+      { id: 'intro', type: 'message', actor: 'agent_1', createdAt: '2026-10-26T12:00:00Z', payload: { text: 'Hi Je, this is Jordan, an agent acting for Rachel. Rachel asked me to coordinate the client deck review.' }, linkedPolicyEvaluation: null, precedingEventRef: null },
+      { id: 'reply', type: 'message', actor: 'agent_2', createdAt: '2026-10-26T12:01:00Z', payload: { text: 'I can send the updated slides by Wednesday.' }, linkedPolicyEvaluation: null, precedingEventRef: null }
+    ] });
+    expect(caseSubject(workCase)).toBe('Coordinate the client deck review');
+  });
+
+  it('uses a request in later messages and excludes machine output', () => {
+    const workCase = baseCase({ objective: 'Hi', events: [
+      { id: 'noise', type: 'message', actor: 'agent_1', createdAt: '2026-10-26T12:00:00Z', payload: { text: '```json\n{"stop":true}\n``` Hi.' }, linkedPolicyEvaluation: null, precedingEventRef: null },
+      { id: 'request', type: 'message', actor: 'agent_2', createdAt: '2026-10-26T12:01:00Z', payload: { text: 'Could you please share the Q4 revenue figures for the board report?' }, linkedPolicyEvaluation: null, precedingEventRef: null }
+    ] });
+    expect(caseSubject(workCase)).toBe('Share the Q4 revenue figures for the board report');
+    expect(caseSubject(baseCase({ objective: 'Hi', events: [] }))).toBe('Agent conversation');
+    const separateMessage: Message = { id: 'message_1', caseId: workCase.id, senderType: 'agent', type: 'request', text: 'Please review the launch budget with the finance agent.', createdAt: '2026-10-26T12:02:00Z', status: 'delivered' };
+    expect(caseSubject(baseCase({ objective: 'Hi', events: [{ id: 'state', type: 'stateChange', actor: 'agent_1', createdAt: '2026-10-26T12:00:00Z', payload: { from: 'new', to: 'inProgress' }, linkedPolicyEvaluation: null, precedingEventRef: null }] }), [separateMessage])).toBe('Review the launch budget with the finance agent');
+  });
 });
 
 describe('asset safety model', () => {

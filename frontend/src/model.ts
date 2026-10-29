@@ -126,6 +126,58 @@ export function timelineForCase(workCase: WorkCase, messages: Message[]): CaseEv
   return collapseMessageProgress(messageEvents);
 }
 
+const TASK_VERB = /^(?:review|coordinate|schedule|share|send|prepare|draft|finalize|book|update|find|collect|compare|approve|analy[sz]e|check|confirm|resolve|negotiate|create|plan|discuss|exchange|request|provide|complete|organize|organise|gather|deliver|connect|follow|address|summari[sz]e|help|work)\b/i;
+const GENERIC_SUBJECT = /^(?:agent communication|agent collaboration|untitled case|shared case|questions?|status update|hi|hello|hey|test)(?:\s|$)/i;
+const INTRODUCTION = /^(?:hi|hello|hey)\b|^(?:this is|i(?:'m| am))\b|\b(?:an agent acting for|agent acting on behalf of)\b/i;
+
+function titleClauses(value: string): string[] {
+  return value.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ')
+    .replace(/<[^>]*>/g, ' ').split(/(?:[.!?](?:\s|$)|[\r\n])+|;\s*/)
+    .map(clause => clause.replace(/^[\s>*“”"'\-]+|[\s,.!?;:“”"'\-]+$/g, '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function shortSubject(value: string): string {
+  const words = value.replace(/^(?:to|about)\s+/i, '').split(/\s+/).slice(0, 14);
+  while (words.length > 2 && /^(?:a|an|and|for|of|the|to|with)$/i.test(words.at(-1) || '')) words.pop();
+  const full = words.join(' ');
+  const subject = (full.length <= 90 ? full : full.slice(0, 91).replace(/\s+\S*$/, '')).replace(/[\s,.:;\-]+$/g, '');
+  return subject.replace(/^./, letter => letter.toUpperCase());
+}
+
+function goalFromClause(clause: string): string | null {
+  const patterns = [
+    /\b(?:the|our|my) (?:goal|objective|task) is (?:to )?(.+)$/i,
+    /\b(?:asked|needs?|wants?) (?:me|us|you) to (.+)$/i,
+    /\b(?:can|could|would) you (?:please )?(.+)$/i,
+    /\bplease (.+)$/i,
+    /\b(?:let's|we need to|we should|i need to|we want to|i want to|trying to|working to) (.+)$/i
+  ];
+  const match = patterns.map(pattern => clause.match(pattern)).find(Boolean);
+  const action = match?.[1]?.replace(/^(?:help (?:me|us) to|to)\s+/i, '').trim();
+  if (action && TASK_VERB.test(action)) return shortSubject(action);
+  const working = clause.match(/\b(?:working|collaborating) on (.+)$/i);
+  if (working?.[1]) return shortSubject(`Work on ${working[1]}`);
+  return !INTRODUCTION.test(clause) && TASK_VERB.test(clause) ? shortSubject(clause) : null;
+}
+
+/** A local, conservative subject derived from the stated goal and the agents' messages. */
+export function caseSubject(workCase: WorkCase, messages: Message[] = []): string {
+  const objective = titleClauses(workCase.objective || '');
+  if (objective.length === 1 && objective[0].length <= 90 && objective[0].split(/\s+/).length >= 2
+    && !GENERIC_SUBJECT.test(objective[0]) && !INTRODUCTION.test(objective[0])) return goalFromClause(objective[0]) || shortSubject(objective[0]);
+  const events = timelineForCase(workCase, messages).filter(event => event.type === 'message');
+  const texts = [workCase.objective || '', ...events.map(event => String(event.payload.text || event.payload.message || '')),
+    ...messagesForCase(messages, workCase.id).map(message => message.text)];
+  for (const text of texts) {
+    for (const clause of titleClauses(text)) {
+      const goal = goalFromClause(clause);
+      if (goal) return goal;
+    }
+  }
+  return 'Agent conversation';
+}
+
 export function caseLabel(workCase: WorkCase) { return workCase.stateLabel || STATE_META[caseState(workCase)].label; }
 export function caseTone(workCase: WorkCase) { return workCase.stateTone || STATE_META[caseState(workCase)].tone; }
 

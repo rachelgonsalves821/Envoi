@@ -40,6 +40,16 @@ function row(view: HumanView, item = workCase) {
 }
 
 describe('case inbox perspective', () => {
+  it('shows the synthesized subject in both the inbox and open conversation', () => {
+    const item: WorkCase = { ...workCase, objective: 'Hi', events: [
+      { ...events[0], payload: { ...events[0].payload, text: 'Hi Je. Could you please review the client deck before Thursday?' } },
+      events[1]
+    ] };
+    const view = source('agent_je');
+    expect(row(view, item)).toContain('<strong>Review the client deck before Thursday</strong>');
+    expect(thread(view, item)).toContain('<h1 class="thread-subject">Review the client deck before Thursday</h1>');
+  });
+
   it.each([
     ['agent_je', 'Je', 'Rachel probe', 'Recipient organization', 'mine', 'theirs', 'outbound'],
     ['agent_rachel', 'Rachel probe', 'Je', 'Sender organization', 'theirs', 'mine', 'inbound']
