@@ -278,3 +278,18 @@ test('expired human work fences, retry backoff and permanent failures use existi
   assert.equal((await state.store.getJson(retryPath)).status, 'failed');
   assert.equal((await state.store.getJson(path.join('inboxes', state.own.inbox.id, 'messages', `${lastWork.workId}.json`))).status, 'failed');
 });
+
+test('human instruction announces canonical work availability once and replay adds no hint', async context => {
+  const state = await fixture(context);
+  const eventPath = path.join('inboxes', state.own.inbox.id, 'events');
+  const before = await state.store.listJson(eventPath);
+  const sent = await state.send('Synthetic instruction wake regression.', 'human-instruction-wake-regression');
+  assert.equal(sent.status, 201);
+  const replay = await state.send('Synthetic instruction wake regression.', 'human-instruction-wake-regression');
+  assert.equal(replay.status, 200);
+  assert.equal(replay.payload.id, sent.payload.id);
+  const previous = new Set(before.map(event => event.id));
+  const hints = (await state.store.listJson(eventPath)).filter(event => !previous.has(event.id)
+    && event.type === 'work.available' && event.agentId === state.own.agent.id && event.reason === 'human_instruction');
+  assert.equal(hints.length, 1, 'one durable work.available/human_instruction event is required for the accepted instruction; replay must not duplicate it');
+});
