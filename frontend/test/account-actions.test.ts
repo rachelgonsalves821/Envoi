@@ -33,7 +33,7 @@ it('offers removal separately from freezing and hides management actions from no
     humanId: 'human_owner', emailTransport: null, onRefresh: vi.fn(), notify: vi.fn()
   };
   const manager = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: true }));
-  expect(manager).toContain('Remove agent');
+  expect(manager).toMatch(/class="agent-card-actions"[^>]*>.*Remove agent.*<\/div>/);
   expect(manager).toContain('Revoke agent access');
   const member = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: false }));
   expect(member).not.toContain('Remove agent');

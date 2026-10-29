@@ -121,6 +121,8 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 .app-shell .agent-status-access .capability-list { margin: 0; }
 .app-shell .integration-card .agent-card-actions { justify-content: flex-end; }
 .app-shell .integration-card .agent-card-actions .button { min-height: 38px; padding-inline: 13px; font-size: 13px; }
+.app-shell .integration-card .agent-card-actions .agent-remove-action { flex-basis: 100%; justify-content: flex-end; min-height: 30px; padding-inline: 0; color: #a23535; }
+.app-shell .integration-card .agent-card-actions .agent-remove-action:hover { color: #7d2222; background: transparent; text-decoration: underline; }
 .app-shell .integration-card .agent-setup { grid-column: 2 / 4; margin: 0; }
 .app-shell .integration-card > .agent-more, .app-shell .integration-card > .credential-once, .app-shell .integration-card > .agent-more ~ .inline-notice, .app-shell .integration-card > .inline-notice { grid-column: 1 / -1; }
 .app-shell .integration-card > .agent-more { padding-top: 10px; margin-top: 2px; border-top: 1px solid #edf2f6; }
@@ -312,6 +314,7 @@ body:has(.onboarding-page) { background: #f6f9fc; }
   .app-shell .integration-card { display: block; padding: 20px 18px; }
   .app-shell .integration-card .integration-heading, .app-shell .integration-card .agent-stats, .app-shell .integration-card .agent-status-access, .app-shell .integration-card .agent-setup { margin-bottom: 15px; }
   .app-shell .integration-card .agent-card-actions { justify-content: flex-start; }
+  .app-shell .integration-card .agent-card-actions .agent-remove-action { justify-content: flex-start; }
   .connect-page { padding: calc(18px + env(safe-area-inset-top,0px)) 16px max(28px,env(safe-area-inset-bottom,0px)); }
   .connect-intro { min-height: 0; padding: 26px 0; }
   .connect-intro > img { display: none; }
