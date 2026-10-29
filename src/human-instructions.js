@@ -193,6 +193,7 @@ export function createHumanInstructions({ store, withCaseMutation, authorizeHuma
         { path: keyPath, value: { principalId: human.id, requestDigest, status: 'completed', response: message, createdAt: at } }
       ]);
       await writeAudit('human.instruction_created', { messageId: message.id, caseId, senderHumanId: human.id, recipientAgentId }, at);
+      await writeAudit('work.available', { agentId: recipientAgentId, reason: 'human_instruction' }, at);
       return { status: 201, payload: message };
     });
   };
