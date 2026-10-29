@@ -72,7 +72,10 @@ test('instruction persists the work message, human case event and audit atomical
   assert.equal(event.actor, 'human_owner');
   assert.equal(event.payload.messageId, message.id);
   assert.equal(event.payload.deliveryState, 'delivered');
-  assert.equal((await restarted.listJson(path.join('inboxes', inboxId, 'events'))).length, 1);
+  const audits = await restarted.listJson(path.join('inboxes', inboxId, 'events'));
+  assert.equal(audits.length, 2);
+  assert.equal(audits.filter(event => event.type === 'human.instruction_created' && event.messageId === message.id).length, 1);
+  assert.equal(audits.filter(event => event.type === 'work.available' && event.agentId === agentId && event.reason === 'human_instruction').length, 1);
   assert.deepEqual(await restarted.listJson('outbox'), []);
   assert.equal(Boolean(message.senderInboxId && message.senderAgentId), false);
 });
