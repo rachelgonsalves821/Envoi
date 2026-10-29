@@ -1,0 +1,21 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "unsubscribe-metadata-null",
+  "kind": "event-request-parameters",
+  "description": "unsubscribe metadata null",
+  "method": "events/unsubscribe",
+  "params": {
+    "name": "envoi.work_available",
+    "arguments": {},
+    "delivery": {
+      "mode": "webhook",
+      "url": "https://callbacks.envoi-provider.com/events"
+    },
+    "_meta": null
+  },
+  "expected": {
+    "valid": false,
+    "errorCode": -32602
+  }
+}

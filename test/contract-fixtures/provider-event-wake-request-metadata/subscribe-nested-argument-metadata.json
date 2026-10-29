@@ -1,0 +1,23 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "subscribe-nested-argument-metadata",
+  "kind": "event-request-parameters",
+  "description": "subscribe nested argument metadata",
+  "method": "events/subscribe",
+  "params": {
+    "name": "envoi.work_available",
+    "arguments": {
+      "_meta": {}
+    },
+    "delivery": {
+      "mode": "webhook",
+      "url": "https://callbacks.envoi-provider.com/events",
+      "secret": "whsec_BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+    }
+  },
+  "expected": {
+    "valid": false,
+    "errorCode": -32602
+  }
+}

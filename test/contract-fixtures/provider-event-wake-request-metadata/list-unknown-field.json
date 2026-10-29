@@ -1,0 +1,16 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "list-unknown-field",
+  "kind": "event-request-parameters",
+  "description": "list unknown field",
+  "method": "events/list",
+  "params": {
+    "_meta": {},
+    "installationId": "not-authority"
+  },
+  "expected": {
+    "valid": false,
+    "errorCode": -32602
+  }
+}

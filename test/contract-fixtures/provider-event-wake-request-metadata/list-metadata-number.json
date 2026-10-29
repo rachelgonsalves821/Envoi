@@ -1,0 +1,15 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "list-metadata-number",
+  "kind": "event-request-parameters",
+  "description": "list metadata number",
+  "method": "events/list",
+  "params": {
+    "_meta": 1
+  },
+  "expected": {
+    "valid": false,
+    "errorCode": -32602
+  }
+}
