@@ -23,11 +23,11 @@ export interface CapturedRequest {
 
 const firstMessage = {
   caseId: DEMO.caseId, senderAgentId: DEMO.agentId,
-  recipientEmail: 'peer@agents.envoi-agents.com', text: 'Offline hello', intent: 'request'
+  recipientEmail: 'peer@envoi-agents.com', text: 'Offline hello', intent: 'request'
 } as const;
 const followUp = {
   caseId: DEMO.caseId, senderAgentId: DEMO.agentId,
-  recipientEmail: 'peer@agents.envoi-agents.com', text: 'Offline update', intent: 'status'
+  recipientEmail: 'peer@envoi-agents.com', text: 'Offline update', intent: 'status'
 } as const;
 
 /** Rejects any request beyond the exact seven-call scenario. */

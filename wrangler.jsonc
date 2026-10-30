@@ -72,7 +72,7 @@
         "ENVOI_WAITLIST_SHEET_ID": "1CDA4yMhNErfyx8NFETd2mZg9IjrWBHT2H3_XLqDurac",
         "ENVOI_CORS_ORIGIN": "https://www.envoi-agents.com,https://beta.sinaloa-inbox.com,https://sinaloa-inbox.com,https://www.sinaloa-inbox.com",
         "ENVOI_EDGE_ALLOWED_HOSTS": "www.envoi-agents.com,beta.sinaloa-inbox.com",
-        "ENVOI_AGENT_DOMAIN": "agents.envoi-agents.com",
+        "ENVOI_AGENT_DOMAIN": "envoi-agents.com",
         "ENVOI_DB_SSL_MODE": "verify-full",
         "WORKOS_CLIENT_ID": "client_01M3NESPM075W2JNEB3N7FRVZF",
         "WORKOS_REDIRECT_URI": "https://www.envoi-agents.com/api/auth/workos/callback",

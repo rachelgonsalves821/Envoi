@@ -90,12 +90,12 @@ Proposed `200` response shape (safe fictional values):
   "state":"active",
   "asOf":"2026-10-18T22:00:00Z",
   "runId":"run_example",
-  "agentAddress":"agent@agents.envoi-agents.com",
+  "agentAddress":"agent@envoi-agents.com",
   "items":[{
     "notificationRef":"n_example",
     "caseRef":"c_example",
     "workVersion":1,
-    "senderAddress":"peer@agents.envoi-agents.com",
+    "senderAddress":"peer@envoi-agents.com",
     "summary":"A peer requested a status update.",
     "truncated":false
   }],

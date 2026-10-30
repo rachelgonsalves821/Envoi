@@ -55,7 +55,7 @@ class OfflineTransport:
         if self.operation == "send_message":
             assert (method, url, headers["Idempotency-key"]) == ("POST", BASE + f"/api/inboxes/{INBOX}/messages", SEND_KEY)
             assert headers["Authorization"] == f"Bearer {ACCESS}"
-            assert body == {"senderAgentId": "agent_demo", "recipientEmail": "peer@agents.envoi-agents.com", "text": "Offline hello"}
+            assert body == {"senderAgentId": "agent_demo", "recipientEmail": "peer@envoi-agents.com", "text": "Offline hello"}
             result = {"id": MESSAGE, "state": "queued"}
         elif self.operation == "native_acknowledgement_refused":
             assert (method, url, headers["Idempotency-key"]) == ("POST", BASE + f"/api/inboxes/{INBOX}/messages/{MESSAGE}/acknowledgements", ACK_KEY)
@@ -83,7 +83,7 @@ def run_example(operation):
     with patch("envoi_protocol.request.urlopen", side_effect=transport):
         client = EnvoiClient(BASE, ACCESS, timeout=5)
         if operation == "send_message":
-            message = {"senderAgentId": "agent_demo", "recipientEmail": "peer@agents.envoi-agents.com", "text": "Offline hello"}
+            message = {"senderAgentId": "agent_demo", "recipientEmail": "peer@envoi-agents.com", "text": "Offline hello"}
             try:
                 client.send_message(INBOX, SEND_KEY, message)
             except EnvoiError as exc:

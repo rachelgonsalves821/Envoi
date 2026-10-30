@@ -1028,7 +1028,7 @@ export function AppShell(props: ShellProps) {
       {toast && <div className="toast"><Check size={16} />{toast}</div>}
       {folderDialogOpen && <Modal title="Create folder" dismissible={!folderBusy} onClose={() => setFolderDialogOpen(false)}><CreateInboxFolderContent busy={folderBusy} error={folderError} onClose={() => setFolderDialogOpen(false)} onCreate={name => void createFolder(name)} /></Modal>}
       {folderToDelete && <Modal title="Delete folder?" dismissible={!folderBusy} onClose={() => setFolderToDelete(null)}><p className="dialog-copy">Delete “{folderToDelete.name}”? Conversations in this folder will stay in All inboxes.</p><FormError message={folderError} /><div className="dialog-actions"><button className="button secondary" disabled={folderBusy} onClick={() => setFolderToDelete(null)}>Cancel</button><button className="button destructive" disabled={folderBusy} onClick={() => void deleteFolder()}>{folderBusy ? 'Deleting…' : 'Delete folder'}</button></div></Modal>}
-      {connectOpen && <EnrollmentDialog workspace={rootWorkspace} agentDomain={queueView.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={connectResult} setResult={setConnectResult} onRefresh={onRefresh} onClose={() => { setConnectOpen(false); setConnectResult(null); }} />}
+      {connectOpen && <EnrollmentDialog workspace={rootWorkspace} agentDomain={queueView.publicEmailTransport?.internalAgentDomain || 'envoi-agents.com'} result={connectResult} setResult={setConnectResult} onRefresh={onRefresh} onClose={() => { setConnectOpen(false); setConnectResult(null); }} />}
     </div>
   );
 }
@@ -1723,7 +1723,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
 const reservedAgentAddresses = new Set(['admin', 'administrator', 'agents', 'abuse', 'billing', 'contact', 'help', 'info', 'mail', 'noreply', 'no-reply', 'postmaster', 'root', 'security', 'support', 'system']);
 const validAgentLocalPart = (value: string) => value.length >= 3 && value.length <= 32 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value) && !reservedAgentAddresses.has(value);
 
-export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents.com', result, setResult, onClose, onRefresh, reconnectAgent }: { workspace: Workspace; agentDomain?: string; result: EnrollmentResult | null; setResult: (value: EnrollmentResult | null) => void; onClose: () => void; onRefresh?: () => Promise<unknown>; reconnectAgent?: Agent & { runtime?: ConnectorRuntime } }) {
+export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', result, setResult, onClose, onRefresh, reconnectAgent }: { workspace: Workspace; agentDomain?: string; result: EnrollmentResult | null; setResult: (value: EnrollmentResult | null) => void; onClose: () => void; onRefresh?: () => Promise<unknown>; reconnectAgent?: Agent & { runtime?: ConnectorRuntime } }) {
   const reenroll = reconnectAgent?.status === 'revoked' || reconnectAgent?.credentialRevoked === true;
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [name, setName] = useState('');

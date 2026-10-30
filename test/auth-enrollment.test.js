@@ -571,7 +571,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(afterLogout.status, 401);
 });
 
-test('chosen beta agent addresses are exact, unique, and capped per human', async t => {
+test('chosen legacy-domain agent addresses are exact, unique, and capped per human', async t => {
   const server = await startServer({ ENVOI_AGENT_DOMAIN: 'agents.envoi-agents.com', ENVOI_ENFORCE_BETA_AGENT_LIMIT: '1' });
   t.after(server.stop);
   const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550991', displayName: 'Address Owner' } });
@@ -627,6 +627,54 @@ test('chosen beta agent addresses are exact, unique, and capped per human', asyn
   });
   assert.equal(retiredAddress.status, 404);
   assert.equal((await enroll('third')).status, 409);
+});
+
+test('new beta addresses use the apex domain while previously enrolled agents remain addressable', async t => {
+  let server = await startServer({ ENVOI_AGENT_DOMAIN: 'agents.envoi-agents.com' });
+  t.after(async () => { if (server) await server.stop(); });
+  const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550992', displayName: 'Domain Owner' } });
+  const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
+  assert.equal(verified.status, 200);
+  const sessionToken = verified.payload.sessionToken;
+  const setup = await request(server.baseUrl, '/api/auth/totp/setup', { token: sessionToken, body: {} });
+  assert.equal((await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: generateSync({ secret: setup.payload.secret }) } })).status, 200);
+  const workspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Domain workspace' } });
+  const enroll = async (localPart) => {
+    const token = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, {
+      token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'], agentProfile: { name: localPart, localPart } }
+    });
+    assert.equal(token.status, 201, JSON.stringify(token.payload));
+    const result = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: token.payload.enrollmentToken } });
+    assert.equal(result.status, 201, JSON.stringify(result.payload));
+    return result.payload;
+  };
+  const legacy = await enroll('legacy');
+  assert.equal(legacy.agent.address, 'legacy@agents.envoi-agents.com');
+  const dataDir = server.dataDir;
+  await server.stop();
+  server = null;
+  server = await startServer({ ENVOI_DATA_DIR: dataDir, ENVOI_AGENT_DOMAIN: 'envoi-agents.com' });
+  const availability = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-address-availability?localPart=modern`, { token: sessionToken });
+  assert.deepEqual(availability.payload, { localPart: 'modern', address: 'modern@envoi-agents.com', available: true });
+  const modern = await enroll('modern');
+  assert.equal(modern.agent.address, 'modern@envoi-agents.com');
+  for (const [sender, recipient, key] of [[modern, legacy, 'new-to-legacy'], [legacy, modern, 'legacy-to-new']]) {
+    const sent = await request(server.baseUrl, `/api/inboxes/${sender.inbox.id}/messages`, {
+      token: sender.agentApiToken, headers: { 'Idempotency-Key': key },
+      body: { senderAgentId: sender.agent.id, recipientEmail: recipient.agent.address, text: key }
+    });
+    assert.equal(sent.status, 202, JSON.stringify(sent.payload));
+    const delivered = await waitFor(async () => {
+      const messages = await request(server.baseUrl, `/api/inboxes/${recipient.inbox.id}/messages`, { token: sessionToken });
+      return messages.payload.find(message => message.id === sent.payload.id && message.status === 'delivered');
+    });
+    assert.equal(delivered.from.address, sender.agent.address);
+  }
+  const unrelatedDomain = await request(server.baseUrl, `/api/inboxes/${modern.inbox.id}/messages`, {
+    token: modern.agentApiToken, headers: { 'Idempotency-Key': 'unrelated-domain-denied' },
+    body: { senderAgentId: modern.agent.id, recipientEmail: 'legacy@agents.sinaloa-inbox.com', text: 'Should not route' }
+  });
+  assert.equal(unrelatedDomain.status, 404);
 });
 
 test('failed enrollment rolls back token claim and all account records', async t => {
