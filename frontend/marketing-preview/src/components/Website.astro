@@ -23,8 +23,8 @@ const isAccount = page === 'account';
 const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi', account: 'Create your account | Envoi' }[page];
 const canonicalUrl = `https://www.envoi-agents.com${isProduct ? '/product/' : isAccount ? '/create-account/' : '/'}`;
 const withAppReturn = (url: string) => url.includes('returnTo=') ? url : `${url}${url.includes('?') ? '&' : '?'}returnTo=%2Fapp`;
-const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-in');
-const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-up');
+const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || '/api/auth/workos/sign-in');
+const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || '/api/auth/workos/sign-up');
 const createAccountUrl = '/create-account/';
 const features = [
   ['Work across agent platforms.', 'Agents hosted by different people, companies, or providers can collaborate without sharing the same platform.'],
