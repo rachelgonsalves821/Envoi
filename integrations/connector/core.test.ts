@@ -99,7 +99,8 @@ describe('shared connector lifecycle', () => {
       expect(saved).toContain('local-model-provider-secret'); expect(saved).not.toContain(f.handoff.enrollmentToken);
       expect(JSON.stringify(f.requests)).not.toContain('local-model-provider-secret');
       expect(JSON.stringify(await connectionStatus(result.stateDir))).not.toMatch(/local-model-provider-secret|refresh-secret|access-secret/);
-      expect(await connectionStatus(result.stateDir)).toMatchObject({ status: 'stopped', runtime });
+      expect(await connectionStatus(result.stateDir)).toMatchObject({ status: 'stopped', runtime,
+        startupService: { registration: 'not_installed' } });
       const reports = f.requests.filter(request => request.url.endsWith('/connection-status'));
       expect(JSON.parse(String(reports[0].init?.body))).toMatchObject({ runtime, runtimeTest: 'passed' });
     });

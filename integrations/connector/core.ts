@@ -10,7 +10,7 @@ import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, ty
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { ConnectorSetupError, type AdapterOptions, type ConnectorAdapter, type RuntimeBridge } from './adapter';
 import { privateDirectory, privateJson, acquireConnectorLock } from './store';
-import { checkServiceManager } from './service';
+import { checkServiceManager, inspectConnectorService } from './service';
 import { startControl, queryControl } from './control';
 import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-error';
 import { migrateConnectionDirectory } from './migrate';
@@ -511,9 +511,10 @@ export async function connectionStatus(stateDir: string) {
   const checks = await readFile(path.join(directory, 'setup-check.json'), 'utf8').then(text => JSON.parse(text) as { checkedAt?: string }).catch(() => null);
   const enrollmentError = await readEnrollmentDiagnostic(directory);
   const lastRuntime = await readRuntimeDiagnostic(directory);
+  const startupService = await inspectConnectorService(directory, saved.runtime).catch(() => ({ registration: 'unverified' as const }));
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
     credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle, guidance: session?.lifecycle?.guidance, ...(enrollmentError ? { enrollmentError } : {}),
-    stateDir: directory, status: live?.status ?? 'stopped', checkedAt: live?.checkedAt ?? checks?.checkedAt,
+    stateDir: directory, status: live?.status ?? 'stopped', startupService, checkedAt: live?.checkedAt ?? checks?.checkedAt,
     runtimeDiagnostic: live ? { phase: live.phase, runtimeChecks: live.runtimeChecks,
       ...(live.errorCode ? { errorCode: live.errorCode } : {}), ...(live.retryAt ? { retryAt: live.retryAt } : {}),
       ...(live.wake ? { wake: live.wake } : {}) } : lastRuntime,

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { windowsAccountSid, windowsExecutable } from './windows';
 import { privateDirectory } from './store';
 import { replaceConfiguration } from '../hermes/config';
-import { connectorService } from './service';
+import { connectorService, inspectConnectorService } from './service';
 
 afterEach(() => vi.unstubAllEnvs());
 describe('native Windows helpers', () => {
@@ -28,6 +28,25 @@ describe('native Windows helpers', () => {
         expect((error as Error).message).not.toContain('secret');
       }
     }
+  });
+  it('distinguishes a service manifest from a confirmed host registration across platforms', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'envoi-service-observe-'));
+    try {
+      const directory = path.join(root, 'agent'); await mkdir(directory);
+      for (const platform of ['win32', 'linux', 'darwin']) {
+        const options = { platform, home: root, env: { SystemRoot: 'C:\\Windows' } };
+        const service = connectorService(directory, { ...options, runtime: 'hermes', user: 'S-1-5-123' });
+        expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => { throw new Error('must not query'); } }))
+          .toMatchObject({ registration: 'not_installed' });
+        await mkdir(path.dirname(service.filename), { recursive: true }); await writeFile(service.filename, service.contents);
+        let command: [string, string[]] | undefined;
+        const observed = await inspectConnectorService(directory, 'hermes', { ...options, run: async (executable, args) => { command = [executable, args]; } });
+        expect(observed).toMatchObject({ name: service.name, registration: 'registered' });
+        expect(command?.[1]).toContain(service.name + (platform === 'linux' ? '.service' : ''));
+        expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => { throw new Error('manager unavailable'); } }))
+          .toMatchObject({ registration: 'unverified' });
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
   it.skipIf(process.platform !== 'win32')('protects credentials despite Git-style PATH shadows', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'envoi-windows-path-'));

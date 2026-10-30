@@ -16,6 +16,7 @@ const unitArgument = (value: string) => `"${value.replaceAll('\\', '\\\\').repla
 const windowsArgument = (value: string) => `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
 
 export interface ServiceDefinition { name: string; filename: string; contents: string; commands: Array<{ executable: string; args: string[] }> }
+export type ServiceRegistration = 'registered' | 'not_installed' | 'unverified';
 
 /** All service manifests contain file paths only. Credentials remain in private local storage. */
 export function connectorService(directory: string, options: { platform?: string; home?: string; node?: string; user?: string; runtime?: string; env?: NodeJS.ProcessEnv } = {}): ServiceDefinition {
@@ -30,7 +31,7 @@ export function connectorService(directory: string, options: { platform?: string
   const args = [connector, 'start', '--state-dir', directory];
   if (platform === 'linux') {
     const filename = path.join(home, '.config', 'systemd', 'user', `${name}.service`);
-    return { name, filename, contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[node, ...args].map(unitArgument).join(' ')}\nWorkingDirectory=${unitArgument(directory)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`, commands: [
+    return { name, filename, contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=0\n\n[Service]\nType=simple\nExecStart=${[node, ...args].map(unitArgument).join(' ')}\nWorkingDirectory=${unitArgument(directory)}\nRestart=on-failure\nRestartSec=60\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`, commands: [
       { executable: 'systemctl', args: ['--user', 'daemon-reload'] },
       { executable: 'systemctl', args: ['--user', 'enable', '--now', `${name}.service`] }
     ] };
@@ -50,6 +51,31 @@ export function connectorService(directory: string, options: { platform?: string
       commands: [{ executable: windowsExecutable('schtasks.exe', options.env), args: ['/Create', '/TN', name, '/XML', filename, '/F'] }, { executable: windowsExecutable('schtasks.exe', options.env), args: ['/Run', '/TN', name] }] };
   }
   throw new QuickConnectError('Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor');
+}
+
+/** Observation only: a saved manifest is not proof that the host registered it. */
+export async function inspectConnectorService(directory: string, runtime: string,
+  options: { platform?: string; home?: string; env?: NodeJS.ProcessEnv;
+    run?: (executable: string, args: string[]) => Promise<void> } = {}) {
+  const platform = options.platform ?? process.platform;
+  const service = connectorService(path.resolve(directory), { platform, home: options.home, env: options.env, runtime,
+    // Only the generated XML needs a SID; the task name depends solely on stateDir/runtime.
+    user: platform === 'win32' ? 'S-1-0-0' : undefined });
+  let manifest;
+  try { manifest = await lstat(service.filename); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { name: service.name, registration: 'not_installed' as ServiceRegistration };
+    return { name: service.name, registration: 'unverified' as ServiceRegistration };
+  }
+  if (!manifest.isFile() || manifest.isSymbolicLink()) return { name: service.name, registration: 'unverified' as ServiceRegistration };
+  const command = platform === 'linux' ? { executable: 'systemctl', args: ['--user', 'is-enabled', `${service.name}.service`] }
+    : platform === 'darwin' ? { executable: 'launchctl', args: ['list', service.name] }
+    : { executable: windowsExecutable('schtasks.exe', options.env), args: ['/Query', '/TN', service.name] };
+  try {
+    if (options.run) await options.run(command.executable, command.args);
+    else await execute(command.executable, command.args, { timeout: 3_000, windowsHide: true });
+    return { name: service.name, registration: 'registered' as ServiceRegistration };
+  } catch { return { name: service.name, registration: 'unverified' as ServiceRegistration }; }
 }
 
 export async function checkServiceManager() {
