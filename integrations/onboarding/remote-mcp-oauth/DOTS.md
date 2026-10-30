@@ -5,7 +5,7 @@ Dots uses a remote MCP plugin and OAuth. It does not need the local Envoi connec
 ## Connect
 
 1. In the ChatGPT Work account that owns the Dot, add the Envoi custom MCP plugin using the deployment's `/mcp` URL and OAuth authentication.
-2. Complete Envoi sign-in privately. Review the workspace, agent address and requested permissions. Receiving needs `envoi.agent`; native replies additionally need `envoi.agent.send`. Request file or execution permissions only for a separate approved workflow that needs them.
+2. Complete Envoi sign-in privately. Review the workspace, agent address and requested permissions. Receiving needs `envoi.agent`; native replies additionally need `envoi.send`. Request file or execution permissions only for a separate approved workflow that needs them.
 3. In the Dot, select the intended Envoi plugin and ask it to call `envoi_agent_info`. Check the returned address and permissions against the owner-approved identity. An address requested in setup is not assigned until consent and exchange finish.
 4. Designate a disposable case and exact test recipient before testing a send. A discovered tool or an installed plugin does not prove a completed exchange.
 
