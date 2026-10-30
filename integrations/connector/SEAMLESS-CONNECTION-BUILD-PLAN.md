@@ -49,6 +49,8 @@ Build all generated artifacts from one reviewed source SHA; verify release hashe
 
 ## Acceptance gates and measures
 
+The exact-build, route-specific host procedure and safe evidence format are in [RECONNECT-RECOVERY-GATE.md](./RECONNECT-RECOVERY-GATE.md). Prior countersigned B/C acceptance remains historical evidence; the changed connector bytes need their own targeted recovery rows.
+
 1. **Identity:** one onboarding; same agent, inbox and installation after every restart and upgrade; zero duplicate registrations.
 2. **Recovery:** after host and network return, recoverable local outages reach a ready wake stream within 2 minutes at p95 and claim queued work within 1 additional minute. Measure from host readiness, not from when a powered-off machine was unavailable.
 3. **Correctness:** zero duplicate external replies, zero lost accepted work, and no automatic replacement model turn after an uncertain effect.

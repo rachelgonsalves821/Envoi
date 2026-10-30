@@ -7,10 +7,15 @@ is a replaceable path to tools, not the mailbox. Envoi keeps the queue authorita
 SSE wakes the running connector, a saved cursor plus delta repairs event gaps, and
 bounded safety claims catch work after an offline period. A connector and its runtime
 Gateway still need a host supervisor and a machine that stays awake. Windows startup
-is a user-logon task with bounded restart attempts; it does not run while the user is
-logged out or the computer is asleep.
+is a user-logon task that rechecks a stopped connector each minute while the
+session is active; it does not run while the user is logged out or the computer
+is asleep. The Linux user service retries failed starts at one-minute intervals,
+but a user service needs a running user manager after logout.
 
-`status` now includes `runtimeDiagnostic`. While the process is alive, its authenticated
+`status` includes `startupService.registration` and `runtimeDiagnostic`.
+Registration means the host manager recognizes the installed task or service;
+it does not prove that it is enabled, running, or processing work. `unverified`
+means the manager could not be queried safely. While the process is alive, its authenticated
 local control endpoint reports the current startup phase and `wake.transport`, with
 last ready, event, and successful work-claim times. `connected` means the Envoi event
 stream delivered its ready frame; it does **not** mean a model turn or MCP tool call
@@ -22,10 +27,10 @@ code investigated before restarting. Preserve the enrollment and work journal.
 
 | Runtime route | What must stay running | Reconnect check | Recovery boundary |
 | --- | --- | --- | --- |
-| Hermes scoped | Selected canonical Hermes Gateway and one Envoi connector for the saved profile | Daemon identity and pinned origin, then scoped tool invocation; status shows `tool_verification` until ready | If the selected daemon is absent **before work is claimed**, startup retries the same saved origin. A changed daemon origin needs owner-confirmed reselection. An uncertain or failed saved turn keeps its journal; no automatic replacement model call. |
-| Hermes legacy | Hermes Gateway plus loopback MCP relay and connector | Gateway MCP rediscovery may take the bounded recovery window | A relay socket alone does not prove tool invocation. |
-| OpenClaw scoped or legacy | OpenClaw Gateway and the connector, supervised separately | Gateway preflight and scoped or legacy tool verification for the selected agent | A Gateway restart may be retried; credentials or scoped-mode mismatch require owner action. |
-| Grok and other hosted model routes | A continuously supervised connector or configured hosted wake worker | Provider preflight plus Envoi wake and work claim | Provider availability is separate from inbox delivery; do not use a model heartbeat merely to show presence. |
+| Hermes scoped | Selected canonical Hermes Gateway and one Envoi connector for the saved profile | Read-only pinned daemon check, then scoped tool invocation; status shows `tool_verification` until ready | If the selected daemon is absent **before work is claimed**, startup retries the same saved origin. A changed daemon origin needs owner-confirmed reselection. An uncertain or failed saved turn keeps its journal; no automatic replacement model call. |
+| Hermes legacy | Hermes Gateway plus loopback MCP relay and connector | Read-only capabilities check, then model-driven MCP tool verification during the bounded recovery window | A relay socket alone does not prove tool invocation. The real tool proof still spends a model call on idle restart until a supported no-model probe exists. |
+| OpenClaw scoped or legacy | OpenClaw Gateway and the connector, supervised separately | Authenticated read-only Gateway core readiness, then selected-agent tool verification | A Gateway restart may be retried; credentials or scoped-mode mismatch require owner action. |
+| Grok and other hosted model routes | A continuously supervised connector or configured hosted wake worker | Read-only provider catalog check plus Envoi wake and work claim | Provider availability is separate from inbox delivery; do not use a model heartbeat merely to show presence. |
 | Remote MCP / on-demand | Provider-owned MCP service; no local connector to keep alive | Provider session and auth health, then an actual tool call | The provider owns reconnection. Envoi must not claim an always-on local runtime for this route. |
 
 The design follows the [A2A task model](https://a2a-protocol.org/latest/specification/):

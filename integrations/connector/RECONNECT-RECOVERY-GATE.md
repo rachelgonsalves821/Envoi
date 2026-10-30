@@ -1,0 +1,40 @@
+# Reconnect recovery gate for a new connector build
+
+This gate applies to the exact connector build proposed for release. It does not reopen the human-countersigned historical Phase B/C tests in `integrations/gates/phase-c/EVIDENCE.md`. A source change after that acceptance needs new evidence for the behavior it changes. Run only with approved disposable staging agents and the owner's authorization for fault injection, model calls and sends. Keep production profiles, authority records and journals untouched.
+
+## Freeze before running
+
+Record the integration SHA, Envoi staging `/health` release SHA, packaged connector SHA256 from `web/downloads/release.json`, runtime and host versions, supervisor definition revision, staging agent/inbox/installation identifiers, and the exact old build used for rollback. The site and connector must target the same staging origin. Never infer a pass from a local mock, a successful build, a connected socket, a registration record or an inbox delivery alone.
+
+The owner installs the candidate executable over a backup while retaining the same private state directory and the selected Gateway origin. Reinstalling an existing host task/unit to receive a changed supervisor definition is an explicit owner action. Do not create a replacement agent. On a selected scoped Hermes origin change, stop and use its supported owner-confirmed reselection procedure; do not edit private authority data.
+
+## Evidence for every route
+
+| ID | Action on the exact candidate | Pass evidence |
+| --- | --- | --- |
+| R1 | Start the existing installation once, then stop and restart the connector. | Same address, agent ID, inbox and installation; one local owner; no new claim or enrollment; safe status progresses from startup to ready. |
+| R2 | Deliver a uniquely identified staging task while the receiver is offline, then restore its host. | Sender and receiver inbox records, one canonical claim, one actual agent processing turn/tool action, one fenced settlement and one reply visible on both sides. Record work/case/receipt IDs and UTC timestamps privately. |
+| R3 | Drop the Envoi wake stream, including a stale replay cursor; restore networking without a new task event. | Saved cursor/delta or safety claim recovers queued and retry-delayed work; exactly one effect and reply. A missing SSE frame must not lose accepted work. |
+| R4 | Interrupt the runtime Gateway/provider before claim, then restore it at its saved authority. | Connector reports a retryable safe code, remains under its supervisor, and resumes the same installation without owner approval or a replacement model turn. Do not use this row for a changed scoped Gateway origin. |
+| R5 | Crash the connector process; separately exercise supervisor restart exhaustion and host sleep/wake or logout/logon where supported. | One replacement process holds the connector lock, no duplicate claim or reply, and queued work is processed after the host is capable again. Measure ready stream and first claim from host readiness. |
+| R6 | Rotate an access token during an otherwise idle connection, then pause/resume and revoke a disposable installation. | Refresh preserves identity and pause semantics; resume claims held work; revoke stops refresh, claim and late settlement. A terminal credential or scope change reports owner action rather than silently reenrolling. |
+| R7 | With no task queued, restart the connector and count provider inference requests. | Zero idle inference for Hermes scoped, OpenClaw and Grok. Hermes legacy records its known model-driven MCP tool proof as an exception until a supported no-model proof passes. |
+
+Use a unique task identifier and record a before/after canonical receipt for each fault. The expected recovery target for local routes is a ready wake stream within two minutes at p95 and a queued-work claim within one further minute after the host and selected runtime are ready. Measure repeated trials, not one anecdotal restart. Stop the gate on an uncertain external effect; preserve its journal and reconcile through the supported owner procedure.
+
+## Route and host matrix
+
+| Route | Required additional check | Scope of always-on claim |
+| --- | --- | --- |
+| Hermes scoped | Pinned daemon descriptor and scoped tool call after restart; owner-confirmed reselection only when origin changes; uncertain-turn journal remains fenced. | Connector **and** selected Gateway must be supervised on a capable awake host. |
+| Hermes legacy | Relay remains reachable through Gateway MCP rediscovery; the Gateway actually calls `envoi_agent_info`. Measure the restart model-proof cost separately. | Same two-process host requirement; no zero-cost idle claim yet. |
+| OpenClaw scoped/legacy | Selected agent and scoped-mode marker survive service environment loss; `/readyz` core readiness is not confused with an unrelated chat-channel failure; actual agent/tool turn succeeds. | Connector and Gateway are separately supervised. |
+| Grok scoped/legacy | Saved provider credential passes read-only catalog check; temporary provider outage retries, auth rejection stops, and the next real task uses the intended model. | Local connector or hosted wake worker must stay available; xAI itself is provider-owned. |
+| Hosted HTTP wake/provider worker | Signed wake callback is accepted durably, deduplicated, reconciled after worker restart, and followed by canonical work processing. | Host operator must prove its receiver and worker remain available independently of a browser tab. |
+| Authenticated REST/remote MCP OAuth | Access refresh, expired MCP transport/session reinitialization, durable task lookup, paused/revoked responses and a real authenticated tool call. | Provider-owned service availability; no local Envoi connector supervisor to test. Label on-demand routes honestly. |
+
+For Windows, inspect the registered task, a live connector control response, and an independently running Gateway. The new task definition repeats its logon trigger each minute and ignores an already running instance; it cannot serve while the machine is asleep or the user session is absent. For Linux, verify the user manager's lifetime or use an approved system service; the candidate unit retries failures at one-minute intervals. For macOS, verify the launchd agent and its login-session boundary. A healthy connector process does not certify a healthy Gateway.
+
+## Safe evidence summary
+
+Publish only: exact source/artifact hashes, route and host type, row pass/fail, safe error code, UTC event times, model-call count, canonical receipt IDs approved for sharing, and the smallest next action. Keep credentials, claim codes, session tokens, private logs, task contents and raw provider responses on the host. An owner countersigns each real-host row and Lane A countersigns server/queue and hosted-worker rows. If a row fails, fix the candidate and rerun the affected route on its new exact SHA; a different artifact cannot inherit the previous pass.
