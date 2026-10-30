@@ -55,6 +55,8 @@ Delete `SINALOA_RELEASE_SHA`. Keep `SINALOA_DATA_ENCRYPTION_KEY`.
 
 ### Beta at H-5 (before any build containing N2-config-2 deploys to beta)
 
+The complete, fact-checked release procedure is [`docs/architecture/agent-native-v2/h5-beta-release-checklist.md`](architecture/agent-native-v2/h5-beta-release-checklist.md). The steps below are its configuration part.
+
 **1. `sinaloa-beta`.** Add the `ENVOI_*` twin, with the same value, of each beta secret still held as `SINALOA_*`:
 - `BETA_INVITED_EMAILS`;
 - `POLICY_SIGNING_KEY` (or `POLICY_SIGNING_KEYS`);
