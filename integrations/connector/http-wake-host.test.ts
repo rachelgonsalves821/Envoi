@@ -135,6 +135,19 @@ describe('private wake host', () => {
     await expect(setupState.host.run(new AbortController().signal)).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' });
     expect(setupState.transport.create).not.toHaveBeenCalled(); expect(setupState.driver.processWorkOnce).not.toHaveBeenCalled();
   });
+  it('keeps the hosted worker alive through a temporary upstream status failure', async () => {
+    vi.useFakeTimers();
+    const setupState = setup(); const stop = new AbortController();
+    setupState.transport.status.mockRejectedValueOnce(new EnvoiError('Temporary upstream response', 503, 'NETWORK_ERROR'));
+    const running = setupState.host.run(stop.signal, 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(setupState.transport.status).toHaveBeenCalledTimes(1);
+    expect(setupState.driver.processWorkOnce).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(setupState.transport.status).toHaveBeenCalledTimes(2);
+    expect(setupState.driver.processWorkOnce).toHaveBeenCalledOnce();
+    stop.abort(); await running;
+  });
   it('honors an earlier canonical work-due hint instead of waiting for the safety interval', async () => {
     vi.useFakeTimers();
     const setupState = setup(); const stop = new AbortController();

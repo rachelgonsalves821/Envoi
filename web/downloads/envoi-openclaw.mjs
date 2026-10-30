@@ -1186,7 +1186,14 @@ var Ve = class {
 				}
 				return await L(r, "Wake request was refused");
 			} catch (e) {
-				throw n?.aborted ? new I("Wake request was cancelled", void 0, "REQUEST_CANCELLED") : a.aborted ? new I("Wake request timed out", void 0, "TIMEOUT") : e instanceof I ? e : new I("Invalid wake response");
+				if (n?.aborted) throw new I("Wake request was cancelled", void 0, "REQUEST_CANCELLED");
+				if (a.aborted) throw new I("Wake request timed out", void 0, "TIMEOUT");
+				if (e instanceof I) throw e;
+				if (o.status === 429 || o.status >= 500) {
+					let e = o.headers.get("retry-after"), t = e && /^\d{1,6}$/.test(e) ? Math.min(Number(e), 86400) : 0;
+					throw new I("Wake service is temporarily unavailable", o.status, o.status === 429 ? "RATE_LIMITED" : "NETWORK_ERROR", t ? { retryAfterSeconds: t } : void 0);
+				}
+				throw new I("Invalid wake response");
 			} finally {
 				await c?.cancel().catch(() => {});
 			}

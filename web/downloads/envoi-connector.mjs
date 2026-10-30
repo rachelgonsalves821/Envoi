@@ -1692,7 +1692,14 @@ var G = class {
 				}
 				return await de(r, "Wake request was refused");
 			} catch (e) {
-				throw n?.aborted ? new L("Wake request was cancelled", void 0, "REQUEST_CANCELLED") : a.aborted ? new L("Wake request timed out", void 0, "TIMEOUT") : e instanceof L ? e : new L("Invalid wake response");
+				if (n?.aborted) throw new L("Wake request was cancelled", void 0, "REQUEST_CANCELLED");
+				if (a.aborted) throw new L("Wake request timed out", void 0, "TIMEOUT");
+				if (e instanceof L) throw e;
+				if (o.status === 429 || o.status >= 500) {
+					let e = o.headers.get("retry-after"), t = e && /^\d{1,6}$/.test(e) ? Math.min(Number(e), 86400) : 0;
+					throw new L("Wake service is temporarily unavailable", o.status, o.status === 429 ? "RATE_LIMITED" : "NETWORK_ERROR", t ? { retryAfterSeconds: t } : void 0);
+				}
+				throw new L("Invalid wake response");
 			} finally {
 				await c?.cancel().catch(() => {});
 			}

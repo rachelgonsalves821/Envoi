@@ -636,6 +636,15 @@ export class EnvoiConnector {
         if (signal?.aborted) throw new EnvoiError('Wake request was cancelled', undefined, 'REQUEST_CANCELLED');
         if (deadline.aborted) throw new EnvoiError('Wake request timed out', undefined, 'TIMEOUT');
         if (error instanceof EnvoiError) throw error;
+        // A proxy may return HTML or an empty body for a temporary 429/5xx.
+        // Preserve a valid canonical error envelope; classify only malformed replies by status.
+        if (response.status === 429 || response.status >= 500) {
+          const header = response.headers.get('retry-after');
+          const seconds = header && /^\d{1,6}$/.test(header) ? Math.min(Number(header), 86_400) : 0;
+          throw new EnvoiError('Wake service is temporarily unavailable', response.status,
+            response.status === 429 ? 'RATE_LIMITED' : 'NETWORK_ERROR',
+            seconds ? { retryAfterSeconds: seconds } : undefined);
+        }
         throw new EnvoiError('Invalid wake response');
       } finally { await reader?.cancel().catch(() => {}); }
     }, false);
