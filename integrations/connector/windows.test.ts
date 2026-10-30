@@ -16,6 +16,9 @@ describe('native Windows helpers', () => {
     expect(windowsExecutable('icacls.exe', { windir: 'C:\\Windows' })).toBe('C:\\Windows\\System32\\icacls.exe');
     const service = connectorService('C:\\private\\agent', { platform: 'win32', user: 'S-1-5-123', env });
     expect(service.commands.map(command => command.executable)).toEqual(['D:\\Windows\\System32\\schtasks.exe', 'D:\\Windows\\System32\\schtasks.exe']);
+    expect(service.contents).toMatch(/<LogonTrigger><Enabled>true<\/Enabled><Repetition><Interval>PT1M<\/Interval><StopAtDurationEnd>false<\/StopAtDurationEnd><\/Repetition><UserId>/);
+    expect(service.contents).toContain('<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>');
+    expect(service.contents).toContain('<RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure>');
   });
   it('rejects unavailable or unsafe system directories without echoing environment values', () => {
     for (const SystemRoot of [undefined, 'relative', '\\\\remote\\Windows', 'C:\\bad\nsecret', 'C:\\Windows|secret']) {
