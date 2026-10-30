@@ -194,7 +194,7 @@ test('an invalid nonempty staging value fails closed naming only the setting', a
   const { store } = await fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0 });
   const invalid = [
     'a@example.test,b@example.test', 'a@example.test;b@example.test', 'a@example.test b@example.test', 'not-an-email', '@example.test',
-    'secret-local@', 'secret@nodot', 'secret local@example.test', `${'x'.repeat(250)}@example.test`
+    'secret-local@', 'secret@nodot', 'secret local@example.test', '*@example.test', 'owner@*.example.test', 'ow*ner@example.test', 'owner@example.*', `${'x'.repeat(250)}@example.test`
   ];
   for (const value of invalid) {
     assert.throws(() => new WorkOSAuthService(store, {
@@ -202,6 +202,19 @@ test('an invalid nonempty staging value fails closed naming only the setting', a
       workos: {}, invitedEmails: 'old-one@example.test', deploymentEnvironment: 'staging', stagingAdditionalInvitedEmail: value
     }), error => settingError.test(error.message) && !error.message.includes(value.trim().slice(0, 8)));
   }
+});
+
+test('wildcard inputs are refused: only one literal address can ever be admitted', async t => {
+  const { store } = await fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0 });
+  for (const value of ['*@example.test', 'owner@*.example.test']) {
+    assert.throws(() => new WorkOSAuthService(store, {
+      clientId: 'client_fixture', apiKey: 'sk_fixture', cookiePassword: 'x'.repeat(32), redirectUri: 'https://app.example.test/callback',
+      workos: {}, invitedEmails: 'old-one@example.test', deploymentEnvironment: 'staging', stagingAdditionalInvitedEmail: value
+    }), error => settingError.test(error.message) && !error.message.includes('example.test'));
+  }
+  // Outside staging the same values are ignored, never an error and never a grant.
+  const beta = await fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0, deploymentEnvironment: 'beta', stagingAdditionalInvitedEmail: '*@example.test' });
+  assert.equal(beta.auth.admitted(user('any', 'anyone@example.test')), false);
 });
 
 test('the extra staging address does not consume a public slot and survives a full public ledger', async t => {
