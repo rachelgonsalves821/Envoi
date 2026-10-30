@@ -12,6 +12,7 @@ import {
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
 import { loadInitialWorkspace } from './initial-workspace';
+import { createWorkspaceSwitch } from './workspace-switch';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
@@ -168,6 +169,7 @@ function WorkspaceApp() {
   const loadRodeOutTabSwitch = useRef(false);
   const validation = useRef<AbortController | null>(null);
   const viewRequests = useRef(new AbortController());
+  const workspaceSwitch = useRef(createWorkspaceSwitch<HumanView>());
   const viewOrder = useRef(createViewResponseOrder());
   const eventCursors = useRef(createEventCursorStore());
   const quietReads = useRef<{ workspaceId: string; generation: number; coordinator: ReturnType<typeof createRefreshCoordinator<HumanView>> } | null>(null);
@@ -181,6 +183,7 @@ function WorkspaceApp() {
   }, []);
 
   const clearPrivateState = useCallback(() => {
+    workspaceSwitch.current.cancel();
     validation.current?.abort(new SessionRequestCancelled());
     validation.current = null;
     cancelWorkspaceReads();
@@ -521,11 +524,21 @@ function WorkspaceApp() {
   }, [boot, config, expireSession, human?.id, quietRefresh, loadWorkspaceDirectory, sessionCheck, workspace]);
 
   async function selectWorkspace(next: Workspace) {
+    if (next.id === workspace?.id) {
+      workspaceSwitch.current.cancel();
+      return;
+    }
+    const generation = sessionGeneration();
+    // Keep the current authorized workspace mounted while the next one loads.
+    // Commit its identity and view together only after the server authorizes it.
+    const nextView = await workspaceSwitch.current.load(next.id, (id, signal) => api.humanView(id, undefined, signal), checkViewIdentity);
+    if (!nextView || !isCurrentSession(generation)) return;
     cancelWorkspaceReads();
+    activeWorkspace.current = next.id;
     setHistoryBusy(false);
     setWorkspace(next);
+    setView(nextView);
     localStorage.setItem(WORKSPACE_KEY, next.id);
-    await loadView(next.id);
   }
 
   async function createWorkspace(name: string) {
@@ -773,6 +786,8 @@ export function AppShell(props: ShellProps) {
   const [expandedAgents, setExpandedAgents] = useState<string[]>([]);
   const [toast, setToast] = useState('');
   const [childViews, setChildViews] = useState<Record<string, HumanView>>({});
+  const currentWorkspaceId = useRef(workspace.id);
+  currentWorkspaceId.current = workspace.id;
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
@@ -817,12 +832,13 @@ export function AppShell(props: ShellProps) {
   useEffect(() => {
     if (rootWorkspace.id === previewWorkspace.id) return;
     let cancelled = false;
-    const inboxes = [rootWorkspace, ...agentInboxes];
     let loading = false;
     async function refreshChildren() {
       if (loading) return;
       loading = true;
       try {
+        // The selected inbox already has an authorized view from WorkspaceApp.
+        const inboxes = [rootWorkspace, ...agentInboxes].filter(inbox => inbox.id !== currentWorkspaceId.current);
         const results = await Promise.all(inboxes.map(async inbox => {
           const order = childResponseOrder(inbox.id);
           const ticket = order.begin();
@@ -866,7 +882,9 @@ export function AppShell(props: ShellProps) {
   }
   function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox') {
     chooseSection(nextSection);
-    if (next.id !== workspace.id) void onSelectWorkspace(next, nextSection).catch(caught => setToast(errorMessage(caught)));
+    void onSelectWorkspace(next, nextSection).catch(caught => {
+      if (!(caught instanceof SessionRequestCancelled)) setToast(errorMessage(caught));
+    });
   }
   async function refreshSelectedCase() {
     if (selectedCaseView.inbox.id === workspace.id) { await onRefresh(); return; }
