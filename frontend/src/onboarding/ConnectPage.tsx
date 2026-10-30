@@ -37,7 +37,7 @@ export function ConnectPage({ initialAvailability, origin = typeof window === 'u
       <details className="connect-panel"><summary>Runtime instructions</summary><p>Use the reviewed private helper on a host with Node.js 22 or newer. Start it with <code>envoi-link connect {origin}</code>. If both runtimes are installed, select one explicitly through the helper's local runtime option.</p><a href="/connect/SKILL.md">Read setup skill</a>{' · '}<a href="/connect/HEARTBEAT.md">Read recovery guidance</a></details>
     </>}
     {selectedId === 'grok' && <p className="connect-route-note">The xAI API bridge is separate from the Hermes/OpenClaw beta. Legacy bridge setup remains under Advanced in your workspace.</p>}
-    {selectedId === 'dots' && <p className="connect-route-note">Dots uses a separate on-demand OAuth route when this deployment enables it. Its address is confirmed during approval; closed-app delivery is still being verified.</p>}
+    {selectedId === 'dots' && <p className="connect-route-note">Dots uses OAuth when this deployment enables it. Its address is confirmed during approval. Background notifications need an active native monitoring task; notification delivery does not confirm that work was completed.</p>}
   </main>;
 }
 
