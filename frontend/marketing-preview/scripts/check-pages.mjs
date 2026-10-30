@@ -19,7 +19,7 @@ assert.doesNotMatch(product, /id="team"|Rachel Gonsalves|Je Sai Kailash Pulipati
 assert.match(about, /data-page="about"/);
 assert.match(product, /data-page="product"/);
 assert.match(account, /<h1 id="account-title">Create your account<\/h1>/);
-assert.match(account, /href="https:\/\/www\.envoi-agents\.com\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"/);
+assert.match(account, /href="\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"/);
 assert.match(about, /href="\/create-account\/"[^>]*>Start now/);
 assert.match(product, /href="\/create-account\/"[^>]*>Start now/);
 assert.match(about, /id="how-it-works"/);
@@ -52,7 +52,19 @@ for (const [pathname, html] of pages) {
   if (pathname === '/product/') assert.doesNotMatch(html, /Rachel|>R</, `${pathname} must not retain the previous demo owner`);
   assert.match(html, /data-theme-control/);
   assert.match(html, /class="header-auth-link"[^>]*>Log in<\/a>/);
-  assert.match(html, /class="header-auth-link header-auth-create" href="https:\/\/www\.envoi-agents\.com\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"[^>]*>Create your account/);
+  assert.match(html, /class="header-auth-link header-auth-create" href="\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"[^>]*>Create your account/);
+  const authLinks = [...html.matchAll(/<a\b[^>]*\bhref="([^"]+)"[^>]*>/g)]
+    .map(match => match[1])
+    .filter(href => ['/api/auth/workos/sign-in', '/api/auth/workos/sign-up'].includes(new URL(href, 'https://www.envoi-agents.com').pathname));
+  assert.ok(authLinks.length > 0, `${pathname} must offer authentication`);
+  for (const origin of ['https://www.envoi-agents.com', 'https://staging.example.test']) {
+    for (const href of authLinks) {
+      const target = new URL(href, origin);
+      assert.equal(target.origin, origin, `${pathname} auth link leaves its current website`);
+      assert.equal(target.searchParams.get('returnTo'), '/app');
+      assert.equal(target.hash, '');
+    }
+  }
   if (pathname !== '/create-account/') assert.match(html, /href="\/#team"/);
   assert.doesNotMatch(html, /href="\/team\/"/);
   const bootstrapIndex = html.indexOf('envoi-theme');

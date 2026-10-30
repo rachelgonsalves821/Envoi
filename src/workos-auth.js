@@ -2,6 +2,7 @@ import './envoi-environment-bootstrap.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { WorkOS } from '@workos-inc/node';
+import { STAGING_ADDITIONAL_INVITED_EMAIL, stagingAdditionalInvitedEmail } from './deployment-identity.js';
 
 // Authorization must follow current provider membership, including demotions.
 // Sealed-session role/permission claims can outlive a membership change.
@@ -161,6 +162,9 @@ export class WorkOSAuthService {
     if (this.cookiePassword.length < 32) throw new Error('WORKOS_COOKIE_PASSWORD must be at least 32 characters');
     this.workos = options.workos || new WorkOS(this.apiKey, { clientId: this.clientId, issuer: this.issuer });
     this.invitedEmails = new Set(String(options.invitedEmails ?? process.env.ENVOI_BETA_INVITED_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+    const stagingEmail = stagingAdditionalInvitedEmail(options.stagingAdditionalInvitedEmail ?? process.env[STAGING_ADDITIONAL_INVITED_EMAIL],
+      options.deploymentEnvironment ?? process.env.ENVOI_DEPLOYMENT_ENVIRONMENT);
+    if (stagingEmail) this.invitedEmails.add(stagingEmail);
     this.signupMode = options.signupMode ?? process.env.ENVOI_HUMAN_SIGNUP_MODE ?? 'invite-only';
     if (!['invite-only', 'public'].includes(this.signupMode)) throw new Error('ENVOI_HUMAN_SIGNUP_MODE must be invite-only or public');
     this.publicSignupLimit = Number(options.publicSignupLimit ?? process.env.ENVOI_PUBLIC_SIGNUP_LIMIT ?? 0);
