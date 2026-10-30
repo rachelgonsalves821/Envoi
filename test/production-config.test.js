@@ -231,3 +231,24 @@ test('production permits legacy deployments without a release SHA but validates 
     assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_RELEASE_SHA: sha })), /ENVOI_RELEASE_SHA must be a full lowercase/);
   }
 });
+
+test('staging validates the separate additional invited email and every other deployment ignores it', () => {
+  const staging = overrides => validProduction({ ENVOI_DEPLOYMENT_ENVIRONMENT: 'staging', ...overrides });
+  assert.equal(validateProductionConfiguration(staging()).validated, true);
+  assert.equal(validateProductionConfiguration(staging({ ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: ' Extra@Example.test ' })).validated, true);
+  assert.equal(validateProductionConfiguration(staging({ ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: '  ' })).validated, true);
+  for (const value of ['a@example.test,b@example.test', 'a b@example.test', 'not-an-email', 'private-name@']) {
+    assert.throws(() => validateProductionConfiguration(staging({ ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: value })), error => {
+      assert.match(error.message, /ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL must be one exact email address/);
+      assert.equal(error.message.includes('private-name'), false);
+      return true;
+    });
+  }
+  // beta and every other deployment ignore it, even when it is malformed.
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'not-an-email' })).validated, true);
+  // The original list keeps its own limit: the extra address is not counted against the 32 entries.
+  const full = Array.from({ length: 32 }, (_, index) => `person${index}@example.test`).join(',');
+  assert.equal(validateProductionConfiguration(staging({ ENVOI_BETA_INVITED_EMAILS: full, ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'extra@example.test' })).validated, true);
+  assert.throws(() => validateProductionConfiguration(staging({ ENVOI_BETA_INVITED_EMAILS: `${full},person32@example.test` })), /at most 32 distinct/);
+  assert.throws(() => validateProductionConfiguration(staging({ ENVOI_BETA_INVITED_EMAILS: '', ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'extra@example.test' })), /ENVOI_BETA_INVITED_EMAILS is required/);
+});

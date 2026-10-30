@@ -181,3 +181,23 @@ test('human signup mode and quota reach the container and participate in setting
   assert.equal(defaults.ENVOI_HUMAN_SIGNUP_MODE, undefined);
   assert.equal(defaults.ENVOI_PUBLIC_SIGNUP_LIMIT, undefined);
 });
+
+// workos-public-signup-rollout.md amendment: the staging-only admission address is a container setting.
+test('the container receives the staging additional invited email and its fingerprint tracks add, change and removal', async () => {
+  assert.ok(CONTAINER_ENV_KEYS.includes('ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL'));
+  assert.ok(CONTAINER_ENV_KEYS.includes('ENVOI_BETA_INVITED_EMAILS'), 'the original list is still forwarded');
+  const worker = { ENVOI_DEPLOYMENT_ENVIRONMENT: 'staging', ENVOI_BETA_INVITED_EMAILS: 'old@example.test', ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'extra@example.test', UNRELATED: 'not forwarded' };
+  const forwarded = selectEnvironment(worker, CONTAINER_ENV_KEYS, {});
+  assert.deepEqual(forwarded, { ENVOI_DEPLOYMENT_ENVIRONMENT: 'staging', ENVOI_BETA_INVITED_EMAILS: 'old@example.test', ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'extra@example.test' });
+  const base = await environmentFingerprint(forwarded);
+  const { ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: removed, ...without } = forwarded;
+  assert.equal(removed, 'extra@example.test');
+  assert.notEqual(await environmentFingerprint(without), base, 'removal changes it');
+  assert.notEqual(await environmentFingerprint({ ...forwarded, ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'other@example.test' }), base, 'a change changes it');
+  assert.notEqual(await environmentFingerprint({ ...without, ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'extra@example.test', ENVOI_BETA_INVITED_EMAILS: 'old@example.test,two@example.test' }), base);
+  assert.notEqual(await environmentFingerprint(without), await environmentFingerprint({ ...without, ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: 'extra@example.test' }), 'addition changes it');
+  assert.equal(await environmentFingerprint(selectEnvironment(worker, CONTAINER_ENV_KEYS, {})), base);
+  assert.doesNotMatch(base, /extra|example/, 'the fingerprint reveals no address');
+  // Without the setting the forwarded environment is exactly what it was before this key existed.
+  assert.deepEqual(selectEnvironment({ ENVOI_BETA_INVITED_EMAILS: 'old@example.test' }, CONTAINER_ENV_KEYS, {}), { ENVOI_BETA_INVITED_EMAILS: 'old@example.test' });
+});
