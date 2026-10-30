@@ -22,6 +22,19 @@ export interface HermesScopedHost {
   cwd: string;
 }
 
+/** Validate the selected profile before accepting the live daemon's origin. */
+export function selectedHermesProfile(identity: Record<string, any>, host: HermesScopedHost): string {
+  if (identity.state === 'starting' || identity.state === 'draining') throw daemonUnavailable();
+  const canonical = (value: string) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+  const matches = Array.isArray(identity.served_profiles) ? identity.served_profiles.filter((entry: unknown) => object(entry)
+    && typeof entry.home === 'string' && canonical(entry.home) === canonical(host.home)) : [];
+  if (identity.runtime_protocol !== 1 || identity.state !== 'ready'
+    || !Array.isArray(identity.capabilities) || !identity.capabilities.includes('session-authority-v1')
+    || typeof identity.instance_id !== 'string' || matches.length !== 1 || typeof matches[0].profile_id !== 'string') throw failure();
+  if (identity.api_origin !== host.origin) throw failure('HERMES_ORIGIN_CHANGED');
+  return matches[0].profile_id;
+}
+
 export function validateHermesHost(host: HermesScopedHost) {
   const url = new URL(host.origin);
   if (!path.isAbsolute(host.home) || !path.isAbsolute(host.cwd) || /[\x00\r\n]/.test(host.home + host.cwd)
@@ -126,13 +139,7 @@ export function hermesSocketWire(socket: WebSocket): HermesWire {
 export async function connectHermesHost(host: HermesScopedHost, signal: AbortSignal): Promise<HermesWire> {
   validateHermesHost(host);
   const identity = await control(host.home, 'identify', {}, signal);
-  const canonical = (value: string) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
-  const matches = Array.isArray(identity.served_profiles) ? identity.served_profiles.filter((entry: unknown) => object(entry)
-    && typeof entry.home === 'string' && canonical(entry.home) === canonical(host.home)) : [];
-  if (identity.runtime_protocol !== 1 || identity.state !== 'ready' || identity.api_origin !== host.origin
-    || !Array.isArray(identity.capabilities) || !identity.capabilities.includes('session-authority-v1')
-    || typeof identity.instance_id !== 'string' || matches.length !== 1 || typeof matches[0].profile_id !== 'string') throw failure();
-  const profileId = matches[0].profile_id;
+  const profileId = selectedHermesProfile(identity, host);
   const grant = await control(host.home, 'session-ticket', { profile_id: profileId, instance_id: identity.instance_id, purpose: 'interactive' }, signal);
   if (grant.runtime_protocol !== 1 || grant.profile_id !== profileId || grant.instance_id !== identity.instance_id
     || typeof grant.ticket !== 'string' || !/^[A-Za-z0-9_-]{16,256}$/.test(grant.ticket)) throw failure();

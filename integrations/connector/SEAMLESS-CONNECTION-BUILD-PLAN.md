@@ -37,7 +37,7 @@ Keep Envoi's queue authoritative. Resume SSE from the saved cursor, recover gaps
 
 ### B5. Route-specific recovery
 
-- Hermes scoped: retry only pre-work daemon absence at its pinned origin. On origin change, perform an owner-confirmed scoped reselection that preserves authority and journals; never rewrite the marker privately. Terminal/unknown turn receipts retain their journal and require the approved settlement/reconciliation procedure.
+- Hermes scoped: retry only pre-work daemon absence or a starting/draining owner at its pinned origin. A live descriptor at a different origin reports `SCOPED_CONFIG_INVALID`: perform an owner-confirmed scoped reselection that preserves authority and journals; never rewrite the marker privately. Terminal/unknown turn receipts retain their journal and require the approved settlement/reconciliation procedure.
 - Hermes legacy: keep relay listening throughout bounded Gateway rediscovery; verify a real MCP tool call before claiming work.
 - OpenClaw: use authenticated `/readyz` and its `coreReady` field so unrelated chat-channel failures do not block Envoi, keep the exact selected agent and mode marker, and distinguish Gateway down, wrong auth, and model/tool failure.
 - Grok: probe `/v1/models` with the saved provider credential on restart; classify auth versus temporary provider outage without spending inference tokens.

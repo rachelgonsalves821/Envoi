@@ -26,7 +26,7 @@ Use a unique task identifier and record a before/after canonical receipt for eac
 
 | Route | Required additional check | Scope of always-on claim |
 | --- | --- | --- |
-| Hermes scoped | Pinned daemon descriptor and scoped tool call after restart; owner-confirmed reselection only when origin changes; uncertain-turn journal remains fenced. | Connector **and** selected Gateway must be supervised on a capable awake host. |
+| Hermes scoped | Record the descriptor's `supervisor` and verify its `api_origin` is identical before and after the controlled restart; then prove a scoped tool call. Starting/draining retries at the saved origin; changed origin reports `SCOPED_CONFIG_INVALID` and requires owner-confirmed reselection. An uncertain-turn journal remains fenced. | Connector **and** selected Gateway must be supervised on a capable awake host. A random-port Gateway cannot pass seamless unattended restart with a pinned scoped origin. |
 | Hermes legacy | Relay remains reachable through Gateway MCP rediscovery; the Gateway actually calls `envoi_agent_info`. Measure the restart model-proof cost separately. | Same two-process host requirement; no zero-cost idle claim yet. |
 | OpenClaw scoped/legacy | Selected agent and scoped-mode marker survive service environment loss; `/readyz` core readiness is not confused with an unrelated chat-channel failure; actual agent/tool turn succeeds. | Connector and Gateway are separately supervised. |
 | Grok scoped/legacy | Saved provider credential passes read-only catalog check; temporary provider outage retries, auth rejection stops, and the next real task uses the intended model. | Local connector or hosted wake worker must stay available; xAI itself is provider-owned. |

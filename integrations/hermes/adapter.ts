@@ -75,6 +75,8 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
       // identity/scope mismatches and failures during a turn remain terminal.
       if (error instanceof EnvoiError && error.code === 'HERMES_DAEMON_UNREACHABLE')
         throw new ConnectorSetupError('GATEWAY_UNREACHABLE', 'The selected Hermes Gateway is unavailable; retrying its saved origin.');
+      if (error instanceof EnvoiError && error.code === 'HERMES_ORIGIN_CHANGED')
+        throw new ConnectorSetupError('SCOPED_CONFIG_INVALID', 'The selected Hermes Gateway origin changed. Preserve the saved connection and use the supported owner-confirmed reselection procedure.');
       throw error;
     }
     wire.close();
