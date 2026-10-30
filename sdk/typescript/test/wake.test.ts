@@ -41,6 +41,16 @@ async function harness(extra: { session?: Partial<ConnectorSession>; claim?: () 
 }
 
 describe('approved a4 wake consumption', () => {
+  it('reports live idle stream, claim, and disconnect state without exposing the cursor or token', async () => {
+    const h = await harness();
+    expect(h.connector.wakeDiagnostics()).toMatchObject({ transport: 'connecting', lastWorkClaimAt: expect.any(String) });
+    h.send('stream-from-latest'); await h.tick();
+    expect(h.connector.wakeDiagnostics()).toMatchObject({ transport: 'connected', lastReadyAt: expect.any(String) });
+    h.close(); await h.tick();
+    const safe = JSON.stringify(h.connector.wakeDiagnostics());
+    expect(safe).toContain('disconnected');
+    expect(safe).not.toMatch(/access|refresh|00000000000000000044/);
+  });
   it('baselines from latest, ignores own sends, and persists unknown events without claiming', async () => {
     const h = await harness(); expect(h.claims).toHaveBeenCalledTimes(1);
     expect(h.requests.find(r => r.url.includes('/events'))?.url).toContain('?from=latest');

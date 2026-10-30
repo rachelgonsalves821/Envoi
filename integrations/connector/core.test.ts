@@ -279,13 +279,15 @@ describe('authenticated local management', () => {
     const started = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onReady: running });
     try {
       await ready;
-      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running' });
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running',
+        runtimeDiagnostic: { phase: 'ready', runtimeChecks: 'passed', wake: { transport: 'not_started' } } });
       const checksBeforeDoctor = f.counts().checks;
       expect(await doctorConnection(f.options.stateDir, f.resolver, f.options)).toMatchObject({ status: 'running', runtimeChecks: 'passed' });
       expect(f.counts().checks).toBe(checksBeforeDoctor);
       await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toThrow('already running');
     } finally { stop.abort(); await started; }
-    expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped' });
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped',
+      runtimeDiagnostic: { phase: 'stopped' } });
     await expect(readFile(path.join(f.options.stateDir, 'connector.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
   it('waits through startup outages, remains manageable, and recovers without reenrollment', async () => {
@@ -306,6 +308,7 @@ describe('authenticated local management', () => {
     try {
       await Promise.race([waited, prematureExit]);
       expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'waiting' });
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ runtimeDiagnostic: { errorCode: 'ENVOI_UNREACHABLE' } });
       expect(await doctorConnection(f.options.stateDir, f.resolver)).toMatchObject({ runtimeChecks: 'pending', errorCode: 'ENVOI_UNREACHABLE' });
       f.healthFails(false); await Promise.race([startedReady, prematureExit]);
       expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running' });
@@ -351,6 +354,26 @@ describe('authenticated local management', () => {
     expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped' });
     f.healthFails(false); f.preflightFails();
     await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, f.options)).rejects.toMatchObject({ code: 'MODEL_NOT_READY' });
+    const stopped = await connectionStatus(f.options.stateDir);
+    expect(stopped).toMatchObject({ status: 'stopped', runtimeDiagnostic: { phase: 'failed', errorCode: 'MODEL_NOT_READY' } });
+    expect(JSON.stringify(stopped)).not.toMatch(/local-model-provider-secret|refresh-secret|access-secret|Configure your local model/);
+  });
+  it('preserves a safe failure code after a ready connector exits during a runtime turn', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const original = f.adapter.createBridge;
+    f.adapter.createBridge = async (config, context) => {
+      const bridge = await original(config, context);
+      bridge.connector.run = async () => { throw new EnvoiError('private runtime prompt and key', undefined, 'HERMES_EXECUTION_UNCERTAIN'); };
+      return bridge;
+    };
+    await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, f.options))
+      .rejects.toMatchObject({ code: 'HERMES_EXECUTION_UNCERTAIN' });
+    const status = await connectionStatus(f.options.stateDir);
+    expect(status).toMatchObject({ status: 'stopped', runtimeDiagnostic: { phase: 'failed', errorCode: 'HERMES_EXECUTION_UNCERTAIN' } });
+    expect(JSON.stringify(status)).not.toContain('private runtime prompt and key');
+    await writeFile(path.join(f.options.stateDir, 'runtime-diagnostic.json'), JSON.stringify({ version: 1, phase: 'failed',
+      startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), runtimeChecks: 'pending', secret: 'private-key' }));
+    expect((await connectionStatus(f.options.stateDir)).runtimeDiagnostic).toBeNull();
   });
 });
 

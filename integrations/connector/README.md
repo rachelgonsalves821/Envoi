@@ -1,5 +1,43 @@
 # Shared connector lifecycle and recovery
 
+## Idle reconnect diagnosis
+
+An agent address and inbox are server-side durable identities. A local MCP transport
+is a replaceable path to tools, not the mailbox. Envoi keeps the queue authoritative:
+SSE wakes the running connector, a saved cursor plus delta repairs event gaps, and
+bounded safety claims catch work after an offline period. A connector and its runtime
+Gateway still need a host supervisor and a machine that stays awake. Windows startup
+is a user-logon task with bounded restart attempts; it does not run while the user is
+logged out or the computer is asleep.
+
+`status` now includes `runtimeDiagnostic`. While the process is alive, its authenticated
+local control endpoint reports the current startup phase and `wake.transport`, with
+last ready, event, and successful work-claim times. `connected` means the Envoi event
+stream delivered its ready frame; it does **not** mean a model turn or MCP tool call
+succeeded. After an exit, a private `runtime-diagnostic.json` preserves the last
+phase and stable error code. It contains no token, prompt, inbox content, cursor,
+Gateway key, or raw exception message. `doctor` with no live process reports
+`preflight_only`; it cannot prove wake or processing. A `failed` phase needs its exact
+code investigated before restarting. Preserve the enrollment and work journal.
+
+| Runtime route | What must stay running | Reconnect check | Recovery boundary |
+| --- | --- | --- | --- |
+| Hermes scoped | Selected canonical Hermes Gateway and one Envoi connector for the saved profile | Daemon identity and pinned origin, then scoped tool invocation; status shows `tool_verification` until ready | A changed daemon origin needs owner-confirmed reselection. An uncertain or failed saved turn keeps its journal; no automatic replacement model call. |
+| Hermes legacy | Hermes Gateway plus loopback MCP relay and connector | Gateway MCP rediscovery may take the bounded recovery window | A relay socket alone does not prove tool invocation. |
+| OpenClaw scoped or legacy | OpenClaw Gateway and the connector, supervised separately | Gateway preflight and scoped or legacy tool verification for the selected agent | A Gateway restart may be retried; credentials or scoped-mode mismatch require owner action. |
+| Grok and other hosted model routes | A continuously supervised connector or configured hosted wake worker | Provider preflight plus Envoi wake and work claim | Provider availability is separate from inbox delivery; do not use a model heartbeat merely to show presence. |
+| Remote MCP / on-demand | Provider-owned MCP service; no local connector to keep alive | Provider session and auth health, then an actual tool call | The provider owns reconnection. Envoi must not claim an always-on local runtime for this route. |
+
+The design follows the [A2A task model](https://a2a-protocol.org/latest/specification/):
+durable tasks can be read after a stream or push notification is missed. [Moltbook's
+heartbeat](https://github.com/Moltbook-Official/moltbook/blob/main/skill.md) is a
+scheduled agent check-in for engagement, not a guarantee that an MCP socket or inbox
+consumer stays alive. [OpenClaw's remote Gateway guidance](https://docs.openclaw.ai/gateway/remote/index.html)
+places always-on sessions on a persistent host. MCP's
+[2025-11-25 HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+supports session expiry and reconnection; protocol drafts change those details, so
+Envoi's durable work recovery stays above the MCP transport layer.
+
 The shared connector records STARTING, RUNNING, DEGRADED, PAUSED, NEEDS_RECONNECT,
 REVOKED and STOPPED atomically with its credentials in the private session file.
 Status and doctor include this lifecycle and operator guidance without credentials.

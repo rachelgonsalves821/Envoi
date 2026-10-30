@@ -881,6 +881,11 @@ var Ve = class {
 	activeLeaseChecks = /* @__PURE__ */ new Map();
 	caseSessionsAvailable = !1;
 	mintingCaseWork = /* @__PURE__ */ new Set();
+	wakeTransport = "not_started";
+	lastWakeReadyAt;
+	lastWakeEventAt;
+	lastWorkClaimAt;
+	lastWakeErrorCode;
 	constructor(e, t, n = {}) {
 		if (this.store = t, this.options = n, n.handler && n.caseSessionHandler) throw TypeError("Choose one work handler; a scoped turn cannot fall back to a legacy handler");
 		if (this.origin = Le(e), this.pageSize = n.pageSize ?? 100, this.refreshSkewMs = n.refreshSkewMs ?? 6e4, !Number.isSafeInteger(this.pageSize) || this.pageSize < 1 || this.pageSize > 200) throw RangeError("pageSize must be from 1 to 200");
@@ -906,6 +911,15 @@ var Ve = class {
 	}
 	onState(e) {
 		this.stateObserver = e;
+	}
+	wakeDiagnostics() {
+		return {
+			transport: this.wakeTransport,
+			lastReadyAt: this.lastWakeReadyAt,
+			lastEventAt: this.lastWakeEventAt,
+			lastWorkClaimAt: this.lastWorkClaimAt,
+			lastErrorCode: this.lastWakeErrorCode
+		};
 	}
 	mutate(e) {
 		let t = this.writes.then(async () => {
@@ -1451,7 +1465,7 @@ var Ve = class {
 				501
 			].includes(e.status || 0) ? new Pe() : e;
 		}
-		if (r.state === "paused") return await this.observeError(new I("Paused", void 0, "AGENT_PAUSED")), !1;
+		if (this.lastWorkClaimAt = (/* @__PURE__ */ new Date()).toISOString(), r.state === "paused") return await this.observeError(new I("Paused", void 0, "AGENT_PAUSED")), !1;
 		if (this.nextClaimAt = Infinity, r.work === null) return r.state === "idle" && Number.isSafeInteger(r.nextAvailableInMs) && r.nextAvailableInMs >= 0 && (this.nextClaimAt = Date.now() + Math.max(1e3, r.nextAvailableInMs)), !1;
 		let i = r.work;
 		if (!i || typeof i.workId != "string" || typeof i.leaseToken != "string" || !Number.isFinite(Date.parse(i.leaseExpiresAt)) || typeof i.message?.id != "string" || !i.message.id) throw new I("Envoi returned an invalid work claim");
@@ -1726,6 +1740,7 @@ var Ve = class {
 		let g = (async () => {
 			let e = 0;
 			for (; !n.aborted;) {
+				this.wakeTransport = "connecting";
 				let t = new AbortController();
 				this.activeStreams.add(t);
 				let r = AbortSignal.any([n, t.signal]), i = 0, a = 0, o, m = !1, h = 0, g = V(await this.store.load()), _ = this.cursorFor(g), v = !_, y = () => {
@@ -1769,10 +1784,10 @@ var Ve = class {
 								if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new I("Connector session changed while reading events");
 								if (this.cursorFor(e) && t.id <= this.cursorFor(e)) continue;
 								let n = ze(t.data);
-								await this.observeEvent(n, t.type), await this.options.onEvent?.(n), await this.saveCursor(g, t.id), (t.type === "work.available" && n.agentId === g.agentId || (t.type === "message.delivered" || t.type === "human.instruction_created") && n.recipientAgentId === g.agentId) && d();
+								await this.observeEvent(n, t.type), await this.options.onEvent?.(n), await this.saveCursor(g, t.id), this.lastWakeEventAt = (/* @__PURE__ */ new Date()).toISOString(), (t.type === "work.available" && n.agentId === g.agentId || (t.type === "message.delivered" || t.type === "human.instruction_created") && n.recipientAgentId === g.agentId) && d();
 							} else if (t.type === "ready") {
 								if (t.data.inboxId !== g.inboxId || t.data.cursor !== null && (typeof t.data.cursor != "string" || !/^\d{20}$/.test(t.data.cursor))) throw new I("Envoi returned an invalid ready frame");
-								v && !this.cursorFor(V(await this.store.load())) && await this.saveCursor(g, t.data.cursor), s = !0, c = Date.now() + f(), (await this.lifecycle()).paused && (await this.checkStatus(), l = Date.now() + 3e4 + Math.random() * 3e4), d();
+								v && !this.cursorFor(V(await this.store.load())) && await this.saveCursor(g, t.data.cursor), s = !0, c = Date.now() + f(), this.wakeTransport = "connected", this.lastWakeReadyAt = (/* @__PURE__ */ new Date()).toISOString(), this.lastWakeErrorCode = void 0, (await this.lifecycle()).paused && (await this.checkStatus(), l = Date.now() + 3e4 + Math.random() * 3e4), d();
 							} else if (t.type === "replay_required") {
 								m = !0;
 								break;
@@ -1783,9 +1798,9 @@ var Ve = class {
 						throw e instanceof I || e instanceof je ? e : new I("Envoi event stream was interrupted", void 0, "NETWORK_ERROR");
 					}
 				} catch (e) {
-					e instanceof I && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), d()) : (h = e instanceof I ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await p(e, !0));
+					this.lastWakeErrorCode = e instanceof I && e.code && /^[A-Z][A-Z0-9_]{0,119}$/.test(e.code) ? e.code : "WAKE_STREAM_ERROR", e instanceof I && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), d()) : (h = e instanceof I ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await p(e, !0));
 				} finally {
-					clearTimeout(o), t.abort(), this.activeStreams.delete(t), a = i ? Date.now() - i : 0, s = !1, c = Math.min(c, Date.now() + f()), u();
+					clearTimeout(o), t.abort(), this.activeStreams.delete(t), a = i ? Date.now() - i : 0, s = !1, c = Math.min(c, Date.now() + f()), u(), this.wakeTransport = "disconnected";
 				}
 				if (n.aborted) break;
 				if (m) {
