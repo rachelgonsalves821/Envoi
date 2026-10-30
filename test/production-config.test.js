@@ -237,7 +237,7 @@ test('staging validates the separate additional invited email and every other de
   assert.equal(validateProductionConfiguration(staging()).validated, true);
   assert.equal(validateProductionConfiguration(staging({ ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: ' Extra@Example.test ' })).validated, true);
   assert.equal(validateProductionConfiguration(staging({ ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: '  ' })).validated, true);
-  for (const value of ['a@example.test,b@example.test', 'a b@example.test', 'not-an-email', 'private-name@']) {
+  for (const value of ['a@example.test,b@example.test', 'a b@example.test', 'not-an-email', 'private-name@', '*@example.test', 'owner@*.example.test']) {
     assert.throws(() => validateProductionConfiguration(staging({ ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL: value })), error => {
       assert.match(error.message, /ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL must be one exact email address/);
       assert.equal(error.message.includes('private-name'), false);

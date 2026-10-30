@@ -14,9 +14,9 @@ export const isDeploymentName = value => typeof value === 'string' && DEPLOYMENT
 // One extra exact human email that only the staging deployment admits, entered as its own secret
 // so the encrypted ENVOI_BETA_INVITED_EMAILS list stays untouched. Anywhere else the value is
 // ignored and grants nothing. A nonempty staging value that is not exactly one email address
-// fails closed; the error names the setting, never the value.
+// (a list, whitespace or any `*` wildcard) fails closed; the error names the setting, never the value.
 export const STAGING_ADDITIONAL_INVITED_EMAIL = 'ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL';
-const SINGLE_EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+const SINGLE_EMAIL = /^[^\s@,;*]+@[^\s@,;*]+\.[^\s@,;*]+$/;
 
 export function stagingAdditionalInvitedEmail(value, environment) {
   if (environment !== 'staging') return null;
