@@ -316,6 +316,32 @@ describe('authenticated local management', () => {
     } finally { stop.abort(); await started; }
   // Real filesystem and authenticated loopback requests need margin under full-suite load.
   }, 60_000);
+  it('keeps the saved connector alive while a selected gateway is briefly unavailable at startup', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    let gatewayUp = false;
+    f.adapter.preflight = async () => { if (!gatewayUp) throw new ConnectorSetupError('GATEWAY_UNREACHABLE', 'selected daemon absent'); };
+    const original = f.adapter.createBridge;
+    f.adapter.createBridge = async (config, context) => {
+      const bridge = await original(config, context);
+      bridge.connector.run = async signal => { if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); };
+      return bridge;
+    };
+    const stop = new AbortController();
+    let waiting!: () => void; const waited = new Promise<void>(resolve => { waiting = resolve; });
+    let ready!: () => void; const startedReady = new Promise<void>(resolve => { ready = resolve; });
+    const started = startConnection(f.options.stateDir, stop.signal, f.resolver,
+      { ...f.options, retryDelayMs: 50, onWaiting: waiting, onReady: ready });
+    try {
+      await waited;
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'waiting',
+        runtimeDiagnostic: { errorCode: 'GATEWAY_UNREACHABLE' } });
+      gatewayUp = true;
+      await startedReady;
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running',
+        runtimeDiagnostic: { phase: 'ready', runtimeChecks: 'passed' } });
+      expect(f.counts().enrollmentCount).toBe(1);
+    } finally { stop.abort(); await started; }
+  });
   it('keeps the same runtime bridge alive while parked Hermes tools recover before claiming work', async () => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
     const original = f.adapter.createBridge;

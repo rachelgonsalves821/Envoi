@@ -179,6 +179,15 @@ describe('Hermes authenticated preflight', () => {
 });
 
 describe('Hermes profile MCP configuration', () => {
+  it('classifies an absent selected scoped daemon as a retryable startup outage without changing its selection', async () => {
+    const scenario = await fixture();
+    const env = { ENVOI_SCOPED_TOOLS: 'true', HERMES_HOME: scenario.home, HERMES_DAEMON_URL: 'http://127.0.0.1:18973' };
+    const selected = await hermesAdapter.discover({ ...scenario.options, env });
+    const before = await readFile(scenario.config.configPath, 'utf8');
+    await expect(hermesAdapter.preflight(selected, { ...scenario.options, env })).rejects.toMatchObject({ code: 'GATEWAY_UNREACHABLE' });
+    expect(await readFile(scenario.config.configPath, 'utf8')).toBe(before);
+    expect(selected).toMatchObject({ daemonOrigin: env.HERMES_DAEMON_URL, home: scenario.home });
+  });
   it('selects scoped mode before profile preparation and refuses a legacy Envoi integration', async () => {
     const scenario = await fixture();
     const original = await readFile(path.join(scenario.home, '.env'), 'utf8');

@@ -12,6 +12,7 @@ import { startScopedMcpRelay } from './scoped-relay';
 
 const object = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const failure = (code = 'HERMES_SCOPED_UNAVAILABLE') => new EnvoiError('Hermes scoped execution unavailable; preserve the turn journal for recovery', undefined, code);
+const daemonUnavailable = () => failure('HERMES_DAEMON_UNREACHABLE');
 const protocol = 'hermes-gateway-v1';
 const requiredCapabilities = ['acp-editor-policy-v1', 'acp-session-mcp-v1'];
 
@@ -33,7 +34,7 @@ async function controlPath(home: string) {
   const direct = path.join(home, 'gateway.sock');
   if (await lstat(direct).catch(() => null)) return direct;
   const pointer = path.join(home, 'gateway.sock.path');
-  const stat = await lstat(pointer);
+  const stat = await lstat(pointer).catch(error => { if (error.code === 'ENOENT') throw daemonUnavailable(); throw error; });
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096 || stat.mode & 0o077) throw failure();
   const target = (await readFile(pointer, 'utf8')).trim();
   if (!path.isAbsolute(target)) throw failure();
@@ -46,7 +47,7 @@ async function control(home: string, verb: string, params: Record<string, unknow
   return new Promise<Record<string, any>>((resolve, reject) => {
     const socket = connect(target);
     let buffered = '';
-    const timer = setTimeout(() => finish(failure()), 5000);
+    const timer = setTimeout(() => finish(daemonUnavailable()), 5000);
     const abort = () => finish(signal.reason);
     const finish = (error?: unknown, result?: Record<string, any>) => {
       clearTimeout(timer); signal.removeEventListener('abort', abort); socket.destroy();
@@ -55,7 +56,8 @@ async function control(home: string, verb: string, params: Record<string, unknow
     signal.addEventListener('abort', abort, { once: true });
     socket.setEncoding('utf8');
     socket.on('connect', () => socket.write(JSON.stringify({ protocol: 1, id: 1, verb, params }) + '\n'));
-    socket.on('error', () => finish(failure()));
+    socket.on('error', error => finish(['ENOENT', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH'].includes((error as NodeJS.ErrnoException).code ?? '')
+      ? daemonUnavailable() : failure()));
     socket.on('end', () => { if (!buffered.includes('\n')) finish(failure()); });
     socket.on('data', chunk => {
       buffered += chunk;

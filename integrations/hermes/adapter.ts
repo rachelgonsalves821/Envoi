@@ -2,6 +2,7 @@ import path from 'node:path';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { ConnectorSetupError, type AdapterContext, type ConnectorAdapter } from '../connector/adapter';
+import { EnvoiError } from '../../sdk/typescript/src/index';
 import { privateJson } from '../openclaw/quick-connect-store';
 import { discoverHermes, hermesServerName, mergeMcpConfiguration, optionalText, replaceConfiguration, setEnvValue } from './config';
 import { boundedHermesRun, preflightHermes } from './api';
@@ -67,7 +68,15 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
     const scoped = await selectScopedHermes(options, config);
     if (!scoped) return preflightHermes(config, options);
     await assertScopedHermes(scoped, options.env ?? process.env);
-    const wire = await connectHermesHost(hermesHost(scoped), AbortSignal.any([options.signal ?? new AbortController().signal, AbortSignal.timeout(15000)]));
+    let wire;
+    try { wire = await connectHermesHost(hermesHost(scoped), AbortSignal.any([options.signal ?? new AbortController().signal, AbortSignal.timeout(15000)])); }
+    catch (error) {
+      // Startup has not claimed work. Retry only an absent selected daemon;
+      // identity/scope mismatches and failures during a turn remain terminal.
+      if (error instanceof EnvoiError && error.code === 'HERMES_DAEMON_UNREACHABLE')
+        throw new ConnectorSetupError('GATEWAY_UNREACHABLE', 'The selected Hermes Gateway is unavailable; retrying its saved origin.');
+      throw error;
+    }
     wire.close();
   },
   async configure(config, context) {

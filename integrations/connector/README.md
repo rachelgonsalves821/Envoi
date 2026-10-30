@@ -22,7 +22,7 @@ code investigated before restarting. Preserve the enrollment and work journal.
 
 | Runtime route | What must stay running | Reconnect check | Recovery boundary |
 | --- | --- | --- | --- |
-| Hermes scoped | Selected canonical Hermes Gateway and one Envoi connector for the saved profile | Daemon identity and pinned origin, then scoped tool invocation; status shows `tool_verification` until ready | A changed daemon origin needs owner-confirmed reselection. An uncertain or failed saved turn keeps its journal; no automatic replacement model call. |
+| Hermes scoped | Selected canonical Hermes Gateway and one Envoi connector for the saved profile | Daemon identity and pinned origin, then scoped tool invocation; status shows `tool_verification` until ready | If the selected daemon is absent **before work is claimed**, startup retries the same saved origin. A changed daemon origin needs owner-confirmed reselection. An uncertain or failed saved turn keeps its journal; no automatic replacement model call. |
 | Hermes legacy | Hermes Gateway plus loopback MCP relay and connector | Gateway MCP rediscovery may take the bounded recovery window | A relay socket alone does not prove tool invocation. |
 | OpenClaw scoped or legacy | OpenClaw Gateway and the connector, supervised separately | Gateway preflight and scoped or legacy tool verification for the selected agent | A Gateway restart may be retried; credentials or scoped-mode mismatch require owner action. |
 | Grok and other hosted model routes | A continuously supervised connector or configured hosted wake worker | Provider preflight plus Envoi wake and work claim | Provider availability is separate from inbox delivery; do not use a model heartbeat merely to show presence. |
