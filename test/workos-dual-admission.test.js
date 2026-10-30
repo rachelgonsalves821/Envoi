@@ -6,7 +6,7 @@ import path from 'node:path';
 import { FileStore } from '../src/storage.js';
 import { WorkOSAuthService } from '../src/workos-auth.js';
 
-async function fixture(t, { signupMode = 'public', publicSignupLimit = 2, invitedEmails = ' invited@example.test ' } = {}) {
+async function fixture(t, { signupMode = 'public', publicSignupLimit = 2, invitedEmails = ' invited@example.test ', ...extra } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'envoi-dual-admission-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const store = new FileStore(directory);
@@ -23,7 +23,7 @@ async function fixture(t, { signupMode = 'public', publicSignupLimit = 2, invite
   const auth = new WorkOSAuthService(store, {
     clientId: 'client_fixture', apiKey: 'sk_fixture', cookiePassword: 'x'.repeat(32),
     redirectUri: 'https://app.example.test/api/auth/workos/callback', workos,
-    invitedEmails, signupMode, publicSignupLimit
+    invitedEmails, signupMode, publicSignupLimit, ...extra
   });
   const authorize = async user => {
     selectedUser = user;
@@ -146,4 +146,93 @@ test('the real 100-account boundary retains two invited owners and survives a st
   await assert.rejects(restarted.upsertHuman(user('one_too_many', 'one_too_many@example.test')), { code: 'PUBLIC_SIGNUP_FULL' });
   for (const d of anchors) assert.deepEqual(await store.getJson(d.path), d.value);
   assert.equal((await store.listJson('humans')).length, 102);
+});
+
+// workos-public-signup-rollout.md amendment: one optional, separate staging-only address is unioned into
+// the unchanged invitation Set. Every other admission check stays as it was.
+const stagingOnly = { deploymentEnvironment: 'staging', stagingAdditionalInvitedEmail: ' Extra.Tester@Example.test ' };
+const settingError = /^ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL must be one exact email address$/;
+
+test('staging admits the separate verified address and keeps every original entry and the verification rule', async t => {
+  const { auth, authorize, store } = await fixture(t, {
+    signupMode: 'invite-only', publicSignupLimit: 0, invitedEmails: 'old-one@example.test, OLD-TWO@example.test', ...stagingOnly
+  });
+  assert.deepEqual([...auth.invitedEmails].sort(), ['extra.tester@example.test', 'old-one@example.test', 'old-two@example.test']);
+  const one = await authorize(user('old_one', 'old-one@example.test'));
+  const two = await authorize(user('old_two', 'Old-Two@example.test'));
+  const extra = await authorize(user('extra', 'EXTRA.TESTER@example.test'));
+  assert.equal(new Set([one.human.id, two.human.id, extra.human.id]).size, 3);
+  assert.equal(await auth.hasCurrentAdmission(user('extra', 'extra.tester@example.test')), true);
+  await assert.rejects(authorize(user('extra_unverified', 'extra.tester@example.test', false)), { statusCode: 403 });
+  await assert.rejects(authorize(user('unrelated', 'unrelated@example.test')), { statusCode: 403 });
+  await assert.rejects(authorize(user('lookalike', 'extra.tester@example.test.evil.test')), { statusCode: 403 });
+  assert.equal(auth.admitted(user('unverified', 'extra.tester@example.test', false)), false);
+  assert.equal((await store.listJson('humans')).length, 3);
+});
+
+test('an absent or blank staging setting leaves admission unchanged and a non-staging deployment never admits the address', async t => {
+  for (const options of [
+    { deploymentEnvironment: 'staging' },
+    { deploymentEnvironment: 'staging', stagingAdditionalInvitedEmail: '   ' },
+    { deploymentEnvironment: 'beta', stagingAdditionalInvitedEmail: 'extra.tester@example.test' },
+    { deploymentEnvironment: 'production', stagingAdditionalInvitedEmail: 'extra.tester@example.test' },
+    { deploymentEnvironment: 'Staging', stagingAdditionalInvitedEmail: 'extra.tester@example.test' },
+    { deploymentEnvironment: 'development', stagingAdditionalInvitedEmail: 'extra.tester@example.test' },
+    { stagingAdditionalInvitedEmail: 'extra.tester@example.test' },
+    // Outside staging the value is not even validated, so a stray secret cannot stop beta or main.
+    { deploymentEnvironment: 'beta', stagingAdditionalInvitedEmail: 'not an email, at all' }
+  ]) {
+    const { auth, authorize } = await fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0, invitedEmails: 'old-one@example.test', ...options });
+    assert.deepEqual([...auth.invitedEmails], ['old-one@example.test'], JSON.stringify(options));
+    assert.equal(auth.admitted(user('extra', 'extra.tester@example.test')), false);
+    await assert.rejects(authorize(user('extra', 'extra.tester@example.test')), { statusCode: 403 });
+    assert.equal((await authorize(user('old', 'old-one@example.test'))).human.email, 'old-one@example.test');
+  }
+});
+
+test('an invalid nonempty staging value fails closed naming only the setting', async t => {
+  const { store } = await fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0 });
+  const invalid = [
+    'a@example.test,b@example.test', 'a@example.test;b@example.test', 'a@example.test b@example.test', 'not-an-email', '@example.test',
+    'secret-local@', 'secret@nodot', 'secret local@example.test', `${'x'.repeat(250)}@example.test`
+  ];
+  for (const value of invalid) {
+    assert.throws(() => new WorkOSAuthService(store, {
+      clientId: 'client_fixture', apiKey: 'sk_fixture', cookiePassword: 'x'.repeat(32), redirectUri: 'https://app.example.test/callback',
+      workos: {}, invitedEmails: 'old-one@example.test', deploymentEnvironment: 'staging', stagingAdditionalInvitedEmail: value
+    }), error => settingError.test(error.message) && !error.message.includes(value.trim().slice(0, 8)));
+  }
+});
+
+test('the extra staging address does not consume a public slot and survives a full public ledger', async t => {
+  const { auth, authorize, store } = await fixture(t, { publicSignupLimit: 1, ...stagingOnly });
+  const extra = await authorize(user('extra', 'extra.tester@example.test'));
+  const invited = await authorize(user('invited', 'invited@example.test'));
+  const publicOne = await authorize(user('public_one', 'public-one@example.test'));
+  assert.equal(new Set([extra.human.id, invited.human.id, publicOne.human.id]).size, 3);
+  await assert.rejects(authorize(user('public_two', 'public-two@example.test')), { statusCode: 403, code: 'PUBLIC_SIGNUP_FULL' });
+  assert.deepEqual((await store.getJson('auth/workos-public-admissions.json')).userIds, ['public_one']);
+  assert.equal((await authorize(user('extra', 'extra.tester@example.test'))).human.id, extra.human.id);
+  assert.equal(await auth.hasCurrentAdmission(user('extra', 'extra.tester@example.test')), true);
+  assert.equal(await auth.hasCurrentAdmission(user('public_two', 'public-two@example.test')), false);
+  // The same fixture outside staging has no such exemption: the address is an ordinary public account.
+  const beta = await fixture(t, { publicSignupLimit: 1, deploymentEnvironment: 'beta', stagingAdditionalInvitedEmail: 'extra.tester@example.test' });
+  await beta.authorize(user('public_one', 'public-one@example.test'));
+  await assert.rejects(beta.authorize(user('extra', 'extra.tester@example.test')), { statusCode: 403, code: 'PUBLIC_SIGNUP_FULL' });
+});
+
+test('the service reads the two settings from the environment the Worker forwards', async t => {
+  const names = ['ENVOI_DEPLOYMENT_ENVIRONMENT', 'ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL'];
+  const saved = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  t.after(() => { for (const name of names) { if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name]; } });
+  process.env.ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL = 'Env.Extra@example.test';
+  process.env.ENVOI_DEPLOYMENT_ENVIRONMENT = 'staging';
+  const staging = await fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0 });
+  assert.equal(staging.auth.admitted(user('env', 'env.extra@example.test')), true);
+  process.env.ENVOI_DEPLOYMENT_ENVIRONMENT = 'beta';
+  const beta = await fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0 });
+  assert.equal(beta.auth.admitted(user('env', 'env.extra@example.test')), false);
+  process.env.ENVOI_DEPLOYMENT_ENVIRONMENT = 'staging';
+  process.env.ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL = 'two@example.test,three@example.test';
+  await assert.rejects(fixture(t, { signupMode: 'invite-only', publicSignupLimit: 0 }), error => settingError.test(error.message));
 });
