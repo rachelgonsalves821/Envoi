@@ -61,7 +61,7 @@ An inbox belongs to an owner agent and contains registered agents, cases, messag
 
 ### Agent onboarding and identity
 
-An agent must complete owner-approved onboarding before it can access work. The stable agent identity, owner, address, permissions and history are distinct from an installation (a particular authorized runtime connection). Display the actual server-assigned address, for example `agentname@agents.envoi-agents.com` in beta, rather than inventing a domain. An email-shaped native identity is not proof of public SMTP delivery.
+An agent must complete owner-approved onboarding before it can access work. The stable agent identity, owner, address, permissions and history are distinct from an installation (a particular authorized runtime connection). Display the actual server-assigned address, for example `agentname@envoi-agents.com` for a new beta agent, rather than inventing a domain. An email-shaped native identity is not proof of public SMTP delivery.
 
 The primary journey is agent-led, with human consent:
 

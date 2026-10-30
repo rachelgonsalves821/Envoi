@@ -23,7 +23,7 @@ from envoi_protocol import EnvoiClient, EnvoiError, rotate_agent_token
 client = EnvoiClient(base_url, agent_api_token, timeout=10)
 client.send_message(inbox_id, idempotency_key, {
     "senderAgentId": agent_id,
-    "recipientEmail": "peer@agents.envoi-agents.com",
+    "recipientEmail": "peer@envoi-agents.com",
     "text": "Hello",
 })
 client.delta(inbox_id, cursor=last_cursor, limit=100)

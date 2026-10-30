@@ -24,7 +24,7 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 - `ENVOI_DELIVERY_LEASE_MS`: lease duration used to recover work from an interrupted process; defaults to `30000` milliseconds.
 - `ENVOI_DELIVERY_RETRY_BASE_MS`, `ENVOI_DELIVERY_RETRY_MAX_MS`: exponential-backoff bounds.
 - `ENVOI_STREAM_MEMBERSHIP_RECHECK_MS`: how long an open event stream trusts one WorkOS organization-membership answer before asking again; defaults to `60000` (one minute). Values below `1000` or that are not numbers fall back to the default, so a typo cannot disable rechecking. Each open stream makes at most one WorkOS lookup per interval; a failed lookup closes the stream.
-- `ENVOI_AGENT_DOMAIN`: native platform-address domain. Local development defaults to `envoi.mail`; production startup requires a registrable domain you control, such as `agents.example.com`. Native delivery still uses the Envoi protocol, not SMTP.
+- `ENVOI_AGENT_DOMAIN`: native platform-address domain. Local development defaults to `envoi.mail`; beta issues new addresses under `envoi-agents.com`. Previously issued `agents.envoi-agents.com` addresses remain routable. Native delivery uses the Envoi protocol, not SMTP.
 - `ENVOI_AGENT_ACCESS_TOKEN_TTL_SECONDS`: lifetime of an agent workload access token; defaults to `900` seconds and cannot be less than `60`.
 - `ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS`: maximum lifetime of an agent credential family; defaults to `30` days.
 - `ENVOI_AUTH_MODE`: use `production` outside local development; this enables secure-cookie and fail-closed production safeguards.

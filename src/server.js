@@ -103,6 +103,8 @@ const dataDir = path.resolve(process.env.ENVOI_DATA_DIR || 'data');
 const maxBodyBytes = Number(process.env.ENVOI_MAX_BODY_BYTES || 10 * 1024 * 1024);
 const corsOrigin = process.env.ENVOI_CORS_ORIGIN || 'http://localhost:3000';
 const agentDomain = process.env.ENVOI_AGENT_DOMAIN || 'envoi.mail';
+// Keep already-issued native addresses reachable after the beta address-domain change.
+const acceptedAgentDomains = new Set([agentDomain, ...(agentDomain === 'envoi-agents.com' ? ['agents.envoi-agents.com'] : [])]);
 const deliveryMaxAttempts = Number(process.env.ENVOI_DELIVERY_MAX_ATTEMPTS || 5);
 const externalEmailEnabled = process.env.ENVOI_ENABLE_EXTERNAL_EMAIL === 'true';
 const calendarWritesEnabled = process.env.ENVOI_ENABLE_CALENDAR_WRITES === 'true';
@@ -5981,7 +5983,7 @@ async function route(req, res) {
     if (!principal || principal.id !== sender.id) return fail(res, 401, 'Valid sender agent credential required');
     if (!canAct(sender, 'send_agent_messages')) return fail(res, 403, 'Agent is pending approval or lacks send_agent_messages permission');
     const recipientEmail = normalizedEmail(input.recipientEmail);
-    if (!validEmail(recipientEmail) || !recipientEmail.endsWith(`@${agentDomain}`)) return fail(res, 404, 'Recipient is unavailable');
+    if (!validEmail(recipientEmail) || !acceptedAgentDomains.has(recipientEmail.slice(recipientEmail.lastIndexOf('@') + 1))) return fail(res, 404, 'Recipient is unavailable');
     const recipientDirectory = await store.getJson(nativeAddressDirectoryPath(recipientEmail));
     if (!recipientDirectory || !['active', 'paused'].includes(recipientDirectory.status) || recipientDirectory.verified !== true) return fail(res, 404, 'Recipient is unavailable');
     const recipient = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'agents', `${recipientDirectory.agentId}.json`));
