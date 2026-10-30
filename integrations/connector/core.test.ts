@@ -252,6 +252,25 @@ describe('shared connector lifecycle', () => {
 });
 
 describe('authenticated local management', () => {
+  it('uses a read-only adapter startup probe after one-time setup model proof', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    expect(f.counts().checks).toBeGreaterThan(0);
+    let probes = 0;
+    f.adapter.startupCheck = async () => { probes++; };
+    f.adapter.preflight = async () => { throw new Error('model preflight must not run on restart'); };
+    const original = f.adapter.createBridge;
+    f.adapter.createBridge = async (config, context) => {
+      const bridge = await original(config, context);
+      bridge.connector.run = async () => {};
+      return bridge;
+    };
+    const stop = new AbortController();
+    await startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onReady: () => stop.abort() });
+    expect(probes).toBe(1);
+    expect(await doctorConnection(f.options.stateDir, f.resolver, f.options)).toMatchObject({ runtimeChecks: 'preflight_only' });
+    expect(probes).toBe(2);
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
   it('reports the actual controlled process and stops it without signaling an arbitrary PID', async () => {
     const f = await fixture(); let stopRequested = false;
     const directory = await secureDirectory(f.options.stateDir);

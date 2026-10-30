@@ -438,7 +438,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         await checkEnvoi(saved.apiUrl, fetcher);
         await record('runtime_check');
         const config = await adapter.discover(context, saved.configuration);
-        await adapter.preflight(config, context);
+        await (adapter.startupCheck ?? adapter.preflight)(config, context);
         await adapter.configure?.(config, context);
         saved.configuration = config;
         await privateJson(path.join(directory, 'connection.json'), saved);
@@ -534,7 +534,7 @@ export async function doctorConnection(stateDir: string, resolveAdapter: Adapter
     await checkEnvoi(saved.apiUrl, fetcher);
     const context = { ...options, apiUrl: saved.apiUrl, stateDir: directory, fetch: fetcher };
     const config = await adapter.discover(context, saved.configuration);
-    await adapter.preflight(config, context);
+    await (adapter.startupCheck ?? adapter.preflight)(config, context);
     const store = new FileBridgeStore(directory);
     await new EnvoiConnector(saved.apiUrl, store, { fetch: fetcher }).checkStatus();
     return { ...await connectionStatus(directory), runtimeChecks: 'preflight_only',

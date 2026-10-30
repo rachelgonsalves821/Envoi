@@ -1,0 +1,65 @@
+# Seamless connection after one onboarding
+
+## Product contract
+
+An approved agent keeps the same address, inbox, installation and private work journal across process restarts, network loss, Gateway restarts and ordinary inactivity. Recoverable interruptions resume without a new claim, model prompt, registration or owner action. Work that arrived while the host was offline remains visible in the inbox and is claimed when a capable runtime returns. A sleeping/offline host cannot process work until it wakes; the website must say so rather than label a saved enrollment as online.
+
+Terminal security and ambiguity remain explicit owner actions: revoked/expired authority, changed owner or scoped Gateway origin, corrupt state, and uncertain external effects cannot be silently repaired. A successful connection is demonstrated by a work claim, a real scoped tool/action, a fenced settlement and a returned reply, not by an open socket or model text.
+
+## Current inventory and gaps (2026-10-30)
+
+| Route | Existing recovery | Gap and intended action |
+| --- | --- | --- |
+| Local Hermes scoped | Durable connector, Envoi SSE cursor/delta and safety claim, saved daemon selection, scoped run journal | An absent selected daemon at startup was fatal; the current branch now retries that pre-work outage. Keep origin mismatch and uncertain turns terminal. Add owner-confirmed reselection protocol and a real Windows sleep/restart gate. |
+| Local Hermes legacy | Saved credentials, supervised connector option, bounded MCP rediscovery | Restart preflight now uses a read-only capability probe. Its real MCP-tool verification still invokes a bounded model turn before claiming work; replace that with a supported no-model tool probe before promising zero-cost restart. Test parked relay recovery. |
+| Local OpenClaw scoped/legacy | Saved agent selection, connector service option, durable claim/reply state | Restart reruns a model prompt. Use Gateway readiness for startup, prove exact agent/tool path in a separate gate, and test Gateway restart and auth rotation. |
+| Grok/xAI scoped/legacy | Durable connector, provider journal for scoped turns | Restart reruns an inference request. Use authenticated model-catalog probe for startup; retain first enrollment inference test and preserve uncertain turn journal. |
+| Hosted HTTP wake / provider connector | Persisted wake identities, receiver, replay and queue safety poll | Show ingress, worker and downstream processing as separate health states. Add server presence contract and hosted outage gate. |
+| Authenticated REST and remote MCP OAuth | Saved activation and explicit provider-owned access | Local service supervision does not apply. Validate refresh, expired MCP transport/session reinitialization, replay and on-demand availability against route-specific fixtures. |
+
+## Build sequence
+
+### B1. Make status truthful and safe — implemented in this branch
+
+Persist only startup phase, timestamp and stable code in private state; expose live wake readiness and last event/claim response. Offline doctor reports preflight only. Never persist raw errors, prompts, cursors or credentials. Gate: status distinguishes saved, process alive, Envoi wake ready, runtime tool ready, and work processed; killing the process leaves the last safe error visible.
+
+### B2. Remove model calls from ordinary restart — connector-owned next step
+
+Add `startupCheck` per adapter. Setup/adoption retains the existing bounded model proof before authority is consumed. Startup and offline doctor use read-only authenticated capability/readiness probes. Hermes legacy still performs a model-driven MCP tool verification after startup; that exception remains until a supported no-model tool probe can prove the actual tool path. Retry transient network/429/5xx with bounded jitter; fail closed for auth, incompatible protocol and scope changes. Gate: each route restarts with one enrollment identity and no model calls except the documented Hermes legacy proof. A real work item still proves processing.
+
+### B3. Process ownership and gateway supervision — host-specific
+
+Use exactly one connector owner per state directory. Install a host supervisor only by owner opt-in, and show whether it is installed, running or exhausted. On Windows, the current user-logon scheduled task has five one-minute failure restarts; it does not keep a logged-out or sleeping laptop online. On Linux use a user or system `systemd` service with restart policy and rate limit; on macOS use `launchd`. Hermes/OpenClaw Gateway is a **separate** supervised process with a stable, supported endpoint. Avoid restarting a selected Hermes Gateway merely to satisfy an Envoi health check. Gate: crash each process separately, verify the same identity returns and no duplicate owner starts. Test sleep, wake, logon, logout and service exhaustion explicitly.
+
+### B4. Durable wake and work reconciliation — shared connector and Lane A contract
+
+Keep Envoi's queue authoritative. Resume SSE from the saved cursor, recover gaps with delta, and perform a safety claim after reconnect even when no event was replayed. Reconcile retry-delayed and paused work. Server work leases, idempotency keys and terminal receipts must prevent duplicate replies. Request Lane A to expose bounded installation presence: last refresh, wake stream, claim and processed timestamps plus an `offline`, `degraded`, `paused`, `needs_reconnect` or `ready` projection. Do not infer online from enrollment or browser login. Gate: 24-hour offline queue, dropped SSE, stale cursor, token rotation, pause/resume, revoke and two-way replies across FileStore and PostgreSQL.
+
+### B5. Route-specific recovery
+
+- Hermes scoped: retry only pre-work daemon absence at its pinned origin. On origin change, perform an owner-confirmed scoped reselection that preserves authority and journals; never rewrite the marker privately. Terminal/unknown turn receipts retain their journal and require the approved settlement/reconciliation procedure.
+- Hermes legacy: keep relay listening throughout bounded Gateway rediscovery; verify a real MCP tool call before claiming work.
+- OpenClaw: use authenticated `/readyz` and its `coreReady` field so unrelated chat-channel failures do not block Envoi, keep the exact selected agent and mode marker, and distinguish Gateway down, wrong auth, and model/tool failure.
+- Grok: probe `/v1/models` with the saved provider credential on restart; classify auth versus temporary provider outage without spending inference tokens.
+- Hosted wake and remote MCP: verify signed/authorized delivery, transport reinitialization and durable task lookup independently of local connector state.
+
+### B6. Packaging, rollout and rollback
+
+Build all generated artifacts from one reviewed source SHA; verify release hashes. Installer upgrades replace only the executable atomically after a backup and never replace credentials or authority records. Roll out to disposable staging agents first, then opt-in existing agents. Record initial release, supervisor state, selected runtime, and recovery result. Roll back code while preserving enrollment and work journals; do not roll back a credential rotation by copying an old session file.
+
+## Acceptance gates and measures
+
+1. **Identity:** one onboarding; same agent, inbox and installation after every restart and upgrade; zero duplicate registrations.
+2. **Recovery:** after host and network return, recoverable local outages reach a ready wake stream within 2 minutes at p95 and claim queued work within 1 additional minute. Measure from host readiness, not from when a powered-off machine was unavailable.
+3. **Correctness:** zero duplicate external replies, zero lost accepted work, and no automatic replacement model turn after an uncertain effect.
+4. **Cost:** zero inference calls on idle restart for Hermes scoped, OpenClaw and Grok. Hermes legacy's MCP tool verification is a documented exception until its no-model probe is built and gated; no route may claim universal zero-cost restart before that work passes.
+5. **Visibility:** safe state includes process/supervisor, Envoi stream, runtime probe, last claim/processing times and the smallest owner action. Alerts fire on sustained offline/degraded state, not every retry.
+6. **Routes:** the gate runs for Hermes scoped/legacy, OpenClaw scoped/legacy, Grok scoped/legacy, hosted wake, authenticated REST and remote MCP OAuth where offered. A route cannot be labeled always-on until its real host gate passes.
+
+## Ownership and dependencies
+
+Lane B owns connector, SDK, runtime adapters, installers, generated downloads and route-specific test harnesses. Lane A owns server presence, durable queue/lease contracts and hosted deployment; request exact fixtures before a server-facing change. The human approves production rollout, Gateway reselection, service installation on a real host and any security contract. This branch does not deploy or change Rachel's existing production profile.
+
+## Research basis
+
+The [A2A specification](https://a2a-protocol.org/latest/specification/) treats task state as retrievable after stream or push loss. [Moltbook's heartbeat](https://github.com/Moltbook-Official/moltbook/blob/main/skill.md) is a scheduled engagement check, not an inbox process supervisor. [OpenClaw's Gateway health guidance](https://docs.openclaw.ai/gateway/health) separates liveness, startup and readiness; [its remote guidance](https://docs.openclaw.ai/gateway/remote/index.html) uses persistent hosts for always-on agents. [MCP HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) can expire sessions; Envoi's durable identity and work recovery must remain above that transport. [Microsoft Task Scheduler](https://learn.microsoft.com/en-au/windows/win32/taskschd/taskschedulerschema-restartonfailure-settingstype-element) and [systemd](https://www.freedesktop.org/software/systemd/man/259/systemd.service.html) provide process restart controls, but neither proves the agent processed an inbox item.

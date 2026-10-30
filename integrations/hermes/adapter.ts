@@ -5,7 +5,7 @@ import { ConnectorSetupError, type AdapterContext, type ConnectorAdapter } from 
 import { EnvoiError } from '../../sdk/typescript/src/index';
 import { privateJson } from '../openclaw/quick-connect-store';
 import { discoverHermes, hermesServerName, mergeMcpConfiguration, optionalText, replaceConfiguration, setEnvValue } from './config';
-import { boundedHermesRun, preflightHermes } from './api';
+import { boundedHermesRun, checkHermesCapabilities, preflightHermes } from './api';
 import { createHermesBridge } from './runtime';
 import { assertScopedHermes, hermesHost, selectScopedHermes, type HermesRuntimeConfiguration } from './scoped-runtime';
 import { connectHermesHost } from './scoped-host';
@@ -78,6 +78,11 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
       throw error;
     }
     wire.close();
+  },
+  async startupCheck(config, options) {
+    const scoped = await selectScopedHermes(options, config);
+    if (!scoped) return checkHermesCapabilities(config, options);
+    return hermesAdapter.preflight(config, options);
   },
   async configure(config, context) {
     const scoped = await selectScopedHermes(context, config);

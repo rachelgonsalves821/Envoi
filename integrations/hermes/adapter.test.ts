@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createServer, createConnection } from 'node:net';
 import * as hermesConfig from './config';
 import { discoverHermes, envValue, mergeMcpConfiguration, yamlScalar, type HermesConfiguration } from './config';
-import { boundedHermesRun, preflightHermes } from './api';
+import { boundedHermesRun, checkHermesCapabilities, preflightHermes } from './api';
 import { configureHermes, hermesAdapter } from './adapter';
 import { saveHermesScopedMode } from './scoped-runtime';
 
@@ -138,6 +138,16 @@ describe('Hermes profile discovery and preparation', () => {
 });
 
 describe('Hermes authenticated preflight', () => {
+  it('checks legacy Gateway capabilities on restart without creating a model run', async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('http://127.0.0.1:8642/v1/capabilities');
+      expect(init?.method).toBeUndefined();
+      expect(init?.body).toBeUndefined();
+      return payload({ features: { run_submission: true, run_status: true, run_stop: true } });
+    });
+    await checkHermesCapabilities(config, { fetch: fetcher as typeof fetch });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it.each([429, 503])('classifies HTTP %s as a temporary Gateway outage without exposing its body', async status => {
     const f = await fixture();
     const error = await preflightHermes(f.config, { fetch: vi.fn(async () => new Response('sensitive-local-key', { status })) as typeof fetch }).catch(error => error);
