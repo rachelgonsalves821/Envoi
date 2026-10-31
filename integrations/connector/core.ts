@@ -11,7 +11,7 @@ import { FileBridgeStore } from '../agent-bridges/file-store';
 import { ConnectorSetupError, type AdapterOptions, type ConnectorAdapter, type RuntimeBridge } from './adapter';
 import { privateDirectory, privateJson, acquireConnectorLock } from './store';
 import { checkServiceManager, inspectConnectorService } from './service';
-import { startControl, queryControl } from './control';
+import { startControl, queryControl, controlIdentityMatches } from './control';
 import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-error';
 import { migrateConnectionDirectory } from './migrate';
 import { waitForRuntimeTools } from './runtime-readiness';
@@ -512,9 +512,7 @@ export async function connectionStatus(stateDir: string) {
   let controlChannel: 'responding' | 'absent' | 'unreachable' | 'invalid' | 'identity_mismatch' = 'absent';
   try {
     const response = await queryControl(directory, 'status');
-    if (!response || typeof response !== 'object' || Array.isArray(response)
-      || response.runtime !== saved.runtime || response.address !== saved.address || response.apiUrl !== saved.apiUrl
-      || typeof response.status !== 'string') controlChannel = 'identity_mismatch';
+    if (!controlIdentityMatches(response, saved) || typeof response.status !== 'string') controlChannel = 'identity_mismatch';
     else { live = response; controlChannel = 'responding'; }
   } catch (error) {
     controlChannel = error instanceof ConnectorSetupError && error.code === 'CONTROL_INVALID' ? 'invalid'
@@ -575,7 +573,7 @@ export async function doctorConnection(stateDir: string, resolveAdapter: Adapter
   const live = snapshot.controlChannel === 'responding' ? await queryControl(directory, 'doctor').catch(() => null) : null;
   // Ask the owner process for its latest checks. A second process must not rotate
   // shared credentials or claim queued work while the durable bridge owns them.
-  if (live && live.runtime === snapshot.runtime && live.address === snapshot.address && live.apiUrl === snapshot.apiUrl)
+  if (controlIdentityMatches(live, snapshot))
     return { ...snapshot, ...live, note: 'Checks are from the running connector; verify a real message exchange' };
   if (snapshot.controlChannel === 'responding') return { ...snapshot, status: 'unverified', runtimeChecks: 'unverified',
     nextAction: 'The connector control response changed during doctor; inspect the existing process and retry status.',

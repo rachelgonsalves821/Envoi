@@ -20,7 +20,9 @@ endpoint is never reported as this agent's live connector; `doctor` also
 withholds offline preflight until that ambiguity is resolved. When the manager
 reports a running process but the authenticated control channel does not
 respond, status is `unverified` and asks for process inspection, not another
-connector start.
+connector start. Local `stop` and `uninstall` verify the responding runtime,
+address and API origin against the saved installation before they can stop a
+process.
 On Windows and Linux, `startupService.enabled` and `managerState` report the
 manager's read-only view. macOS reports `managerState` from the current
 LaunchAgent session's exact-label PID and last exit status; it cannot infer

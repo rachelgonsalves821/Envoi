@@ -8,9 +8,10 @@ import { FileBridgeStore } from '../agent-bridges/file-store';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { ConnectorSetupError, type ConnectorAdapter } from './adapter';
 import { checkEnvoi, connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
-import { startControl, queryControl } from './control';
+import { startControl, queryControl, queryOwnedControl } from './control';
 import { connectorService } from './service';
 import * as serviceModule from './service';
+import { connectorMain } from './cli';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
@@ -276,20 +277,22 @@ describe('authenticated local management', () => {
   it('reports the actual controlled process and stops it without signaling an arbitrary PID', async () => {
     const f = await fixture(); let stopRequested = false;
     const directory = await secureDirectory(f.options.stateDir);
-    const control = await startControl(directory, { runtime: 'hermes', address: f.handoff.address }, () => { stopRequested = true; });
+    const control = await startControl(directory, { runtime: 'hermes', address: f.handoff.address, apiUrl: f.handoff.apiUrl }, () => { stopRequested = true; });
     try {
       expect(await queryControl(directory, 'status')).toMatchObject({ pid: process.pid, runtime: 'hermes', status: 'running' });
       const record = JSON.parse(await readFile(path.join(directory, 'control.json'), 'utf8'));
       expect((await fetch(`http://127.0.0.1:${record.port}/stop`, { method: 'POST' })).status).toBe(403);
       expect(stopRequested).toBe(false);
-      await queryControl(directory, 'stop'); expect(stopRequested).toBe(true);
+      await queryOwnedControl(directory, 'stop', { runtime: 'hermes', address: f.handoff.address, apiUrl: f.handoff.apiUrl });
+      expect(stopRequested).toBe(true);
     } finally { await control.close(); }
     await expect(readFile(path.join(directory, 'control.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
   it('does not present another agent control listener as this saved connection', async () => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    let stoppedOther = false;
     const control = await startControl(f.options.stateDir,
-      { runtime: 'hermes', address: 'other@agents.envoi.example', apiUrl: f.handoff.apiUrl }, () => {});
+      { runtime: 'hermes', address: 'other@agents.envoi.example', apiUrl: f.handoff.apiUrl }, () => { stoppedOther = true; });
     try {
       const status = await connectionStatus(f.options.stateDir);
       expect(status).toMatchObject({ status: 'unverified', controlChannel: 'identity_mismatch',
@@ -297,6 +300,11 @@ describe('authenticated local management', () => {
       expect(JSON.stringify(status)).not.toContain('other@agents.envoi.example');
       expect(await doctorConnection(f.options.stateDir, f.resolver, f.options))
         .toMatchObject({ status: 'unverified', runtimeChecks: 'unverified' });
+      await expect(queryOwnedControl(f.options.stateDir, 'stop', await readConnection(f.options.stateDir)))
+        .rejects.toMatchObject({ code: 'CONTROL_INVALID' });
+      await expect(connectorMain(['stop', '--state-dir', f.options.stateDir])).rejects.toMatchObject({ code: 'CONTROL_INVALID' });
+      await expect(connectorMain(['uninstall', '--state-dir', f.options.stateDir])).rejects.toMatchObject({ code: 'CONTROL_INVALID' });
+      expect(stoppedOther).toBe(false);
     } finally { await control.close(); }
     await writeFile(path.join(f.options.stateDir, 'control.json'), 'invalid private record');
     expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'unverified', controlChannel: 'invalid' });
