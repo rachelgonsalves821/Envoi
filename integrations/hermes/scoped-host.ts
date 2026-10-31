@@ -35,6 +35,34 @@ export function selectedHermesProfile(identity: Record<string, any>, host: Herme
   return matches[0].profile_id;
 }
 
+export interface HermesHostObservation {
+  connection: 'ready' | 'origin_changed' | 'not_ready' | 'unverified';
+  supervisor: 'none' | 'systemd' | 'launchd' | 'external' | 'unknown';
+  originMatches: boolean | null;
+}
+
+/** Project only safe live descriptor fields; never expose profile IDs, origins or tickets. */
+export function summarizeHermesIdentity(identity: Record<string, any>, host: HermesScopedHost): HermesHostObservation {
+  try {
+    selectedHermesProfile(identity, host);
+    const supervisor = ['none', 'systemd', 'launchd', 'external'].includes(identity.supervisor) ? identity.supervisor : 'unknown';
+    return { connection: 'ready', supervisor, originMatches: true };
+  } catch (error) {
+    if (error instanceof EnvoiError && error.code === 'HERMES_ORIGIN_CHANGED') {
+      const supervisor = ['none', 'systemd', 'launchd', 'external'].includes(identity.supervisor) ? identity.supervisor : 'unknown';
+      return { connection: 'origin_changed', supervisor, originMatches: false };
+    }
+    return { connection: error instanceof EnvoiError && error.code === 'HERMES_DAEMON_UNREACHABLE' ? 'not_ready' : 'unverified',
+      supervisor: 'unknown', originMatches: null };
+  }
+}
+
+export async function inspectHermesHost(host: HermesScopedHost): Promise<HermesHostObservation> {
+  validateHermesHost(host);
+  try { return summarizeHermesIdentity(await control(host.home, 'identify', {}, AbortSignal.timeout(6000)), host); }
+  catch { return { connection: 'unverified', supervisor: 'unknown', originMatches: null }; }
+}
+
 export function validateHermesHost(host: HermesScopedHost) {
   const url = new URL(host.origin);
   if (!path.isAbsolute(host.home) || !path.isAbsolute(host.cwd) || /[\x00\r\n]/.test(host.home + host.cwd)

@@ -22,7 +22,10 @@ means the manager could not be queried safely. While the process is alive, its a
 local control endpoint reports the current startup phase and `wake.transport`, with
 last ready, event, and successful work-claim times. `connected` means the Envoi event
 stream delivered its ready frame; it does **not** mean a model turn or MCP tool call
-succeeded. After an exit, a private `runtime-diagnostic.json` preserves the last
+succeeded. For scoped Hermes, `status.selectedGateway` separately reports a
+read-only live descriptor verdict, its declared supervisor, and whether the
+origin matches the saved pin. It omits the actual origin, profile identifier,
+ticket, and authority record. After an exit, a private `runtime-diagnostic.json` preserves the last
 phase and stable error code. It contains no token, prompt, inbox content, cursor,
 Gateway key, or raw exception message. `doctor` with no live process reports
 `preflight_only`; it cannot prove wake or processing. A `failed` phase needs its exact

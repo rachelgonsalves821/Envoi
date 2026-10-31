@@ -19,6 +19,7 @@ import { parseHostedWakeConfig, runHostedWake } from './hosted-wake-runner';
 import { resolveHostedWakeConfig } from './hosted-wake-config';
 import { createHostTaskSender, HostTaskError } from './host-task';
 import { readRuntimeDiagnostic, writeRuntimeDiagnostic, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
+import { inspectHermesHost, type HermesHostObservation } from '../hermes/scoped-host';
 
 export interface InstalledConnection {
   version: 1;
@@ -511,7 +512,16 @@ export async function connectionStatus(stateDir: string) {
   const checks = await readFile(path.join(directory, 'setup-check.json'), 'utf8').then(text => JSON.parse(text) as { checkedAt?: string }).catch(() => null);
   const enrollmentError = await readEnrollmentDiagnostic(directory);
   const lastRuntime = await readRuntimeDiagnostic(directory);
-  const startupService = await inspectConnectorService(directory, saved.runtime).catch(() => ({ registration: 'unverified' as const }));
+  const configuration = saved.configuration as Record<string, unknown>;
+  const scopedHermes = saved.runtime === 'hermes' && configuration.scopedTools === true;
+  const gatewayHost = scopedHermes && typeof configuration.home === 'string' && typeof configuration.daemonOrigin === 'string'
+    && typeof configuration.scopedCwd === 'string'
+    ? { home: configuration.home, origin: configuration.daemonOrigin, cwd: configuration.scopedCwd } : null;
+  const [startupService, selectedGateway] = await Promise.all([
+    inspectConnectorService(directory, saved.runtime).catch(() => ({ registration: 'unverified' as const })),
+    gatewayHost ? inspectHermesHost(gatewayHost).catch((): HermesHostObservation => ({ connection: 'unverified', supervisor: 'unknown', originMatches: null }))
+      : Promise.resolve(scopedHermes ? { connection: 'unverified', supervisor: 'unknown', originMatches: null } as HermesHostObservation : undefined)
+  ]);
   const status = live?.status ?? 'stopped';
   const diagnosticCode = live ? live.errorCode : lastRuntime?.errorCode;
   const errorCode = typeof diagnosticCode === 'string' ? diagnosticCode : undefined;
@@ -535,7 +545,8 @@ export async function connectionStatus(stateDir: string) {
     : undefined;
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
     credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle, guidance: session?.lifecycle?.guidance, ...(enrollmentError ? { enrollmentError } : {}),
-    stateDir: directory, status, startupService, ...(nextAction ? { nextAction } : {}), checkedAt: live?.checkedAt ?? checks?.checkedAt,
+    stateDir: directory, status, startupService, ...(selectedGateway ? { selectedGateway } : {}),
+    ...(nextAction ? { nextAction } : {}), checkedAt: live?.checkedAt ?? checks?.checkedAt,
     runtimeDiagnostic: live ? { phase: live.phase, runtimeChecks: live.runtimeChecks,
       ...(live.errorCode ? { errorCode: live.errorCode } : {}), ...(live.retryAt ? { retryAt: live.retryAt } : {}),
       ...(live.wake ? { wake: live.wake } : {}) } : lastRuntime,
