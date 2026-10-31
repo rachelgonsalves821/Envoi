@@ -15,6 +15,7 @@ import Team from './Team.astro';
 import AgentOrbit from './AgentOrbit.astro';
 import MonadPermissions from './MonadPermissions.astro';
 import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
+import { ClientRouter } from 'astro:transitions';
 interface Props { page: 'about' | 'product'; }
 const { page } = Astro.props;
 const isProduct = page === 'product';
@@ -36,6 +37,7 @@ const features = [
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <ClientRouter fallback="swap" />
     <script is:inline set:html={themeBootstrap}></script>
     <title>{pageTitle}</title>
     <meta name="description" content="Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run." />
