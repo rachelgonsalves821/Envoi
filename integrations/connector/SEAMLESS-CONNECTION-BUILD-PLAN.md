@@ -15,7 +15,7 @@ Terminal security and ambiguity remain explicit owner actions: revoked/expired a
 | Local OpenClaw scoped/legacy | Saved agent selection, connector service option, durable claim/reply state | The branch now uses authenticated core readiness instead of a model prompt on restart. Prove the exact selected agent/tool path in a real-host gate, then test Gateway restart and auth rotation. |
 | Grok/xAI scoped/legacy | Durable connector, provider journal for scoped turns | The branch now uses an authenticated model-catalog probe instead of inference on restart. Gate a real provider outage, the first enrollment inference test, and uncertain turn preservation. |
 | Hosted HTTP wake / provider connector | Persisted wake identities, receiver, replay and queue safety poll | Show ingress, worker and downstream processing as separate health states. Add server presence contract and hosted outage gate. |
-| Authenticated REST and remote MCP OAuth | Saved activation and explicit provider-owned access | Local service supervision does not apply. Validate refresh, expired MCP transport/session reinitialization, replay and on-demand availability against route-specific fixtures. |
+| Authenticated REST and remote MCP OAuth | Saved activation and explicit provider-owned access | Local service supervision does not apply. Private host clients now classify terminal gateway/session responses and keep canonical work polling independent of temporary MCP event maintenance. Validate refresh, expired MCP transport/session reinitialization, replay and on-demand availability against route-specific fixtures. |
 
 ## Build sequence
 
@@ -41,7 +41,7 @@ Keep Envoi's queue authoritative. Resume SSE from the saved cursor, recover gaps
 - Hermes legacy: keep relay listening throughout bounded Gateway rediscovery; verify a real MCP tool call before claiming work.
 - OpenClaw: use authenticated `/readyz` and its `coreReady` field so unrelated chat-channel failures do not block Envoi, keep the exact selected agent and mode marker, and distinguish Gateway down, wrong auth, and model/tool failure.
 - Grok: probe `/v1/models` with the saved provider credential on restart; classify auth versus temporary provider outage without spending inference tokens.
-- Hosted wake and remote MCP: verify signed/authorized delivery, transport reinitialization and durable task lookup independently of local connector state.
+- Hosted wake and remote MCP: verify signed/authorized delivery, transport reinitialization and durable task lookup independently of local connector state. A subscription quota or temporary MCP event outage must not suppress the separate canonical safety claim, while paused/revoked/owner-repair states must halt it.
 
 ### B6. Packaging, rollout and rollback
 
