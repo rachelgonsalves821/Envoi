@@ -125,12 +125,13 @@ previewView.caseQueue = previewView.cases.map(workCase => {
 return { ...workCase, inboxPreference, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
 });
 export default function App() {
-  const [path, setPath] = useState(() => window.location.pathname);
+  const [route, setRoute] = useState(() => `${window.location.pathname}${window.location.search}${window.location.hash}`);
+  const path = route.split(/[?#]/, 1)[0];
   const [workspaceMounted, setWorkspaceMounted] = useState(() => window.location.pathname !== '/connect');
   const [connectMounted, setConnectMounted] = useState(() => window.location.pathname === '/connect');
   useEffect(() => {
     const updatePath = () => {
-      setPath(window.location.pathname);
+      setRoute(`${window.location.pathname}${window.location.search}${window.location.hash}`);
       if (window.location.pathname === '/connect') setConnectMounted(true);
       else setWorkspaceMounted(true);
     };
@@ -151,10 +152,11 @@ export default function App() {
       document.removeEventListener('click', followInternalLink);
     };
   }, []);
-  return <CsrfReloadBoundary>{workspaceMounted && <div hidden={path === '/connect'} style={path === '/connect' ? { display: 'none' } : undefined}><WorkspaceApp /></div>}{connectMounted && <div hidden={path !== '/connect'} style={path !== '/connect' ? { display: 'none' } : undefined}><ConnectPage /></div>}</CsrfReloadBoundary>;
+  return <CsrfReloadBoundary>{workspaceMounted && <div hidden={path === '/connect'} style={path === '/connect' ? { display: 'none' } : undefined}><WorkspaceApp route={route} /></div>}{connectMounted && <div hidden={path !== '/connect'} style={path !== '/connect' ? { display: 'none' } : undefined}><ConnectPage /></div>}</CsrfReloadBoundary>;
 }
 
-function WorkspaceApp() {
+function WorkspaceApp({ route }: { route: string }) {
+  const routePath = route.split(/[?#]/, 1)[0];
   const [isPreview] = useState(() => previewRequested(window.location.search, import.meta.env.DEV));
   const [isLandingPreview] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).has('landing-preview'));
   const [boot, setBoot] = useState<BootState>('loading');
@@ -597,10 +599,10 @@ function WorkspaceApp() {
   const renderedGeneration = sessionGeneration();
   const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
   if (isLandingPreview) return <LandingPage signInPath={`${import.meta.env.VITE_PUBLIC_URL || 'https://www.envoi-agents.com'}/api/auth/workos/sign-in`} />;
-  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} claimRoute={['/claim', '/authorize-agent'].includes(window.location.pathname)} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
+  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} claimRoute={['/claim', '/authorize-agent'].includes(routePath)} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} onLogout={hadAuthenticatedSession.current && !signingOut.current ? () => { void logout(); } : undefined} />;
   if (boot === 'signedOut' && config) return config.provider === 'workos'
-    ? <LandingPage signInPath={window.location.pathname === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : window.location.pathname === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
+    ? <LandingPage signInPath={routePath === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : routePath === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
     : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
   if (boot === 'setup' && human) return <><SignOutControl onLogout={() => { void logout(); }} /><WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} /></>;
   if (boot === 'error') return <FailureScreen message={error} title={signingOut.current ? 'Sign out incomplete' : undefined} retryLabel={signingOut.current ? 'Retry sign out' : undefined} onRetry={signingOut.current ? logout : loadAccount} onLogout={signingOut.current || hadAuthenticatedSession.current ? () => { void logout(); } : undefined} />;
@@ -619,7 +621,7 @@ function WorkspaceApp() {
       syncNotice={syncNotice}
       onLoadOlder={async () => { checkRenderedSession(); await loadOlder(); }}
       historyBusy={historyBusy}
-      claimRoute={['/claim', '/authorize-agent'].includes(window.location.pathname)}
+      claimRoute={['/claim', '/authorize-agent'].includes(routePath)}
       initialSection={requestedSection}
       onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); setRequestedSection(nextSection); await selectWorkspace(next); }}
       onPreferenceUpdated={(inboxId, caseId, preference) => {
