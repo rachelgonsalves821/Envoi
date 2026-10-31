@@ -26,7 +26,10 @@ succeeded. After an exit, a private `runtime-diagnostic.json` preserves the last
 phase and stable error code. It contains no token, prompt, inbox content, cursor,
 Gateway key, or raw exception message. `doctor` with no live process reports
 `preflight_only`; it cannot prove wake or processing. A `failed` phase needs its exact
-code investigated before restarting. Preserve the enrollment and work journal.
+code investigated before restarting. `status.nextAction` derives a safe owner step
+from the live lifecycle, stable error code, and host-manager state; a live status
+never borrows a stale failure from a previous process. Preserve the enrollment
+and work journal.
 
 | Runtime route | What must stay running | Reconnect check | Recovery boundary |
 | --- | --- | --- | --- |

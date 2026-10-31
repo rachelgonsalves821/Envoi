@@ -12148,7 +12148,11 @@ async function zo(e, t, n, r = {}) {
 	}
 }
 async function Bo(e) {
-	let t = d.resolve(e), n = await Po(t), r = await No(t), i = await fo(t, "status").catch(() => null), o = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), s = await go(t), c = await Oo(t), l = await Qa(t, n.runtime).catch(() => ({ registration: "unverified" }));
+	let t = d.resolve(e), n = await Po(t), r = await No(t), i = await fo(t, "status").catch(() => null), o = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), s = await go(t), c = await Oo(t), l = await Qa(t, n.runtime).catch(() => ({ registration: "unverified" })), u = i?.status ?? "stopped", f = i ? i.errorCode : c?.errorCode, p = typeof f == "string" ? f : void 0, m = i ? i.phase : c?.phase, h = r ? r.lifecycle?.state === "REVOKED" ? "Ask the owner to review the revoked installation; preserve its saved state." : r.lifecycle?.state === "NEEDS_RECONNECT" ? "Ask the owner to reconnect this existing agent through Envoi." : r.lifecycle?.paused ? u === "stopped" ? "Start the existing connector so it can observe the owner resuming this agent." : "Wait for the owner to resume this existing agent." : p === "SCOPED_CONFIG_INVALID" ? "Preserve the connection and ask the owner to review the selected scoped Gateway." : [
+		"HERMES_EXECUTION_UNCERTAIN",
+		"HERMES_CREATION_UNCERTAIN",
+		"SCOPED_MODEL_CHANGED"
+	].includes(p ?? "") ? "Preserve the turn journal and use the supported settlement recovery procedure." : "enabled" in l && l.enabled === !1 ? "Ask the owner to enable the existing startup service." : "managerState" in l && l.managerState === "failed" ? "Inspect the startup service failure; preserve enrollment and credentials." : p === "GATEWAY_UNREACHABLE" ? "Restore the selected Gateway; the connector will retry its saved connection." : m === "failed" ? "Inspect the saved runtime error code and repair the selected runtime before restarting." : u === "stopped" && l.registration === "not_installed" ? "Start the existing connector or ask the owner to install its startup service." : u === "stopped" ? "Restart the existing connector using its saved state directory." : u === "waiting" ? "Wait for the saved retry, then verify a real agent exchange." : void 0 : "Preserve the connection directory and ask the owner to recover its missing credentials.";
 	return {
 		runtime: n.runtime,
 		address: n.address,
@@ -12159,8 +12163,9 @@ async function Bo(e) {
 		guidance: r?.lifecycle?.guidance,
 		...s ? { enrollmentError: s } : {},
 		stateDir: t,
-		status: i?.status ?? "stopped",
+		status: u,
 		startupService: l,
+		...h ? { nextAction: h } : {},
 		checkedAt: i?.checkedAt ?? o?.checkedAt,
 		runtimeDiagnostic: i ? {
 			phase: i.phase,

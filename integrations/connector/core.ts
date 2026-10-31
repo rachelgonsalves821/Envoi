@@ -512,9 +512,30 @@ export async function connectionStatus(stateDir: string) {
   const enrollmentError = await readEnrollmentDiagnostic(directory);
   const lastRuntime = await readRuntimeDiagnostic(directory);
   const startupService = await inspectConnectorService(directory, saved.runtime).catch(() => ({ registration: 'unverified' as const }));
+  const status = live?.status ?? 'stopped';
+  const diagnosticCode = live ? live.errorCode : lastRuntime?.errorCode;
+  const errorCode = typeof diagnosticCode === 'string' ? diagnosticCode : undefined;
+  const phase = live ? live.phase : lastRuntime?.phase;
+  const nextAction = !session ? 'Preserve the connection directory and ask the owner to recover its missing credentials.'
+    : session.lifecycle?.state === 'REVOKED' ? 'Ask the owner to review the revoked installation; preserve its saved state.'
+    : session.lifecycle?.state === 'NEEDS_RECONNECT' ? 'Ask the owner to reconnect this existing agent through Envoi.'
+    : session.lifecycle?.paused ? status === 'stopped'
+      ? 'Start the existing connector so it can observe the owner resuming this agent.'
+      : 'Wait for the owner to resume this existing agent.'
+    : errorCode === 'SCOPED_CONFIG_INVALID' ? 'Preserve the connection and ask the owner to review the selected scoped Gateway.'
+    : ['HERMES_EXECUTION_UNCERTAIN', 'HERMES_CREATION_UNCERTAIN', 'SCOPED_MODEL_CHANGED'].includes(errorCode ?? '')
+      ? 'Preserve the turn journal and use the supported settlement recovery procedure.'
+    : 'enabled' in startupService && startupService.enabled === false ? 'Ask the owner to enable the existing startup service.'
+    : 'managerState' in startupService && startupService.managerState === 'failed' ? 'Inspect the startup service failure; preserve enrollment and credentials.'
+    : errorCode === 'GATEWAY_UNREACHABLE' ? 'Restore the selected Gateway; the connector will retry its saved connection.'
+    : phase === 'failed' ? 'Inspect the saved runtime error code and repair the selected runtime before restarting.'
+    : status === 'stopped' && startupService.registration === 'not_installed' ? 'Start the existing connector or ask the owner to install its startup service.'
+    : status === 'stopped' ? 'Restart the existing connector using its saved state directory.'
+    : status === 'waiting' ? 'Wait for the saved retry, then verify a real agent exchange.'
+    : undefined;
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
     credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle, guidance: session?.lifecycle?.guidance, ...(enrollmentError ? { enrollmentError } : {}),
-    stateDir: directory, status: live?.status ?? 'stopped', startupService, checkedAt: live?.checkedAt ?? checks?.checkedAt,
+    stateDir: directory, status, startupService, ...(nextAction ? { nextAction } : {}), checkedAt: live?.checkedAt ?? checks?.checkedAt,
     runtimeDiagnostic: live ? { phase: live.phase, runtimeChecks: live.runtimeChecks,
       ...(live.errorCode ? { errorCode: live.errorCode } : {}), ...(live.retryAt ? { retryAt: live.retryAt } : {}),
       ...(live.wake ? { wake: live.wake } : {}) } : lastRuntime,
