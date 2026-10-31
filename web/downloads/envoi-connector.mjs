@@ -869,6 +869,10 @@ function Le(e) {
 	return t ? {
 		...t,
 		guidance: t.guidanceByReason?.[e?.reason ?? ""] ?? t.guidance
+	} : e?.status === 429 ? {
+		lifecycle: "DEGRADED",
+		retry: "after_retry_after",
+		guidance: "service_busy"
 	} : e?.code === "HANDLER_FAILED" || e?.code === "NETWORK_ERROR" || e?.code === "TIMEOUT" || e?.status !== void 0 && e.status >= 500 && e.status !== 501 ? {
 		lifecycle: "DEGRADED",
 		retry: "backoff",
