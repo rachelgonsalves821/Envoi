@@ -1,6 +1,6 @@
 # Human Interface frontend
 
-Envoi’s browser UI is a React + TypeScript application under `frontend/`. Vite builds a self-contained production `web/index.html`, which the existing Node server serves at `/`. The inlined build can also be copied to a static host without breaking asset paths. No backend source changes are required for the frontend build.
+Envoi’s browser UI is a React + TypeScript application under `frontend/`. Vite builds a small `web/index.html` and content-hashed JavaScript, CSS, and font files under `web/assets/`. The Node server serves the app at `/app`, `/claim`, `/connect`, and `/authorize-agent`, and serves its assets at `/web/assets/`. A static host must publish the entire `web/` directory at `/web/` and serve the app shell on those routes.
 
 ## Commands
 

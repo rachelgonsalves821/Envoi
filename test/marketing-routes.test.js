@@ -60,7 +60,23 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   const app = await get('/app');
   assert.equal(app.status, 200);
   assert.equal(app.headers.get('x-robots-tag'), 'noindex, nofollow');
-  assert.match(await app.text(), /id="root"/);
+  assert.equal(app.headers.get('cache-control'), 'private, no-store');
+  const appHtml = await app.text();
+  assert.match(appHtml, /id="root"/);
+  const appNonce = app.headers.get('content-security-policy').match(/script-src 'nonce-([^']+)'/)?.[1];
+  assert.ok(appNonce);
+  const scriptTag = appHtml.match(/<script[^>]+src="(\/web\/assets\/[^\"]+\.js)"[^>]*>/)?.[0];
+  const stylesheetTag = appHtml.match(/<link[^>]+href="(\/web\/assets\/[^\"]+\.css)"[^>]*>/)?.[0];
+  assert.ok(scriptTag?.includes(`nonce="${appNonce}"`));
+  assert.ok(stylesheetTag?.includes(`nonce="${appNonce}"`));
+  for (const [tag, type] of [[scriptTag, /^text\/javascript/], [stylesheetTag, /^text\/css/]]) {
+    const assetPath = tag.match(/(?:src|href)="([^"]+)"/)?.[1];
+    const asset = await get(assetPath);
+    assert.equal(asset.status, 200, assetPath);
+    assert.match(asset.headers.get('content-type'), type);
+    assert.equal(asset.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.ok(Number(asset.headers.get('content-length')) > 0);
+  }
   for (const route of ['/claim', '/connect', '/authorize-agent']) {
     const response = await get(route);
     assert.equal(response.status, 200, route);

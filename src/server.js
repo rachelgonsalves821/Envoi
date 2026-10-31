@@ -8,6 +8,7 @@ import { FileStore } from './storage.js';
 import { joinWaitlist } from './waitlist.js';
 import { createWaitlistSheetSync } from './waitlist-sheet-sync.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
+import { mapLimited } from './map-limited.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
 import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHeader, csrfCookieName, membershipCanManage, parseCookies, retiredCookieClears, retiredCookiesIn, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
@@ -2280,24 +2281,28 @@ async function participantDirectoryForHuman(inbox, agents, cases) {
 }
 
 async function humanView(inboxId, inbox, cursors = {}) {
-  const [agents, calendarConnectors, page] = await Promise.all([
+  const [agents, calendarConnectors, page, grants] = await Promise.all([
     store.listJson(path.join('inboxes', inboxId, 'agents')),
     store.listJson(path.join('inboxes', inboxId, 'calendar-connectors')),
-    workspaceHistory(store, inboxId, cursors)
+    workspaceHistory(store, inboxId, cursors),
+    store.listJson(path.join('inboxes', inboxId, 'asset-grants'))
   ]);
   const { items: { cases, messages, assets, recentEvents: events, deliveryReceipts, invitations, contacts: externalContacts }, history } = page;
-  const grants = await store.listJson(path.join('inboxes', inboxId, 'asset-grants'));
-  const sharedAssets = [];
-  for (const grant of grants) {
-    const asset = await store.getJson(objectMetadataPath(grant.assetId));
-    if (!asset || asset.state !== 'clean' || assets.some(item => item.id === asset.id)) continue;
-    const access = await assetReadAccess(asset, inbox, { agent: null, manager: true });
-    if (access.allowed && !access.owner) sharedAssets.push({ ...asset, grant: access.grant });
-  }
+  const ownedAssetIds = new Set(assets.map(asset => asset.id));
+  const [sharedAssetCandidates, participantDirectory, ownerStates] = await Promise.all([
+    mapLimited(grants, 8, async grant => {
+      const asset = await store.getJson(objectMetadataPath(grant.assetId));
+      if (!asset || asset.state !== 'clean' || ownedAssetIds.has(asset.id)) return null;
+      const access = await assetReadAccess(asset, inbox, { agent: null, manager: true });
+      return access.allowed && !access.owner ? { ...asset, grant: access.grant } : null;
+    }),
+    participantDirectoryForHuman(inbox, agents, cases),
+    Promise.all(agents.map(agent => ownerAgentState(inboxId, agent)))
+  ]);
+  const sharedAssets = sharedAssetCandidates.filter(Boolean);
   const visibleAssets = [...assets, ...sharedAssets];
   const visibleHistory = { ...history, assets: { ...history.assets, total: history.assets.total + sharedAssets.length } };
   const projection = projectWorkspaceForHuman(cases);
-  const participantDirectory = await participantDirectoryForHuman(inbox, agents, cases);
   const projectedInvitations = invitations
     .map(invitation => ({
       ...invitation,
@@ -2316,7 +2321,7 @@ async function humanView(inboxId, inbox, cursors = {}) {
     navigation: { ...projection.counts, needsMe: projection.counts.needsMe + pendingInvitations },
     caseQueue: projection.cases,
     participantDirectory,
-    agents: await Promise.all(agents.map(agent => ownerAgentState(inboxId, agent))),
+    agents: ownerStates,
     cases,
     messages,
     assets: visibleAssets,
@@ -4089,7 +4094,8 @@ async function route(req, res) {
       let content = await readFile(filePath);
       if (extension === '.html') content = Buffer.from(nonceStaticHtml(content.toString('utf8'), responseNonce));
       if (appShell || url.pathname === '/web/index.html') res.setHeader('x-robots-tag', 'noindex, nofollow');
-      res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'content-length': content.byteLength, 'cache-control': 'private, no-store' });
+      const immutableAsset = /^\/web\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[^/]+$/.test(url.pathname);
+      res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'content-length': content.byteLength, 'cache-control': immutableAsset ? 'public, max-age=31536000, immutable' : 'private, no-store' });
       return res.end(req.method === 'HEAD' ? undefined : content);
     }
     catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
