@@ -70,7 +70,7 @@ export async function inspectConnectorService(directory: string, runtime: string
   }
   if (!manifest.isFile() || manifest.isSymbolicLink()) return { name: service.name, registration: 'unverified' as ServiceRegistration };
   const command = platform === 'linux' ? { executable: 'systemctl', args: ['--user', 'show', '-p', 'LoadState', '-p', 'UnitFileState', '-p', 'ActiveState', `${service.name}.service`] }
-    : platform === 'darwin' ? { executable: 'launchctl', args: ['list', service.name] }
+    : platform === 'darwin' ? { executable: 'launchctl', args: ['list'] }
     : { executable: windowsExecutable('powershell.exe', options.env), args: ['-NoProfile', '-NonInteractive', '-Command',
       `(Get-ScheduledTask -TaskName '${service.name}' -TaskPath '\\' -ErrorAction Stop).State.ToString()`] };
   try {
@@ -89,6 +89,16 @@ export async function inspectConnectorService(directory: string, runtime: string
       if (!['Running', 'Ready', 'Disabled', 'Queued', 'Unknown'].includes(state)) return { name: service.name, registration: 'unverified' as ServiceRegistration };
       return { name: service.name, registration: 'registered' as ServiceRegistration, enabled: state !== 'Disabled',
         managerState: (state === 'Running' ? 'running' : state === 'Ready' || state === 'Disabled' ? 'stopped' : 'unknown') as ServiceManagerState };
+    }
+    if (platform === 'darwin' && typeof output === 'string') {
+      // launchctl list uses PID, last exit status, and label columns. Match the
+      // complete generated label; another Envoi installation is not this owner.
+      const rows = output.trim().split(/\r?\n/).map(line => line.trim().split(/\s+/));
+      const row = rows.find(parts => parts.length === 3 && parts[2] === service.name);
+      if (!row || !/^(?:\d+|-)$/.test(row[0]) || !/^-?\d+$/.test(row[1]))
+        return { name: service.name, registration: 'unverified' as ServiceRegistration };
+      const managerState: ServiceManagerState = row[0] !== '-' ? 'running' : Number(row[1]) === 0 ? 'stopped' : 'failed';
+      return { name: service.name, registration: 'registered' as ServiceRegistration, managerState };
     }
     return { name: service.name, registration: 'registered' as ServiceRegistration, managerState: 'unknown' as ServiceManagerState };
   } catch { return { name: service.name, registration: 'unverified' as ServiceRegistration }; }

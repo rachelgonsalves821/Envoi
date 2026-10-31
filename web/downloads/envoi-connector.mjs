@@ -11371,7 +11371,7 @@ async function eo(e, t, r = {}) {
 		]
 	} : i === "darwin" ? {
 		executable: "launchctl",
-		args: ["list", a.name]
+		args: ["list"]
 	} : {
 		executable: _e("powershell.exe", r.env),
 		args: [
@@ -11416,6 +11416,19 @@ async function eo(e, t, r = {}) {
 			} : {
 				name: a.name,
 				registration: "unverified"
+			};
+		}
+		if (i === "darwin" && typeof e == "string") {
+			let t = e.trim().split(/\r?\n/).map((e) => e.trim().split(/\s+/)).find((e) => e.length === 3 && e[2] === a.name);
+			if (!t || !/^(?:\d+|-)$/.test(t[0]) || !/^-?\d+$/.test(t[1])) return {
+				name: a.name,
+				registration: "unverified"
+			};
+			let n = t[0] === "-" ? Number(t[1]) === 0 ? "stopped" : "failed" : "running";
+			return {
+				name: a.name,
+				registration: "registered",
+				managerState: n
 			};
 		}
 		return {

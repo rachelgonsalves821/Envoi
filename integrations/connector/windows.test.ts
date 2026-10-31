@@ -41,15 +41,17 @@ describe('native Windows helpers', () => {
         await mkdir(path.dirname(service.filename), { recursive: true }); await writeFile(service.filename, service.contents);
         let command: [string, string[]] | undefined;
         const output = platform === 'win32' ? 'Running\r\n' : platform === 'linux'
-          ? 'LoadState=loaded\nUnitFileState=enabled\nActiveState=active\n' : undefined;
+          ? 'LoadState=loaded\nUnitFileState=enabled\nActiveState=active\n'
+          : `PID\tStatus\tLabel\n123\t0\t${service.name}\n`;
         const observed = await inspectConnectorService(directory, 'hermes', { ...options, run: async (executable, args) => { command = [executable, args]; return output; } });
         expect(observed).toMatchObject({ name: service.name, registration: 'registered' });
-        expect(command?.[1].join(' ')).toContain(service.name + (platform === 'linux' ? '.service' : ''));
+        if (platform !== 'darwin') expect(command?.[1].join(' ')).toContain(service.name + (platform === 'linux' ? '.service' : ''));
+        else expect(command?.[1]).toEqual(['list']);
         if (platform === 'win32') expect(command).toMatchObject([expect.stringContaining('powershell.exe'),
           expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command'])]);
         if (platform === 'linux') expect(command?.[1]).toContain('ActiveState');
         if (platform !== 'darwin') expect(observed).toMatchObject({ enabled: true, managerState: 'running' });
-        else expect(observed).toMatchObject({ managerState: 'unknown' });
+        else expect(observed).toMatchObject({ managerState: 'running' });
         expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => { throw new Error('manager unavailable'); } }))
           .toMatchObject({ registration: 'unverified' });
       }
@@ -59,15 +61,23 @@ describe('native Windows helpers', () => {
     const root = await mkdtemp(path.join(tmpdir(), 'envoi-service-state-'));
     try {
       const directory = path.join(root, 'agent'); await mkdir(directory);
-      for (const platform of ['win32', 'linux']) {
+      for (const platform of ['win32', 'linux', 'darwin']) {
         const options = { platform, home: root, env: { SystemRoot: 'C:\\Windows' } };
         const service = connectorService(directory, { ...options, runtime: 'hermes', user: 'S-1-5-123' });
         await mkdir(path.dirname(service.filename), { recursive: true }); await writeFile(service.filename, service.contents);
         expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => platform === 'win32' ? 'Disabled\r\n'
-          : 'LoadState=loaded\nUnitFileState=disabled\nActiveState=failed\n' })).toMatchObject({
-          registration: 'registered', enabled: false, managerState: platform === 'win32' ? 'stopped' : 'failed' });
+          : platform === 'linux' ? 'LoadState=loaded\nUnitFileState=disabled\nActiveState=failed\n'
+          : `PID\tStatus\tLabel\n-\t1\t${service.name}\n` })).toMatchObject(platform === 'darwin'
+          ? { registration: 'registered', managerState: 'failed' }
+          : { registration: 'registered', enabled: false, managerState: platform === 'win32' ? 'stopped' : 'failed' });
         expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => 'unexpected private manager output' }))
           .toMatchObject({ registration: 'unverified' });
+        if (platform === 'darwin') {
+          expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => `-\t0\t${service.name}\n` }))
+            .toMatchObject({ registration: 'registered', managerState: 'stopped' });
+          expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => '123\t0\tcom.envoi.other-installation\n' }))
+            .toMatchObject({ registration: 'unverified' });
+        }
       }
     } finally { await rm(root, { recursive: true, force: true }); }
   });

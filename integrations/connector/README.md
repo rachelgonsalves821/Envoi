@@ -15,8 +15,9 @@ but a user service needs a running user manager after logout.
 `status` includes `startupService.registration` and `runtimeDiagnostic`.
 Registration means the host manager recognizes the installed task or service.
 On Windows and Linux, `startupService.enabled` and `managerState` report the
-manager's read-only view (`running`, `stopped`, `failed`, or `unknown`). macOS
-currently reports `unknown` for manager state. A manager's `running` state does
+manager's read-only view. macOS reports `managerState` from the current
+LaunchAgent session's exact-label PID and last exit status; it cannot infer
+whether the job is enabled from that query. A manager's `running` state does
 not prove Envoi control, Gateway readiness, or processing. `unverified`
 means the manager could not be queried safely. While the process is alive, its authenticated
 local control endpoint reports the current startup phase and `wake.transport`, with
