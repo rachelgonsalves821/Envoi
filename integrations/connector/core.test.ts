@@ -10,6 +10,7 @@ import { ConnectorSetupError, type ConnectorAdapter } from './adapter';
 import { checkEnvoi, connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
 import { startControl, queryControl } from './control';
 import { connectorService } from './service';
+import * as serviceModule from './service';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
@@ -284,6 +285,33 @@ describe('authenticated local management', () => {
       await queryControl(directory, 'stop'); expect(stopRequested).toBe(true);
     } finally { await control.close(); }
     await expect(readFile(path.join(directory, 'control.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+  it('does not present another agent control listener as this saved connection', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const control = await startControl(f.options.stateDir,
+      { runtime: 'hermes', address: 'other@agents.envoi.example', apiUrl: f.handoff.apiUrl }, () => {});
+    try {
+      const status = await connectionStatus(f.options.stateDir);
+      expect(status).toMatchObject({ status: 'unverified', controlChannel: 'identity_mismatch',
+        nextAction: expect.stringContaining('control record') });
+      expect(JSON.stringify(status)).not.toContain('other@agents.envoi.example');
+      expect(await doctorConnection(f.options.stateDir, f.resolver, f.options))
+        .toMatchObject({ status: 'unverified', runtimeChecks: 'unverified' });
+    } finally { await control.close(); }
+    await writeFile(path.join(f.options.stateDir, 'control.json'), 'invalid private record');
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'unverified', controlChannel: 'invalid' });
+    expect(await doctorConnection(f.options.stateDir, f.resolver, f.options))
+      .toMatchObject({ status: 'unverified', runtimeChecks: 'unverified' });
+  });
+  it('does not advise starting a second owner when the service manager reports a live process', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const inspect = vi.spyOn(serviceModule, 'inspectConnectorService').mockResolvedValue({
+      name: 'envoi-existing', registration: 'registered', managerState: 'running'
+    });
+    try {
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'unverified', controlChannel: 'absent',
+        startupService: { managerState: 'running' }, nextAction: expect.stringContaining('inspect that process') });
+    } finally { inspect.mockRestore(); }
   });
   it('holds the per-connection lock through supervised startup and releases it after shutdown', async () => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);

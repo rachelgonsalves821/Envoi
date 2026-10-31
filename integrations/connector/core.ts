@@ -508,7 +508,18 @@ export async function connectionStatus(stateDir: string) {
   const directory = path.resolve(stateDir);
   const saved = await readConnection(directory);
   const session = await savedSession(directory);
-  const live = await queryControl(directory, 'status').catch(() => null);
+  let live: Record<string, unknown> | null = null;
+  let controlChannel: 'responding' | 'absent' | 'unreachable' | 'invalid' | 'identity_mismatch' = 'absent';
+  try {
+    const response = await queryControl(directory, 'status');
+    if (!response || typeof response !== 'object' || Array.isArray(response)
+      || response.runtime !== saved.runtime || response.address !== saved.address || response.apiUrl !== saved.apiUrl
+      || typeof response.status !== 'string') controlChannel = 'identity_mismatch';
+    else { live = response; controlChannel = 'responding'; }
+  } catch (error) {
+    controlChannel = error instanceof ConnectorSetupError && error.code === 'CONTROL_INVALID' ? 'invalid'
+      : (error as NodeJS.ErrnoException)?.code === 'ENOENT' ? 'absent' : 'unreachable';
+  }
   const checks = await readFile(path.join(directory, 'setup-check.json'), 'utf8').then(text => JSON.parse(text) as { checkedAt?: string }).catch(() => null);
   const enrollmentError = await readEnrollmentDiagnostic(directory);
   const lastRuntime = await readRuntimeDiagnostic(directory);
@@ -522,13 +533,16 @@ export async function connectionStatus(stateDir: string) {
     gatewayHost ? inspectHermesHost(gatewayHost).catch((): HermesHostObservation => ({ connection: 'unverified', supervisor: 'unknown', originMatches: null }))
       : Promise.resolve(scopedHermes ? { connection: 'unverified', supervisor: 'unknown', originMatches: null } as HermesHostObservation : undefined)
   ]);
-  const status = live?.status ?? 'stopped';
+  const status = live?.status ?? (controlChannel === 'invalid' || controlChannel === 'identity_mismatch'
+    || 'managerState' in startupService && startupService.managerState === 'running' ? 'unverified' : 'stopped');
   const diagnosticCode = live ? live.errorCode : lastRuntime?.errorCode;
   const errorCode = typeof diagnosticCode === 'string' ? diagnosticCode : undefined;
   const phase = live ? live.phase : lastRuntime?.phase;
   const nextAction = !session ? 'Preserve the connection directory and ask the owner to recover its missing credentials.'
     : session.lifecycle?.state === 'REVOKED' ? 'Ask the owner to review the revoked installation; preserve its saved state.'
     : session.lifecycle?.state === 'NEEDS_RECONNECT' ? 'Ask the owner to reconnect this existing agent through Envoi.'
+    : controlChannel === 'invalid' || controlChannel === 'identity_mismatch' ? 'Inspect the private connector control record and preserve this installation; its live identity is unverified.'
+    : status === 'unverified' ? 'The host manager reports a running connector without a responding control channel; inspect that process and retry status.'
     : session.lifecycle?.paused ? status === 'stopped'
       ? 'Start the existing connector so it can observe the owner resuming this agent.'
       : 'Wait for the owner to resume this existing agent.'
@@ -545,7 +559,7 @@ export async function connectionStatus(stateDir: string) {
     : undefined;
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
     credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle, guidance: session?.lifecycle?.guidance, ...(enrollmentError ? { enrollmentError } : {}),
-    stateDir: directory, status, startupService, ...(selectedGateway ? { selectedGateway } : {}),
+    stateDir: directory, status, controlChannel, startupService, ...(selectedGateway ? { selectedGateway } : {}),
     ...(nextAction ? { nextAction } : {}), checkedAt: live?.checkedAt ?? checks?.checkedAt,
     runtimeDiagnostic: live ? { phase: live.phase, runtimeChecks: live.runtimeChecks,
       ...(live.errorCode ? { errorCode: live.errorCode } : {}), ...(live.retryAt ? { retryAt: live.retryAt } : {}),
@@ -555,10 +569,17 @@ export async function connectionStatus(stateDir: string) {
 }
 export async function doctorConnection(stateDir: string, resolveAdapter: AdapterResolver, options: AdapterOptions = {}) {
   const directory = path.resolve(stateDir);
-  const live = await queryControl(directory, 'doctor').catch(() => null);
+  const snapshot = await connectionStatus(directory);
+  if (snapshot.status === 'unverified') return { ...snapshot, runtimeChecks: 'unverified',
+    note: 'The local connector identity or process is unverified; inspect the saved control channel before running offline preflight' };
+  const live = snapshot.controlChannel === 'responding' ? await queryControl(directory, 'doctor').catch(() => null) : null;
   // Ask the owner process for its latest checks. A second process must not rotate
   // shared credentials or claim queued work while the durable bridge owns them.
-  if (live) return { ...await connectionStatus(directory), ...live, note: 'Checks are from the running connector; verify a real message exchange' };
+  if (live && live.runtime === snapshot.runtime && live.address === snapshot.address && live.apiUrl === snapshot.apiUrl)
+    return { ...snapshot, ...live, note: 'Checks are from the running connector; verify a real message exchange' };
+  if (snapshot.controlChannel === 'responding') return { ...snapshot, status: 'unverified', runtimeChecks: 'unverified',
+    nextAction: 'The connector control response changed during doctor; inspect the existing process and retry status.',
+    note: 'The local connector identity or process is unverified; offline preflight was not run' };
   const unlock = await acquireConnectorLock(directory);
   try {
     const saved = await readConnection(directory);

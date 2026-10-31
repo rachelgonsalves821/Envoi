@@ -12206,23 +12206,30 @@ async function Vo(e, t, n, r = {}) {
 	}
 }
 async function Ho(e) {
-	let t = d.resolve(e), n = await Io(t), r = await Fo(t), i = await mo(t, "status").catch(() => null), o = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), s = await vo(t), c = await Ao(t), l = n.configuration, u = n.runtime === "hermes" && l.scopedTools === !0, f = u && typeof l.home == "string" && typeof l.daemonOrigin == "string" && typeof l.scopedCwd == "string" ? {
-		home: l.home,
-		origin: l.daemonOrigin,
-		cwd: l.scopedCwd
-	} : null, [p, m] = await Promise.all([eo(t, n.runtime).catch(() => ({ registration: "unverified" })), f ? ki(f).catch(() => ({
+	let t = d.resolve(e), n = await Io(t), r = await Fo(t), i = null, o = "absent";
+	try {
+		let e = await mo(t, "status");
+		!e || typeof e != "object" || Array.isArray(e) || e.runtime !== n.runtime || e.address !== n.address || e.apiUrl !== n.apiUrl || typeof e.status != "string" ? o = "identity_mismatch" : (i = e, o = "responding");
+	} catch (e) {
+		o = e instanceof I && e.code === "CONTROL_INVALID" ? "invalid" : e?.code === "ENOENT" ? "absent" : "unreachable";
+	}
+	let s = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), c = await vo(t), l = await Ao(t), u = n.configuration, f = n.runtime === "hermes" && u.scopedTools === !0, p = f && typeof u.home == "string" && typeof u.daemonOrigin == "string" && typeof u.scopedCwd == "string" ? {
+		home: u.home,
+		origin: u.daemonOrigin,
+		cwd: u.scopedCwd
+	} : null, [m, h] = await Promise.all([eo(t, n.runtime).catch(() => ({ registration: "unverified" })), p ? ki(p).catch(() => ({
 		connection: "unverified",
 		supervisor: "unknown",
 		originMatches: null
-	})) : Promise.resolve(u ? {
+	})) : Promise.resolve(f ? {
 		connection: "unverified",
 		supervisor: "unknown",
 		originMatches: null
-	} : void 0)]), h = i?.status ?? "stopped", g = i ? i.errorCode : c?.errorCode, _ = typeof g == "string" ? g : void 0, v = i ? i.phase : c?.phase, y = r ? r.lifecycle?.state === "REVOKED" ? "Ask the owner to review the revoked installation; preserve its saved state." : r.lifecycle?.state === "NEEDS_RECONNECT" ? "Ask the owner to reconnect this existing agent through Envoi." : r.lifecycle?.paused ? h === "stopped" ? "Start the existing connector so it can observe the owner resuming this agent." : "Wait for the owner to resume this existing agent." : _ === "SCOPED_CONFIG_INVALID" ? "Preserve the connection and ask the owner to review the selected scoped Gateway." : [
+	} : void 0)]), g = i?.status ?? (o === "invalid" || o === "identity_mismatch" || "managerState" in m && m.managerState === "running" ? "unverified" : "stopped"), _ = i ? i.errorCode : l?.errorCode, v = typeof _ == "string" ? _ : void 0, y = i ? i.phase : l?.phase, b = r ? r.lifecycle?.state === "REVOKED" ? "Ask the owner to review the revoked installation; preserve its saved state." : r.lifecycle?.state === "NEEDS_RECONNECT" ? "Ask the owner to reconnect this existing agent through Envoi." : o === "invalid" || o === "identity_mismatch" ? "Inspect the private connector control record and preserve this installation; its live identity is unverified." : g === "unverified" ? "The host manager reports a running connector without a responding control channel; inspect that process and retry status." : r.lifecycle?.paused ? g === "stopped" ? "Start the existing connector so it can observe the owner resuming this agent." : "Wait for the owner to resume this existing agent." : v === "SCOPED_CONFIG_INVALID" ? "Preserve the connection and ask the owner to review the selected scoped Gateway." : [
 		"HERMES_EXECUTION_UNCERTAIN",
 		"HERMES_CREATION_UNCERTAIN",
 		"SCOPED_MODEL_CHANGED"
-	].includes(_ ?? "") ? "Preserve the turn journal and use the supported settlement recovery procedure." : "enabled" in p && p.enabled === !1 ? "Ask the owner to enable the existing startup service." : "managerState" in p && p.managerState === "failed" ? "Inspect the startup service failure; preserve enrollment and credentials." : _ === "GATEWAY_UNREACHABLE" ? "Restore the selected Gateway; the connector will retry its saved connection." : v === "failed" ? "Inspect the saved runtime error code and repair the selected runtime before restarting." : h === "stopped" && p.registration === "not_installed" ? "Start the existing connector or ask the owner to install its startup service." : h === "stopped" ? "Restart the existing connector using its saved state directory." : h === "waiting" ? "Wait for the saved retry, then verify a real agent exchange." : void 0 : "Preserve the connection directory and ask the owner to recover its missing credentials.";
+	].includes(v ?? "") ? "Preserve the turn journal and use the supported settlement recovery procedure." : "enabled" in m && m.enabled === !1 ? "Ask the owner to enable the existing startup service." : "managerState" in m && m.managerState === "failed" ? "Inspect the startup service failure; preserve enrollment and credentials." : v === "GATEWAY_UNREACHABLE" ? "Restore the selected Gateway; the connector will retry its saved connection." : y === "failed" ? "Inspect the saved runtime error code and repair the selected runtime before restarting." : g === "stopped" && m.registration === "not_installed" ? "Start the existing connector or ask the owner to install its startup service." : g === "stopped" ? "Restart the existing connector using its saved state directory." : g === "waiting" ? "Wait for the saved retry, then verify a real agent exchange." : void 0 : "Preserve the connection directory and ask the owner to recover its missing credentials.";
 	return {
 		runtime: n.runtime,
 		address: n.address,
@@ -12231,33 +12238,47 @@ async function Ho(e) {
 		credentialState: r ? "saved" : "missing",
 		lifecycle: r?.lifecycle,
 		guidance: r?.lifecycle?.guidance,
-		...s ? { enrollmentError: s } : {},
+		...c ? { enrollmentError: c } : {},
 		stateDir: t,
-		status: h,
-		startupService: p,
-		...m ? { selectedGateway: m } : {},
-		...y ? { nextAction: y } : {},
-		checkedAt: i?.checkedAt ?? o?.checkedAt,
+		status: g,
+		controlChannel: o,
+		startupService: m,
+		...h ? { selectedGateway: h } : {},
+		...b ? { nextAction: b } : {},
+		checkedAt: i?.checkedAt ?? s?.checkedAt,
 		runtimeDiagnostic: i ? {
 			phase: i.phase,
 			runtimeChecks: i.runtimeChecks,
 			...i.errorCode ? { errorCode: i.errorCode } : {},
 			...i.retryAt ? { retryAt: i.retryAt } : {},
 			...i.wake ? { wake: i.wake } : {}
-		} : c,
+		} : l,
 		credentialExpiresAt: r?.agentTokenExpiresAt,
 		refreshExpiresAt: r?.agentRefreshTokenExpiresAt,
 		note: "A running connector is not proof of successful message delivery. Verify a real agent exchange"
 	};
 }
 async function Uo(e, t, n = {}) {
-	let r = d.resolve(e), i = await mo(r, "doctor").catch(() => null);
-	if (i) return {
-		...await Ho(r),
+	let r = d.resolve(e), i = await Ho(r);
+	if (i.status === "unverified") return {
 		...i,
+		runtimeChecks: "unverified",
+		note: "The local connector identity or process is unverified; inspect the saved control channel before running offline preflight"
+	};
+	let a = i.controlChannel === "responding" ? await mo(r, "doctor").catch(() => null) : null;
+	if (a && a.runtime === i.runtime && a.address === i.address && a.apiUrl === i.apiUrl) return {
+		...i,
+		...a,
 		note: "Checks are from the running connector; verify a real message exchange"
 	};
-	let a = await B(r);
+	if (i.controlChannel === "responding") return {
+		...i,
+		status: "unverified",
+		runtimeChecks: "unverified",
+		nextAction: "The connector control response changed during doctor; inspect the existing process and retry status.",
+		note: "The local connector identity or process is unverified; offline preflight was not run"
+	};
+	let o = await B(r);
 	try {
 		let e = await Io(r), i = t(e.runtime), a = No(n.fetch);
 		await Lo(e.apiUrl, a);
@@ -12276,7 +12297,7 @@ async function Uo(e, t, n = {}) {
 			...i.describe(s)
 		};
 	} finally {
-		await a();
+		await o();
 	}
 }
 async function Wo(e) {
