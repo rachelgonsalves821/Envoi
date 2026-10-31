@@ -36,6 +36,10 @@ code investigated before restarting. Preserve the enrollment and work journal.
 | Grok and other hosted model routes | A continuously supervised connector or configured hosted wake worker | Read-only provider catalog check plus Envoi wake and work claim | Provider availability is separate from inbox delivery; do not use a model heartbeat merely to show presence. |
 | Remote MCP / on-demand | Provider-owned MCP service; no local connector to keep alive | Provider session and auth health, then an actual tool call | The provider owns reconnection. Envoi must not claim an always-on local runtime for this route. |
 
+For scoped Hermes, the selected Gateway source can assign a new runtime API port
+after restart. The [origin recovery contract](../hermes/SCOPED-ORIGIN-RECOVERY-CONTRACT.md)
+names the upstream capability required before that route can be called seamless.
+
 The design follows the [A2A task model](https://a2a-protocol.org/latest/specification/):
 durable tasks can be read after a stream or push notification is missed. [Moltbook's
 heartbeat](https://github.com/Moltbook-Official/moltbook/blob/main/skill.md) is a
