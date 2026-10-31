@@ -2,7 +2,15 @@ import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, to
 import { mountThemeControls } from './theme.mjs';
 import { captureAnalyticsEvent } from '../../../src/analytics';
 
-mountThemeControls(document, window);
+let disposePage: (() => void) | undefined;
+document.addEventListener('astro:page-load', () => {
+  disposePage?.();
+  disposePage = mountPage();
+});
+
+function mountPage() {
+const listeners = new AbortController();
+const dispose: Array<() => void> = [mountThemeControls(document, window)];
 const authError = document.querySelector<HTMLElement>('[data-auth-error]');
 if (authError && new URLSearchParams(location.search).has('auth_error')) authError.hidden = false;
 
@@ -15,7 +23,7 @@ if (location.hash === '#oversight') {
 
 const header = document.querySelector<HTMLElement>('[data-header]');
 const updateHeader = () => header?.classList.toggle('scrolled', window.scrollY > 8);
-window.addEventListener('scroll', updateHeader, { passive: true });
+window.addEventListener('scroll', updateHeader, { passive: true, signal: listeners.signal });
 updateHeader();
 
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -96,7 +104,7 @@ if (thread) {
     schedule();
   };
   tabs.forEach((tab, index) => {
-    tab.addEventListener('click', () => choose(index));
+    tab.addEventListener('click', () => choose(index), { signal: listeners.signal });
     tab.addEventListener('keydown', event => {
       let nextIndex = index;
       if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
@@ -107,7 +115,7 @@ if (thread) {
       event.preventDefault();
       choose(nextIndex);
       tabs[nextIndex].focus();
-    });
+    }, { signal: listeners.signal });
   });
   playback.addEventListener('click', () => {
     clearTimers();
@@ -118,23 +126,25 @@ if (thread) {
     }
     render();
     schedule();
-  });
-  thread.addEventListener('focusin', () => { messageFocused = !!thread.querySelector('.thread-messages:focus-within'); schedule(); });
-  thread.addEventListener('focusout', () => queueMicrotask(() => { messageFocused = !!thread.querySelector('.thread-messages:focus-within'); schedule(); }));
-  document.addEventListener('visibilitychange', schedule);
+  }, { signal: listeners.signal });
+  thread.addEventListener('focusin', () => { messageFocused = !!thread.querySelector('.thread-messages:focus-within'); schedule(); }, { signal: listeners.signal });
+  thread.addEventListener('focusout', () => queueMicrotask(() => { messageFocused = !!thread.querySelector('.thread-messages:focus-within'); schedule(); }), { signal: listeners.signal });
+  document.addEventListener('visibilitychange', schedule, { signal: listeners.signal });
   reducedMotion.addEventListener('change', () => {
     clearTimers();
     state = reducedMotion.matches ? selectScenario(state.stepCount, true) : createPlaybackState(state.stepCount);
     if (walkthrough) walkthrough.dataset.featureReveal = String(!reducedMotion.matches);
     render();
     schedule();
-  });
+  }, { signal: listeners.signal });
   const observer = new IntersectionObserver(entries => { inView = entries[0].isIntersecting; schedule(); }, { threshold: .2 });
   observer.observe(thread);
+  dispose.push(() => { clearTimers(); observer.disconnect(); });
   render();
 }
 
 const ambientObserver = new IntersectionObserver(entries => entries.forEach(entry => entry.target.classList.toggle('in-view', entry.isIntersecting)), { threshold: .2 });
+dispose.push(() => ambientObserver.disconnect());
 document.querySelectorAll('.handshake, .receipt-stage, [data-agents-banner]').forEach(element => ambientObserver.observe(element));
 document.querySelectorAll<HTMLElement>('[data-agents-banner]').forEach(banner => {
   const toggle = banner.querySelector<HTMLButtonElement>('[data-banner-toggle]')!;
@@ -145,10 +155,10 @@ document.querySelectorAll<HTMLElement>('[data-agents-banner]').forEach(banner =>
     toggle.setAttribute('aria-label', paused ? 'Play agent logo animation' : 'Pause agent logo animation');
     toggle.querySelector<HTMLElement>('[data-banner-pause-icon]')!.hidden = paused;
     toggle.querySelector<HTMLElement>('[data-banner-play-icon]')!.hidden = !paused;
-  });
+  }, { signal: listeners.signal });
 });
 const updateVisibility = () => document.body.classList.toggle('page-hidden', document.hidden);
-document.addEventListener('visibilitychange', updateVisibility);
+document.addEventListener('visibilitychange', updateVisibility, { signal: listeners.signal });
 updateVisibility();
 
 document.querySelectorAll<HTMLFormElement>('[data-waitlist]').forEach(form => {
@@ -187,7 +197,7 @@ document.querySelectorAll<HTMLFormElement>('[data-waitlist]').forEach(form => {
       button.disabled = false;
       button.querySelector('span')!.textContent = 'Join the waitlist';
     }
-  });
+  }, { signal: listeners.signal });
 });
 
 const inboxRows = [...document.querySelectorAll<HTMLButtonElement>('[data-inbox-row]')];
@@ -196,11 +206,13 @@ const selectInboxRow = (selected: HTMLButtonElement) => {
   inboxRows.forEach(row => { row.classList.toggle('active', row === selected); row.setAttribute('aria-pressed', String(row === selected)); });
   details.forEach(detail => { detail.hidden = detail.dataset.inboxDetail !== selected.dataset.inboxRow; });
 };
-inboxRows.forEach(row => row.addEventListener('click', () => selectInboxRow(row)));
+inboxRows.forEach(row => row.addEventListener('click', () => selectInboxRow(row), { signal: listeners.signal }));
 const filters = [...document.querySelectorAll<HTMLButtonElement>('[data-inbox-filter]')];
 filters.forEach(filter => filter.addEventListener('click', () => {
   filters.forEach(button => { button.classList.toggle('active', button === filter); button.setAttribute('aria-pressed', String(button === filter)); });
   inboxRows.forEach(row => { row.hidden = filter.dataset.inboxFilter !== 'all' && row.dataset.inboxState !== filter.dataset.inboxFilter; });
   const visibleRows = inboxRows.filter(row => !row.hidden);
   if (!visibleRows.some(row => row.getAttribute('aria-pressed') === 'true') && visibleRows[0]) selectInboxRow(visibleRows[0]);
-}));
+}, { signal: listeners.signal }));
+return () => { listeners.abort(); dispose.forEach(cleanup => cleanup()); };
+}

@@ -73,6 +73,11 @@ export function captureAnalyticsEvent(event: AnalyticsEvent) {
   try { posthog.capture(event); } catch { /* Do not turn a saved action into an error. */ }
 }
 
+export function captureAnalyticsPageview() {
+  if (!initialized) return;
+  try { posthog.capture('$pageview'); } catch { /* Navigation must remain usable. */ }
+}
+
 export function captureSuccessfulProductAction(pathname: string, method = 'GET') {
   if (method.toUpperCase() !== 'POST') return;
   const route = pathname.split('?')[0];
