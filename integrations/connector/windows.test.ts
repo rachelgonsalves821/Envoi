@@ -40,10 +40,33 @@ describe('native Windows helpers', () => {
           .toMatchObject({ registration: 'not_installed' });
         await mkdir(path.dirname(service.filename), { recursive: true }); await writeFile(service.filename, service.contents);
         let command: [string, string[]] | undefined;
-        const observed = await inspectConnectorService(directory, 'hermes', { ...options, run: async (executable, args) => { command = [executable, args]; } });
+        const output = platform === 'win32' ? 'Running\r\n' : platform === 'linux'
+          ? 'LoadState=loaded\nUnitFileState=enabled\nActiveState=active\n' : undefined;
+        const observed = await inspectConnectorService(directory, 'hermes', { ...options, run: async (executable, args) => { command = [executable, args]; return output; } });
         expect(observed).toMatchObject({ name: service.name, registration: 'registered' });
-        expect(command?.[1]).toContain(service.name + (platform === 'linux' ? '.service' : ''));
+        expect(command?.[1].join(' ')).toContain(service.name + (platform === 'linux' ? '.service' : ''));
+        if (platform === 'win32') expect(command).toMatchObject([expect.stringContaining('powershell.exe'),
+          expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command'])]);
+        if (platform === 'linux') expect(command?.[1]).toContain('ActiveState');
+        if (platform !== 'darwin') expect(observed).toMatchObject({ enabled: true, managerState: 'running' });
+        else expect(observed).toMatchObject({ managerState: 'unknown' });
         expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => { throw new Error('manager unavailable'); } }))
+          .toMatchObject({ registration: 'unverified' });
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+  it('shows disabled and failed host supervision without treating a manifest as a running connector', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'envoi-service-state-'));
+    try {
+      const directory = path.join(root, 'agent'); await mkdir(directory);
+      for (const platform of ['win32', 'linux']) {
+        const options = { platform, home: root, env: { SystemRoot: 'C:\\Windows' } };
+        const service = connectorService(directory, { ...options, runtime: 'hermes', user: 'S-1-5-123' });
+        await mkdir(path.dirname(service.filename), { recursive: true }); await writeFile(service.filename, service.contents);
+        expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => platform === 'win32' ? 'Disabled\r\n'
+          : 'LoadState=loaded\nUnitFileState=disabled\nActiveState=failed\n' })).toMatchObject({
+          registration: 'registered', enabled: false, managerState: platform === 'win32' ? 'stopped' : 'failed' });
+        expect(await inspectConnectorService(directory, 'hermes', { ...options, run: async () => 'unexpected private manager output' }))
           .toMatchObject({ registration: 'unverified' });
       }
     } finally { await rm(root, { recursive: true, force: true }); }

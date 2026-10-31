@@ -11315,27 +11315,68 @@ async function Qa(e, t, r = {}) {
 		executable: "systemctl",
 		args: [
 			"--user",
-			"is-enabled",
+			"show",
+			"-p",
+			"LoadState",
+			"-p",
+			"UnitFileState",
+			"-p",
+			"ActiveState",
 			`${a.name}.service`
 		]
 	} : i === "darwin" ? {
 		executable: "launchctl",
 		args: ["list", a.name]
 	} : {
-		executable: _e("schtasks.exe", r.env),
+		executable: _e("powershell.exe", r.env),
 		args: [
-			"/Query",
-			"/TN",
-			a.name
+			"-NoProfile",
+			"-NonInteractive",
+			"-Command",
+			`(Get-ScheduledTask -TaskName '${a.name}' -TaskPath '\\' -ErrorAction Stop).State.ToString()`
 		]
 	};
 	try {
-		return r.run ? await r.run(s.executable, s.args) : await qa(s.executable, s.args, {
-			timeout: 3e3,
+		let e = r.run ? await r.run(s.executable, s.args) : (await qa(s.executable, s.args, {
+			timeout: 15e3,
 			windowsHide: !0
-		}), {
+		})).stdout;
+		if (i === "linux" && typeof e == "string") {
+			let t = Object.fromEntries(e.trim().split(/\r?\n/).map((e) => e.split("=", 2)));
+			if (t.LoadState !== "loaded") return {
+				name: a.name,
+				registration: "unverified"
+			};
+			let n = t.UnitFileState === "enabled" ? !0 : t.UnitFileState === "disabled" || t.UnitFileState === "masked" ? !1 : void 0, r = t.ActiveState === "active" ? "running" : t.ActiveState === "failed" ? "failed" : t.ActiveState === "inactive" ? "stopped" : "unknown";
+			return {
+				name: a.name,
+				registration: "registered",
+				enabled: n,
+				managerState: r
+			};
+		}
+		if (i === "win32" && typeof e == "string") {
+			let t = e.trim();
+			return [
+				"Running",
+				"Ready",
+				"Disabled",
+				"Queued",
+				"Unknown"
+			].includes(t) ? {
+				name: a.name,
+				registration: "registered",
+				enabled: t !== "Disabled",
+				managerState: t === "Running" ? "running" : t === "Ready" || t === "Disabled" ? "stopped" : "unknown"
+			} : {
+				name: a.name,
+				registration: "unverified"
+			};
+		}
+		return {
 			name: a.name,
-			registration: "registered"
+			registration: "registered",
+			managerState: "unknown"
 		};
 	} catch {
 		return {

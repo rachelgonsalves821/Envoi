@@ -13,8 +13,11 @@ is asleep. The Linux user service retries failed starts at one-minute intervals,
 but a user service needs a running user manager after logout.
 
 `status` includes `startupService.registration` and `runtimeDiagnostic`.
-Registration means the host manager recognizes the installed task or service;
-it does not prove that it is enabled, running, or processing work. `unverified`
+Registration means the host manager recognizes the installed task or service.
+On Windows and Linux, `startupService.enabled` and `managerState` report the
+manager's read-only view (`running`, `stopped`, `failed`, or `unknown`). macOS
+currently reports `unknown` for manager state. A manager's `running` state does
+not prove Envoi control, Gateway readiness, or processing. `unverified`
 means the manager could not be queried safely. While the process is alive, its authenticated
 local control endpoint reports the current startup phase and `wake.transport`, with
 last ready, event, and successful work-claim times. `connected` means the Envoi event

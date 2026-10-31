@@ -17,6 +17,7 @@ const windowsArgument = (value: string) => `"${value.replace(/(\\*)"/g, '$1$1\\"
 
 export interface ServiceDefinition { name: string; filename: string; contents: string; commands: Array<{ executable: string; args: string[] }> }
 export type ServiceRegistration = 'registered' | 'not_installed' | 'unverified';
+export type ServiceManagerState = 'running' | 'stopped' | 'failed' | 'unknown';
 
 /** All service manifests contain file paths only. Credentials remain in private local storage. */
 export function connectorService(directory: string, options: { platform?: string; home?: string; node?: string; user?: string; runtime?: string; env?: NodeJS.ProcessEnv } = {}): ServiceDefinition {
@@ -56,7 +57,7 @@ export function connectorService(directory: string, options: { platform?: string
 /** Observation only: a saved manifest is not proof that the host registered it. */
 export async function inspectConnectorService(directory: string, runtime: string,
   options: { platform?: string; home?: string; env?: NodeJS.ProcessEnv;
-    run?: (executable: string, args: string[]) => Promise<void> } = {}) {
+    run?: (executable: string, args: string[]) => Promise<string | void> } = {}) {
   const platform = options.platform ?? process.platform;
   const service = connectorService(path.resolve(directory), { platform, home: options.home, env: options.env, runtime,
     // Only the generated XML needs a SID; the task name depends solely on stateDir/runtime.
@@ -68,13 +69,28 @@ export async function inspectConnectorService(directory: string, runtime: string
     return { name: service.name, registration: 'unverified' as ServiceRegistration };
   }
   if (!manifest.isFile() || manifest.isSymbolicLink()) return { name: service.name, registration: 'unverified' as ServiceRegistration };
-  const command = platform === 'linux' ? { executable: 'systemctl', args: ['--user', 'is-enabled', `${service.name}.service`] }
+  const command = platform === 'linux' ? { executable: 'systemctl', args: ['--user', 'show', '-p', 'LoadState', '-p', 'UnitFileState', '-p', 'ActiveState', `${service.name}.service`] }
     : platform === 'darwin' ? { executable: 'launchctl', args: ['list', service.name] }
-    : { executable: windowsExecutable('schtasks.exe', options.env), args: ['/Query', '/TN', service.name] };
+    : { executable: windowsExecutable('powershell.exe', options.env), args: ['-NoProfile', '-NonInteractive', '-Command',
+      `(Get-ScheduledTask -TaskName '${service.name}' -TaskPath '\\' -ErrorAction Stop).State.ToString()`] };
   try {
-    if (options.run) await options.run(command.executable, command.args);
-    else await execute(command.executable, command.args, { timeout: 3_000, windowsHide: true });
-    return { name: service.name, registration: 'registered' as ServiceRegistration };
+    const output = options.run ? await options.run(command.executable, command.args)
+      : (await execute(command.executable, command.args, { timeout: 15_000, windowsHide: true })).stdout;
+    if (platform === 'linux' && typeof output === 'string') {
+      const values = Object.fromEntries(output.trim().split(/\r?\n/).map(line => line.split('=', 2)));
+      if (values.LoadState !== 'loaded') return { name: service.name, registration: 'unverified' as ServiceRegistration };
+      const enabled = values.UnitFileState === 'enabled' ? true : values.UnitFileState === 'disabled' || values.UnitFileState === 'masked' ? false : undefined;
+      const managerState: ServiceManagerState = values.ActiveState === 'active' ? 'running' : values.ActiveState === 'failed' ? 'failed'
+        : values.ActiveState === 'inactive' ? 'stopped' : 'unknown';
+      return { name: service.name, registration: 'registered' as ServiceRegistration, enabled, managerState };
+    }
+    if (platform === 'win32' && typeof output === 'string') {
+      const state = output.trim();
+      if (!['Running', 'Ready', 'Disabled', 'Queued', 'Unknown'].includes(state)) return { name: service.name, registration: 'unverified' as ServiceRegistration };
+      return { name: service.name, registration: 'registered' as ServiceRegistration, enabled: state !== 'Disabled',
+        managerState: (state === 'Running' ? 'running' : state === 'Ready' || state === 'Disabled' ? 'stopped' : 'unknown') as ServiceManagerState };
+    }
+    return { name: service.name, registration: 'registered' as ServiceRegistration, managerState: 'unknown' as ServiceManagerState };
   } catch { return { name: service.name, registration: 'unverified' as ServiceRegistration }; }
 }
 

@@ -21,7 +21,7 @@ Terminal security and ambiguity remain explicit owner actions: revoked/expired a
 
 ### B1. Make status truthful and safe — implemented in this branch
 
-Persist only startup phase, timestamp and stable code in private state; expose live wake readiness and last event/claim response. Offline doctor reports preflight only. Status now probes host service registration separately from the live connector control channel; `registered` does not assert that the task is enabled, the process is running, or work is processed. Never persist raw errors, prompts, cursors or credentials. Gate: status distinguishes saved, process alive, Envoi wake ready, runtime tool ready, and work processed; killing the process leaves the last safe error visible. Add enabled/failed supervisor state when each host manager has a stable read-only query.
+Persist only startup phase, timestamp and stable code in private state; expose live wake readiness and last event/claim response. Offline doctor reports preflight only. Status probes host service registration separately from the live connector control channel. Windows Task Scheduler and Linux systemd also expose read-only enabled and manager state; macOS remains unknown until a stable launchd query is gated. `registered` does not assert that the process is running or work is processed. Never persist raw errors, prompts, cursors or credentials. Gate: status distinguishes saved, process alive, Envoi wake ready, runtime tool ready, and work processed; killing the process leaves the last safe error visible.
 
 ### B2. Remove model calls from ordinary restart — connector-owned next step
 
