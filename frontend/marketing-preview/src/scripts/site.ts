@@ -1,6 +1,7 @@
 import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, togglePlayback, acceptedWaitlistResponse, visibleFeatureCount } from './playback.mjs';
 import { mountThemeControls } from './theme.mjs';
 import { captureAnalyticsEvent } from '../../../src/analytics';
+import { navigate } from 'astro:transitions/client';
 
 let disposePage: (() => void) | undefined;
 document.addEventListener('astro:page-load', () => {
@@ -16,9 +17,9 @@ if (authError && new URLSearchParams(location.search).has('auth_error')) authErr
 
 const productAnchors = new Set(['#your-view', '#oversight', '#principles', '#features-title', '#demo-title', '#conversations']);
 if (location.hash === '#oversight') {
-  location.replace('/product/#feature-4');
+  navigate('/product/#feature-4', { history: 'replace' });
 } else if (document.documentElement.dataset.page === 'about' && (productAnchors.has(location.hash) || location.hash.startsWith('#feature-'))) {
-  location.replace(`/product/${location.hash}`);
+  navigate(`/product/${location.hash}`, { history: 'replace' });
 }
 
 const header = document.querySelector<HTMLElement>('[data-header]');
