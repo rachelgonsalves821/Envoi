@@ -11026,9 +11026,13 @@ var Ia = class {
 		for (; !e.aborted;) {
 			let c = this.now(), l = 0;
 			try {
-				await this.maintain(e), await this.dispatchControls(e), !i && this.now() >= o && (i = (async () => {
-					await this.dispatchWork(e), await this.claim(e);
-				})().catch((t) => {
+				try {
+					await this.maintain(e);
+				} catch (e) {
+					if (!s(e)) throw e;
+					e instanceof L && Number.isSafeInteger(e.retryAfterSeconds) && e.retryAfterSeconds >= 0 && (l = e.retryAfterSeconds * 1e3);
+				}
+				await this.dispatchControls(e), !i && this.now() >= o && (i = Promise.all([this.dispatchWork(e), this.claim(e)]).then(() => {}).catch((t) => {
 					!e.aborted && !s(t) ? (r = t, n.abort()) : t instanceof L && Number.isSafeInteger(t.retryAfterSeconds) && t.retryAfterSeconds >= 0 && (o = this.now() + t.retryAfterSeconds * 1e3);
 				}).finally(() => {
 					i = void 0, a?.();

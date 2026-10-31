@@ -322,9 +322,14 @@ export class HttpWakeHost {
       const started = this.now();
       let retryAfterMs = 0;
       try {
-        await this.maintain(signal);
+        try { await this.maintain(signal); }
+        catch (error) {
+          if (!transient(error)) throw error;
+          if (error instanceof EnvoiError && Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds! >= 0)
+            retryAfterMs = error.retryAfterSeconds! * 1000;
+        }
         await this.dispatchControls(signal);
-        if (!background && this.now() >= backgroundRetryAt) background = (async () => { await this.dispatchWork(signal); await this.claim(signal); })()
+        if (!background && this.now() >= backgroundRetryAt) background = Promise.all([this.dispatchWork(signal), this.claim(signal)]).then(() => {})
           .catch(error => {
             if (!signal.aborted && !transient(error)) { fatal = error; wake.abort(); }
             else if (error instanceof EnvoiError && Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds! >= 0)
