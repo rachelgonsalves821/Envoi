@@ -8172,7 +8172,16 @@ function Nr(e) {
 					}
 				}, Object.freeze({ workId: n.workId }))))]), o.throwIfAborted(), u) throw new L("Runtime returned before its tools finished", void 0, "SCOPED_TURN_INCOMPLETE");
 			} catch (e) {
-				if (e !== l || n.signal.aborted || t.signal.aborted) throw e;
+				if (e !== l || n.signal.aborted || t.signal.aborted) {
+					if (u && !r.endTurnRequired && !t.signal.aborted) {
+						let n = e instanceof L ? e : new L("Runtime failed with outstanding tools", void 0, "HANDLER_FAILED");
+						n !== e && Object.defineProperty(n, "cause", {
+							value: e,
+							configurable: !0
+						}), t.invalidate(n);
+					}
+					throw e;
+				}
 			} finally {
 				o.removeEventListener("abort", f), a.abort(), u && !r.endTurnRequired && t.invalidate(new L("Runtime ended with outstanding tools", void 0, "SCOPED_TURN_INCOMPLETE"));
 			}
@@ -9607,25 +9616,25 @@ function Pi(e, t, n = {}) {
 			let l = o.input[0];
 			if (o.input.length !== 1 || l.kind !== "hermes-scoped-v1" || typeof l.text != "string" || Buffer.byteLength(l.text) > 262144 || !/^[a-f0-9-]{36}$/.test(l.requestId) || !/^[a-f0-9-]{36}$/.test(l.inputId) || l.sessionId !== void 0 && (typeof l.sessionId != "string" || !l.sessionId || l.sessionId.length > 256) || l.admissionId !== void 0 && (typeof l.admissionId != "string" || !l.admissionId || l.admissionId.length > 256)) throw Z();
 			if (c && !l.sessionId) throw Z("HERMES_CREATION_UNCERTAIN");
-			let u = new AbortController(), d = AbortSignal.any([
+			let u = new AbortController(), d = AbortSignal.timeout(r), f = AbortSignal.any([
 				n.signal,
 				u.signal,
-				AbortSignal.timeout(r)
-			]), f = c ? null : await xi({
+				d
+			]), p = c ? null : await xi({
 				...n,
-				signal: d
-			}), p, m;
+				signal: f
+			}), m, h;
 			try {
-				if (p = await ki(e, d), c) {
-					let e = await p.rpc("session.resume", {
+				if (m = await ki(e, f), c) {
+					let e = await m.rpc("session.resume", {
 						session_id: l.sessionId,
 						omit_messages: !0
-					}, d);
+					}, f);
 					if (e.session_id !== l.sessionId || typeof e.subscription_id != "string") throw Z();
-					m = e.subscription_id;
+					h = e.subscription_id;
 				} else {
-					await t.save(o), d.throwIfAborted();
-					let n = await p.rpc("session.create", {
+					await t.save(o), f.throwIfAborted();
+					let n = await m.rpc("session.create", {
 						request_id: l.requestId,
 						source: "acp",
 						cwd: e.cwd,
@@ -9634,24 +9643,24 @@ function Pi(e, t, n = {}) {
 						accept_hooks: !1,
 						follow_profile_config: !1,
 						editor: {
-							mcp_servers: [f.mcpServer],
+							mcp_servers: [p.mcpServer],
 							edit_approval_policy: "ask"
 						}
-					}, d);
-					if (typeof n.session_id != "string" || !n.session_id || n.session_id.length > 256 || typeof n.subscription_id != "string" || !f.active || !f.discovered) throw Z("HERMES_TOOLS_NOT_READY");
-					l.sessionId = n.session_id, m = n.subscription_id, await t.save(o);
+					}, f);
+					if (typeof n.session_id != "string" || !n.session_id || n.session_id.length > 256 || typeof n.subscription_id != "string" || !p.active || !p.discovered) throw Z("HERMES_TOOLS_NOT_READY");
+					l.sessionId = n.session_id, h = n.subscription_id, await t.save(o);
 				}
 				let n = l.sessionId;
-				for (l.admissionId || (o.providerCalls = 1, await t.save(o), d.throwIfAborted(), l.admissionId = Mi(await p.rpc("prompt.submit", {
+				for (l.admissionId || (o.providerCalls = 1, await t.save(o), f.throwIfAborted(), l.admissionId = Mi(await m.rpc("prompt.submit", {
 					session_id: n,
 					input_id: l.inputId,
 					text: l.text
-				}, d), n).admission_id, await t.save(o));;) {
-					d.throwIfAborted();
-					let e = Mi(await p.rpc("prompt.receipt", {
+				}, f), n).admission_id, await t.save(o));;) {
+					f.throwIfAborted();
+					let e = Mi(await m.rpc("prompt.receipt", {
 						session_id: n,
 						admission_id: l.admissionId
-					}, d), n, l.admissionId);
+					}, f), n, l.admissionId);
 					if (e.status === "terminal") {
 						if ([
 							"failed",
@@ -9664,10 +9673,12 @@ function Pi(e, t, n = {}) {
 						return;
 					}
 					if (e.status === "unknown" || c) throw Z("HERMES_EXECUTION_UNCERTAIN");
-					await w(i, void 0, { signal: d });
+					await w(i, void 0, { signal: f });
 				}
+			} catch (e) {
+				throw d.aborted && f.reason === d.reason ? new L("Hermes scoped turn timed out; preserve its journal for recovery", void 0, "TIMEOUT") : e;
 			} finally {
-				if (u.abort(), await f?.close(), !o.completed && l.sessionId) {
+				if (u.abort(), await p?.close(), !o.completed && l.sessionId) {
 					let t = async (e) => {
 						if (!l.admissionId) {
 							let t = await e.rpc("session.resume", {
@@ -9679,8 +9690,8 @@ function Pi(e, t, n = {}) {
 						l.admissionId && await Ni(e, l.sessionId, l.admissionId);
 					};
 					try {
-						if (!p) throw Z();
-						await t(p);
+						if (!m) throw Z();
+						await t(m);
 					} catch {
 						let n;
 						try {
@@ -9693,10 +9704,10 @@ function Pi(e, t, n = {}) {
 						}
 					}
 				}
-				p && (m && l.sessionId && await p.rpc("session.detach", {
+				m && (h && l.sessionId && await m.rpc("session.detach", {
 					session_id: l.sessionId,
-					subscription_id: m
-				}, AbortSignal.timeout(1e3)).catch(() => {}), p.close());
+					subscription_id: h
+				}, AbortSignal.timeout(1e3)).catch(() => {}), m.close());
 			}
 		});
 	};
