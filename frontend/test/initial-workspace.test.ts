@@ -27,6 +27,39 @@ it('starts the saved inbox read alongside directory discovery but waits for memb
   await expect(loading).resolves.toEqual({ selected: workspace('saved'), view: view('saved') });
 });
 
+it('shows a saved agent view when its current-account authorization arrives before a slow directory', async () => {
+  const directory = deferred<Inbox[]>();
+  const snapshot = deferred<HumanView>();
+  const show = vi.fn();
+  const loading = loadInitialWorkspace('saved', () => directory.promise, () => snapshot.promise, {
+    humanId: 'current', provider: 'local', onAuthorized: show
+  });
+  const authorized = { ...view('saved'), requester: { id: 'current', auth: { provider: 'local', assurance: 'mfa' } } } as HumanView;
+  snapshot.resolve(authorized);
+  await vi.waitFor(() => expect(show).toHaveBeenCalledWith(authorized.inbox, authorized));
+  directory.resolve([workspace('saved')]);
+  await expect(loading).resolves.toEqual({ selected: workspace('saved'), view: authorized });
+  expect(show).toHaveBeenCalledTimes(1);
+});
+
+it('never shows a saved view early for another account or an unverified legacy response', async () => {
+  for (const candidate of [
+    { ...view('saved'), requester: { id: 'other', auth: { provider: 'local', assurance: 'mfa' } } },
+    view('saved')
+  ]) {
+    const directory = deferred<Inbox[]>();
+    const show = vi.fn();
+    const loading = loadInitialWorkspace('saved', () => directory.promise, async () => candidate as HumanView, {
+      humanId: 'current', provider: 'local', onAuthorized: show
+    });
+    await Promise.resolve();
+    expect(show).not.toHaveBeenCalled();
+    directory.resolve([workspace('current')]);
+    await expect(loading).resolves.toEqual({ selected: workspace('current'), view: candidate });
+    expect(show).not.toHaveBeenCalled();
+  }
+});
+
 it('discards an inaccessible saved inbox and loads the current account workspace', async () => {
   const readSnapshot = vi.fn(async (id: string) => {
     if (id === 'old-account') throw new Error('Access denied');
