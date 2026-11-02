@@ -9385,6 +9385,9 @@ async function xi(e) {
 		get discovered() {
 			return [...t.values()].some((e) => e.discovered);
 		},
+		get pendingCalls() {
+			return n.pending;
+		},
 		mcpServer: Object.freeze({
 			name: `envoi_turn_${b(8).toString("hex")}`,
 			command: process.execPath,
@@ -9403,12 +9406,17 @@ async function xi(e) {
 		})
 	});
 }
-var Si = (e) => typeof e == "object" && !!e && !Array.isArray(e), Z = (e = "HERMES_SCOPED_UNAVAILABLE") => new L("Hermes scoped execution unavailable; preserve the turn journal for recovery", void 0, e), Ci = "hermes-gateway-v1", wi = ["acp-editor-policy-v1", "acp-session-mcp-v1"];
-function Ti(e) {
+function Si(e, t) {
+	try {
+		Promise.resolve(e?.(Object.freeze(t))).catch(() => {});
+	} catch {}
+}
+var Ci = (e) => typeof e == "object" && !!e && !Array.isArray(e), Z = (e = "HERMES_SCOPED_UNAVAILABLE") => new L("Hermes scoped execution unavailable; preserve the turn journal for recovery", void 0, e), wi = "hermes-gateway-v1", Ti = ["acp-editor-policy-v1", "acp-session-mcp-v1"];
+function Ei(e) {
 	let t = new URL(e.origin);
 	if (!d.isAbsolute(e.home) || !d.isAbsolute(e.cwd) || /[\x00\r\n]/.test(e.home + e.cwd) || !["127.0.0.1", "[::1]"].includes(t.hostname) || !["http:", "https:"].includes(t.protocol) || !t.port || t.origin !== e.origin || t.username || t.password) throw new I("CONFIG_INVALID", "Scoped Hermes requires an explicit loopback daemon origin and absolute local profile/workspace paths");
 }
-async function Ei(e) {
+async function Di(e) {
 	if (process.platform === "win32") return `\\\\.\\pipe\\hermes-gateway-${v("sha256").update(d.resolve(e).toLowerCase()).digest("hex").slice(0, 16)}`;
 	let t = d.join(e, "gateway.sock");
 	if (await n(t).catch(() => null)) return t;
@@ -9418,9 +9426,9 @@ async function Ei(e) {
 	if (!d.isAbsolute(o)) throw Z();
 	return o;
 }
-async function Di(e, t, n, r) {
+async function Oi(e, t, n, r) {
 	r.throwIfAborted();
-	let i = await Ei(e);
+	let i = await Di(e);
 	return new Promise((e, a) => {
 		let o = E(i), s = "", c = setTimeout(() => u(Z()), 5e3), l = () => u(r.reason), u = (t, n) => {
 			clearTimeout(c), r.removeEventListener("abort", l), o.destroy(), t ? a(t) : e(n);
@@ -9436,7 +9444,7 @@ async function Di(e, t, n, r) {
 			if (s += e, Buffer.byteLength(s) > 65536) return u(Z());
 			if (s.includes("\n")) try {
 				let e = JSON.parse(s.split("\n")[0]);
-				if (!Si(e) || e.protocol !== 1 || e.id !== 1 || e.ok !== !0 || !Si(e.result)) throw Z();
+				if (!Ci(e) || e.protocol !== 1 || e.id !== 1 || e.ok !== !0 || !Ci(e.result)) throw Z();
 				u(void 0, e.result);
 			} catch {
 				u(Z());
@@ -9444,101 +9452,129 @@ async function Di(e, t, n, r) {
 		}), r.aborted && l();
 	});
 }
-function Oi(e) {
-	let t = 0, n = !0, r = 0, i = /* @__PURE__ */ new Map(), a = () => {
+var ki = class extends L {
+	constructor(e) {
+		super("Hermes status transport was lost", void 0, "HERMES_SCOPED_UNAVAILABLE", { reason: e });
+	}
+};
+function Ai(e) {
+	let t = 0, n = !0, r = 0, i, a = () => e.readyState === 2 || e.readyState === 3, o = /* @__PURE__ */ new Map(), s = (t = Z()) => {
 		if (n) {
-			n = !1;
-			for (let e of i.values()) e.cleanup(), e.reject(Z());
-			i.clear(), e.removeEventListener("message", o), e.removeEventListener("error", a), e.removeEventListener("close", a), e.close();
+			n = !1, i = t;
+			for (let e of o.values()) e.cleanup(), e.reject(t);
+			o.clear(), e.removeEventListener("message", l), e.removeEventListener("error", c), e.removeEventListener("close", c), e.close();
 		}
-	}, o = (e) => {
+	}, c = (e) => {
+		let t = e?.type === "close" ? e.code : void 0;
+		t !== void 0 && ![
+			1e3,
+			1001,
+			1005,
+			1006,
+			1011,
+			1012,
+			1013
+		].includes(t) ? s(Z("HERMES_SCOPED_REFUSED")) : s(new ki(e?.type === "close" ? "peer_close" : e?.type === "error" ? "socket_error" : "rpc_deadline"));
+	}, l = (e) => {
 		try {
 			if (typeof e.data != "string" || Buffer.byteLength(e.data) > 1e6 || (r += Buffer.byteLength(e.data)) > 16e6) throw Z();
 			let t = JSON.parse(e.data);
-			if (!Si(t) || t.jsonrpc !== "2.0") throw Z();
+			if (!Ci(t) || t.jsonrpc !== "2.0") throw Z();
 			if (!("id" in t) && typeof t.method == "string") return;
-			let n = i.get(t.id);
+			let n = o.get(t.id);
 			if (!n || "result" in t == "error" in t) throw Z();
-			if (i.delete(t.id), n.cleanup(), Si(t.error)) {
+			if (o.delete(t.id), n.cleanup(), Ci(t.error)) {
 				let e = t.error.message === "stale_generation" ? "HERMES_STALE_GENERATION" : "HERMES_SCOPED_REFUSED";
 				n.reject(Z(e));
-			} else Si(t.result) ? n.resolve(t.result) : (n.reject(Z()), a());
+			} else Ci(t.result) ? n.resolve(t.result) : (n.reject(Z()), s());
 		} catch {
-			a();
+			s();
 		}
 	};
-	return e.addEventListener("message", o), e.addEventListener("error", a), e.addEventListener("close", a), {
-		close: a,
-		rpc(r, o, s) {
-			return s.throwIfAborted(), new Promise((c, l) => {
-				if (!n || i.size >= 4 || e.readyState !== 1) return l(Z());
-				let u = ++t, d = () => {
-					a(), l(s.reason);
-				}, f = setTimeout(a, 3e4);
-				i.set(u, {
-					resolve: c,
-					reject: l,
+	return e.addEventListener("message", l), e.addEventListener("error", c), e.addEventListener("close", c), {
+		close: () => s(),
+		rpc(r, l, u) {
+			return u.throwIfAborted(), new Promise((d, f) => {
+				if (!n) return f(i);
+				if (o.size >= 4 || e.readyState === 0) return f(Z());
+				let p = ++t, m = () => {
+					s(u.reason), f(u.reason);
+				}, h = setTimeout(() => {
+					a() ? s() : c();
+				}, 3e4);
+				if (o.set(p, {
+					resolve: d,
+					reject: f,
 					cleanup: () => {
-						clearTimeout(f), s.removeEventListener("abort", d);
+						clearTimeout(h), u.removeEventListener("abort", m);
 					}
-				}), s.addEventListener("abort", d, { once: !0 });
-				let p = JSON.stringify({
-					jsonrpc: "2.0",
-					id: u,
-					method: r,
-					params: o
-				});
-				if (Buffer.byteLength(p) > 524288 || e.bufferedAmount > 524288) return a();
-				try {
-					e.send(p);
-				} catch {
-					a();
+				}), u.addEventListener("abort", m, { once: !0 }), a()) {
+					u.aborted && m();
+					return;
 				}
-				s.aborted && d();
+				let g = JSON.stringify({
+					jsonrpc: "2.0",
+					id: p,
+					method: r,
+					params: l
+				});
+				if (Buffer.byteLength(g) > 524288 || e.bufferedAmount > 524288) return s();
+				try {
+					e.send(g);
+				} catch {
+					n && !a() && s();
+				}
+				u.aborted && m();
 			});
 		}
 	};
 }
-async function ki(e, t) {
-	Ti(e);
-	let n = await Di(e.home, "identify", {}, t), r = (e) => process.platform === "win32" ? d.resolve(e).toLowerCase() : d.resolve(e), i = Array.isArray(n.served_profiles) ? n.served_profiles.filter((t) => Si(t) && typeof t.home == "string" && r(t.home) === r(e.home)) : [];
-	if (n.runtime_protocol !== 1 || n.state !== "ready" || n.api_origin !== e.origin || !Array.isArray(n.capabilities) || !n.capabilities.includes("session-authority-v1") || typeof n.instance_id != "string" || i.length !== 1 || typeof i[0].profile_id != "string") throw Z();
-	let a = i[0].profile_id, o = await Di(e.home, "session-ticket", {
-		profile_id: a,
-		instance_id: n.instance_id,
+async function ji(e, t, n) {
+	Ei(e);
+	let r = await Oi(e.home, "identify", {}, t);
+	if (n !== void 0 && r.instance_id !== n) throw Z("HERMES_INSTANCE_CHANGED");
+	let i = (e) => process.platform === "win32" ? d.resolve(e).toLowerCase() : d.resolve(e), a = Array.isArray(r.served_profiles) ? r.served_profiles.filter((t) => Ci(t) && typeof t.home == "string" && i(t.home) === i(e.home)) : [];
+	if (r.runtime_protocol !== 1 || r.state !== "ready" || r.api_origin !== e.origin || !Array.isArray(r.capabilities) || !r.capabilities.includes("session-authority-v1") || typeof r.instance_id != "string" || a.length !== 1 || typeof a[0].profile_id != "string") throw Z();
+	let o = a[0].profile_id, s = await Oi(e.home, "session-ticket", {
+		profile_id: o,
+		instance_id: r.instance_id,
 		purpose: "interactive"
 	}, t);
-	if (o.runtime_protocol !== 1 || o.profile_id !== a || o.instance_id !== n.instance_id || typeof o.ticket != "string" || !/^[A-Za-z0-9_-]{16,256}$/.test(o.ticket)) throw Z();
-	let s = new WebSocket(e.origin.replace(/^http/, "ws") + "/api/ws", [Ci, "hermes-gateway-ticket." + o.ticket]);
+	if (s.runtime_protocol !== 1 || s.profile_id !== o || s.instance_id !== r.instance_id || typeof s.ticket != "string" || !/^[A-Za-z0-9_-]{16,256}$/.test(s.ticket)) throw Z();
+	let c = new WebSocket(e.origin.replace(/^http/, "ws") + "/api/ws", [wi, "hermes-gateway-ticket." + s.ticket]);
 	try {
 		await new Promise((e, n) => {
-			let r = setTimeout(() => c(Z()), 1e4), i = () => c(t.reason), a = () => c(Z()), o = () => c(s.protocol === Ci ? void 0 : Z()), c = (c) => {
-				clearTimeout(r), t.removeEventListener("abort", i), s.removeEventListener("open", o), s.removeEventListener("error", a), s.removeEventListener("close", a), c ? n(c) : e();
+			let r = setTimeout(() => s(Z()), 1e4), i = () => s(t.reason), a = () => s(Z()), o = () => s(c.protocol === wi ? void 0 : Z()), s = (s) => {
+				clearTimeout(r), t.removeEventListener("abort", i), c.removeEventListener("open", o), c.removeEventListener("error", a), c.removeEventListener("close", a), s ? n(s) : e();
 			};
-			t.addEventListener("abort", i, { once: !0 }), s.addEventListener("open", o), s.addEventListener("error", a), s.addEventListener("close", a), t.aborted && i();
+			t.addEventListener("abort", i, { once: !0 }), c.addEventListener("open", o), c.addEventListener("error", a), c.addEventListener("close", a), t.aborted && i();
 		});
-		let e = Oi(s);
+		let e = Ai(c);
 		try {
-			let r = await e.rpc("runtime.describe", {}, t);
-			if (r.profile_id !== a || r.instance_id !== n.instance_id || !Array.isArray(r.capabilities) || wi.some((e) => !r.capabilities.includes(e)) || !Si(r.session_create) || !r.session_create.sources?.includes("acp")) throw Z();
-			return e;
+			let n = await e.rpc("runtime.describe", {}, t);
+			if (n.profile_id !== o || n.instance_id !== r.instance_id || !Array.isArray(n.capabilities) || Ti.some((e) => !n.capabilities.includes(e)) || !Ci(n.session_create) || !n.session_create.sources?.includes("acp")) throw Z();
+			return Object.freeze({
+				...e,
+				instanceId: r.instance_id,
+				profileId: o
+			});
 		} catch (t) {
 			throw e.close(), t;
 		}
 	} catch (e) {
-		throw s.close(), e;
+		throw c.close(), e;
 	}
 }
-function Ai(e) {
-	return Ti(e), `hermes-profile:${JSON.stringify([e.home, e.cwd])}`;
+function Mi(e) {
+	return Ei(e), `hermes-profile:${JSON.stringify([e.home, e.cwd])}`;
 }
-function ji(e, t) {
-	if (e.model === Ai(t) || e.model === `hermes-daemon:${t.origin}:${t.home}:${t.cwd}`) return !0;
+function Ni(e, t) {
+	if (e.model === Mi(t) || e.model === `hermes-daemon:${t.origin}:${t.home}:${t.cwd}`) return !0;
 	let n = `:${t.home}:${t.cwd}`;
 	if (!e.completed || !e.model.startsWith("hermes-daemon:") || !e.model.endsWith(n)) return !1;
 	let r = e.model.slice(14, -n.length);
 	try {
-		return Ti({
+		return Ei({
 			...t,
 			origin: r
 		}), !0;
@@ -9546,8 +9582,8 @@ function ji(e, t) {
 		return !1;
 	}
 }
-function Mi(e, t, n) {
-	if (typeof e.admission_id != "string" || !e.admission_id || e.admission_id.length > 256 || n !== void 0 && e.admission_id !== n || !Si(e.ref) || e.ref.session_id !== t || ![
+function Pi(e, t, n, r) {
+	if (typeof e.admission_id != "string" || !e.admission_id || e.admission_id.length > 256 || n !== void 0 && e.admission_id !== n || !Ci(e.ref) || e.ref.session_id !== t || r !== void 0 && e.ref.profile_id !== r || ![
 		"queued",
 		"started",
 		"unknown",
@@ -9555,7 +9591,7 @@ function Mi(e, t, n) {
 	].includes(e.status) || e.status === "started" && (!Number.isSafeInteger(e.execution_generation) || e.execution_generation < 1)) throw Z();
 	return e;
 }
-async function Ni(e, t, n) {
+async function Fi(e, t, n) {
 	let r = AbortSignal.timeout(5e3);
 	try {
 		await e.rpc("prompt.cancel", {
@@ -9565,10 +9601,10 @@ async function Ni(e, t, n) {
 	} catch (e) {
 		if (!(e instanceof L) || e.code !== "HERMES_STALE_GENERATION") throw e;
 	}
-	let i = Mi(await e.rpc("prompt.receipt", {
+	let i = Pi(await e.rpc("prompt.receipt", {
 		session_id: t,
 		admission_id: n
-	}, r), t, n);
+	}, r), t, n, e.profileId);
 	if (i.status === "started") try {
 		await e.rpc("session.interrupt", {
 			session_id: t,
@@ -9577,28 +9613,28 @@ async function Ni(e, t, n) {
 	} catch (e) {
 		if (!(e instanceof L) || e.code !== "HERMES_STALE_GENERATION") throw e;
 	}
-	for (; i.status !== "terminal" && i.status !== "unknown";) await w(50, void 0, { signal: r }), i = Mi(await e.rpc("prompt.receipt", {
+	for (; i.status !== "terminal" && i.status !== "unknown";) await w(50, void 0, { signal: r }), i = Pi(await e.rpc("prompt.receipt", {
 		session_id: t,
 		admission_id: n
-	}, r), t, n);
+	}, r), t, n, e.profileId);
 }
-function Pi(e, t, n = {}) {
-	Ti(e);
+function Ii(e, t, n = {}) {
+	Ei(e);
 	let r = n.timeoutMs ?? 12e4, i = n.pollMs ?? 250;
 	if (!Number.isSafeInteger(r) || r < 1 || r > 9e5 || !Number.isSafeInteger(i) || i < 1 || i > 1e4) throw TypeError("Invalid Hermes deadline");
-	let a = Ai(e);
-	return async (n, o) => {
-		if (!o.workId) throw Z("SCOPED_HOST_CONTEXT_REQUIRED");
-		let s = o.workId;
-		return t.exclusive(s, async () => {
-			n.signal.throwIfAborted();
-			let o = await t.load(s);
-			if (o && (!ji(o, e) || o.admission || o.pending.length)) throw Z("SCOPED_MODEL_CHANGED");
-			if (o?.completed) return;
-			let c = o !== null;
-			o ||= {
+	let a = Mi(e);
+	return async (o, s) => {
+		if (!s.workId) throw Z("SCOPED_HOST_CONTEXT_REQUIRED");
+		let c = s.workId;
+		return t.exclusive(c, async () => {
+			o.signal.throwIfAborted();
+			let s = await t.load(c);
+			if (s && (!Ni(s, e) || s.admission || s.pending.length)) throw Z("SCOPED_MODEL_CHANGED");
+			if (s?.completed) return;
+			let l = s !== null;
+			s ||= {
 				version: 1,
-				workId: s,
+				workId: c,
 				model: a,
 				providerCalls: 0,
 				completed: !1,
@@ -9607,35 +9643,56 @@ function Pi(e, t, n = {}) {
 					kind: "hermes-scoped-v1",
 					requestId: x(),
 					inputId: x(),
-					text: n.instruction + "\n" + JSON.stringify({
-						context: n.context,
-						snapshot: n.snapshot
+					text: o.instruction + "\n" + JSON.stringify({
+						context: o.context,
+						snapshot: o.snapshot
 					})
 				}]
 			};
-			let l = o.input[0];
-			if (o.input.length !== 1 || l.kind !== "hermes-scoped-v1" || typeof l.text != "string" || Buffer.byteLength(l.text) > 262144 || !/^[a-f0-9-]{36}$/.test(l.requestId) || !/^[a-f0-9-]{36}$/.test(l.inputId) || l.sessionId !== void 0 && (typeof l.sessionId != "string" || !l.sessionId || l.sessionId.length > 256) || l.admissionId !== void 0 && (typeof l.admissionId != "string" || !l.admissionId || l.admissionId.length > 256)) throw Z();
-			if (c && !l.sessionId) throw Z("HERMES_CREATION_UNCERTAIN");
-			let u = new AbortController(), d = AbortSignal.timeout(r), f = AbortSignal.any([
-				n.signal,
-				u.signal,
-				d
-			]), p = c ? null : await xi({
-				...n,
-				signal: f
-			}), m, h;
+			let u = s.input[0];
+			if (s.input.length !== 1 || u.kind !== "hermes-scoped-v1" || typeof u.text != "string" || Buffer.byteLength(u.text) > 262144 || !/^[a-f0-9-]{36}$/.test(u.requestId) || !/^[a-f0-9-]{36}$/.test(u.inputId) || u.sessionId !== void 0 && (typeof u.sessionId != "string" || !u.sessionId || u.sessionId.length > 256) || u.admissionId !== void 0 && (typeof u.admissionId != "string" || !u.admissionId || u.admissionId.length > 256)) throw Z();
+			if (l && !u.sessionId) throw Z("HERMES_CREATION_UNCERTAIN");
+			let d = performance.now(), f = new AbortController(), p = AbortSignal.timeout(r), m = AbortSignal.any([
+				o.signal,
+				f.signal,
+				p
+			]), h = null, g = (e, t = {}) => Si(n.onRuntimeEvent, {
+				runtime: "hermes",
+				kind: e,
+				workId: c,
+				monotonicMs: performance.now(),
+				elapsedMs: Math.round(performance.now() - d),
+				timeoutMs: r,
+				pendingMcpCalls: h?.pendingCalls ?? 0,
+				...t
+			}), _ = (e) => ({
+				...e instanceof L && /^[A-Z_]{1,64}$/.test(e.code ?? "") ? { code: e.code } : {},
+				...e instanceof L && /^[a-z_]{1,64}$/.test(e.reason ?? "") ? { reason: e.reason } : {}
+			}), v = () => g("turn_aborted", p.aborted && m.reason === p.reason ? {
+				source: "deadline",
+				code: "TIMEOUT"
+			} : {
+				source: "turn_signal",
+				..._(m.reason)
+			});
+			m.addEventListener("abort", v, { once: !0 });
+			let y, b, S, C = 0;
+			g("turn_started");
 			try {
-				if (m = await ki(e, f), c) {
-					let e = await m.rpc("session.resume", {
-						session_id: l.sessionId,
+				if (m.throwIfAborted(), h = l ? null : await xi({
+					...o,
+					signal: m
+				}), y = await ji(e, m), b = y.instanceId, l) {
+					let e = await y.rpc("session.resume", {
+						session_id: u.sessionId,
 						omit_messages: !0
-					}, f);
-					if (e.session_id !== l.sessionId || typeof e.subscription_id != "string") throw Z();
-					h = e.subscription_id;
+					}, m);
+					if (e.session_id !== u.sessionId || typeof e.subscription_id != "string") throw Z();
+					S = e.subscription_id;
 				} else {
-					await t.save(o), f.throwIfAborted();
-					let n = await m.rpc("session.create", {
-						request_id: l.requestId,
+					await t.save(s), m.throwIfAborted();
+					let n = await y.rpc("session.create", {
+						request_id: u.requestId,
 						source: "acp",
 						cwd: e.cwd,
 						toolsets: ["no_mcp"],
@@ -9643,102 +9700,138 @@ function Pi(e, t, n = {}) {
 						accept_hooks: !1,
 						follow_profile_config: !1,
 						editor: {
-							mcp_servers: [p.mcpServer],
+							mcp_servers: [h.mcpServer],
 							edit_approval_policy: "ask"
 						}
-					}, f);
-					if (typeof n.session_id != "string" || !n.session_id || n.session_id.length > 256 || typeof n.subscription_id != "string" || !p.active || !p.discovered) throw Z("HERMES_TOOLS_NOT_READY");
-					l.sessionId = n.session_id, h = n.subscription_id, await t.save(o);
+					}, m);
+					if (typeof n.session_id != "string" || !n.session_id || n.session_id.length > 256 || typeof n.subscription_id != "string" || !h.active || !h.discovered) throw Z("HERMES_TOOLS_NOT_READY");
+					u.sessionId = n.session_id, S = n.subscription_id, await t.save(s);
 				}
-				let n = l.sessionId;
-				for (l.admissionId || (o.providerCalls = 1, await t.save(o), f.throwIfAborted(), l.admissionId = Mi(await m.rpc("prompt.submit", {
+				let n = u.sessionId;
+				for (u.admissionId || (s.providerCalls = 1, await t.save(s), m.throwIfAborted(), u.admissionId = Pi(await y.rpc("prompt.submit", {
 					session_id: n,
-					input_id: l.inputId,
-					text: l.text
-				}, f), n).admission_id, await t.save(o));;) {
-					f.throwIfAborted();
-					let e = Mi(await m.rpc("prompt.receipt", {
-						session_id: n,
-						admission_id: l.admissionId
-					}, f), n, l.admissionId);
-					if (e.status === "terminal") {
-						if ([
+					input_id: u.inputId,
+					text: u.text
+				}, m), n, void 0, y.profileId).admission_id, await t.save(s));;) {
+					m.throwIfAborted();
+					let r;
+					try {
+						r = await y.rpc("prompt.receipt", {
+							session_id: n,
+							admission_id: u.admissionId
+						}, m);
+					} catch (t) {
+						if (m.throwIfAborted(), !(t instanceof ki) || l || !h?.active || !u.admissionId || (g("status_transport_lost", {
+							source: "transport",
+							..._(t)
+						}), C >= 2)) throw t;
+						g("status_reconnect_started", { reconnectAttempt: ++C }), y.close();
+						try {
+							await w(100, void 0, { signal: m }), y = await ji(e, m, b);
+							let t = await y.rpc("session.resume", {
+								session_id: n,
+								omit_messages: !0
+							}, m);
+							if (t.session_id !== n || typeof t.subscription_id != "string") throw Z();
+							S = t.subscription_id, m.throwIfAborted(), g("status_reconnected", { reconnectAttempt: C });
+						} catch (e) {
+							throw g("status_reconnect_refused", _(e)), e;
+						}
+						continue;
+					}
+					if (r = Pi(r, n, u.admissionId, y.profileId), r.status === "terminal") {
+						if (g("turn_terminal", { outcome: [
+							"completed",
 							"failed",
 							"interrupted",
 							"cancelled",
 							"rejected"
-						].includes(e.outcome)) throw new er("HERMES_TURN_NOT_COMPLETED");
-						if (e.outcome !== "completed") throw Z("HERMES_EXECUTION_UNCERTAIN");
-						o.completed = !0, await t.save(o);
+						].includes(r.outcome) ? r.outcome : "unknown" }), [
+							"failed",
+							"interrupted",
+							"cancelled",
+							"rejected"
+						].includes(r.outcome)) throw new er("HERMES_TURN_NOT_COMPLETED");
+						if (r.outcome !== "completed") throw Z("HERMES_EXECUTION_UNCERTAIN");
+						s.completed = !0, await t.save(s);
 						return;
 					}
-					if (e.status === "unknown" || c) throw Z("HERMES_EXECUTION_UNCERTAIN");
-					await w(i, void 0, { signal: f });
+					if (r.status === "unknown" || l) throw Z("HERMES_EXECUTION_UNCERTAIN");
+					await w(i, void 0, { signal: m });
 				}
 			} catch (e) {
-				throw d.aborted && f.reason === d.reason ? new L("Hermes scoped turn timed out; preserve its journal for recovery", void 0, "TIMEOUT") : e;
+				throw g("turn_failed", p.aborted && m.reason === p.reason ? {
+					source: "deadline",
+					code: "TIMEOUT"
+				} : {
+					source: "runtime",
+					..._(e)
+				}), p.aborted && m.reason === p.reason ? new L("Hermes scoped turn timed out; preserve its journal for recovery", void 0, "TIMEOUT") : e;
 			} finally {
-				if (u.abort(), await p?.close(), !o.completed && l.sessionId) {
+				if (m.removeEventListener("abort", v), f.abort(), await h?.close(), !s.completed && u.sessionId) {
+					g("native_cancel_started");
 					let t = async (e) => {
-						if (!l.admissionId) {
+						if (!u.admissionId) {
 							let t = await e.rpc("session.resume", {
-								session_id: l.sessionId,
+								session_id: u.sessionId,
 								omit_messages: !0
-							}, AbortSignal.timeout(1e3)), n = Array.isArray(t.pending) ? t.pending.find((e) => Si(e) && e.input_id === l.inputId) : void 0;
-							n && typeof n.admission_id == "string" && (l.admissionId = n.admission_id);
+							}, AbortSignal.timeout(1e3)), n = Array.isArray(t.pending) ? t.pending.find((e) => Ci(e) && e.input_id === u.inputId) : void 0;
+							n && typeof n.admission_id == "string" && (u.admissionId = n.admission_id);
 						}
-						l.admissionId && await Ni(e, l.sessionId, l.admissionId);
+						u.admissionId && await Fi(e, u.sessionId, u.admissionId);
 					};
 					try {
-						if (!m) throw Z();
-						await t(m);
+						if (!y) throw Z();
+						await t(y), g("native_cancel_finished");
 					} catch {
 						let n;
 						try {
-							n = await ki(e, AbortSignal.timeout(5e3)), await n.rpc("session.resume", {
-								session_id: l.sessionId,
+							n = await ji(e, AbortSignal.timeout(5e3), b), await n.rpc("session.resume", {
+								session_id: u.sessionId,
 								omit_messages: !0
-							}, AbortSignal.timeout(1e3)), await t(n);
-						} catch {} finally {
+							}, AbortSignal.timeout(1e3)), await t(n), g("native_cancel_finished");
+						} catch (e) {
+							g("native_cancel_finished", _(e));
+						} finally {
 							n?.close();
 						}
 					}
 				}
-				m && (h && l.sessionId && await m.rpc("session.detach", {
-					session_id: l.sessionId,
-					subscription_id: h
-				}, AbortSignal.timeout(1e3)).catch(() => {}), m.close());
+				y && (S && u.sessionId && await y.rpc("session.detach", {
+					session_id: u.sessionId,
+					subscription_id: S
+				}, AbortSignal.timeout(1e3)).catch(() => {}), y.close());
 			}
 		});
 	};
 }
-var Q = () => new I("SCOPED_CONFIG_INVALID", "Scoped Hermes requires its saved daemon selection and a profile without a separate privileged Envoi integration"), Fi = [
+var Q = () => new I("SCOPED_CONFIG_INVALID", "Scoped Hermes requires its saved daemon selection and a profile without a separate privileged Envoi integration"), Li = [
 	"HERMES_MCP_RELAY_TOKEN",
 	"HERMES_MCP_RELAY_PORT",
 	"HERMES_MCP_WRITE_ENABLED",
 	"ENVOI_ASSET_MANIFEST_PATH"
 ];
-function Ii(e) {
+function Ri(e) {
 	if (e.scopedTools !== !0 || typeof e.daemonOrigin != "string" || typeof e.scopedCwd != "string") throw Q();
 	let t = {
 		home: e.home,
 		origin: e.daemonOrigin,
 		cwd: e.scopedCwd
 	};
-	return Ti(t), t;
+	return Ei(t), t;
 }
-var Li = "apiKey,apiUrl,configPath,daemonOrigin,home,profile,scopedCwd,scopedTools";
-function Ri(e, t) {
-	return !e || !t || typeof e != "object" || typeof t != "object" || Array.isArray(e) || Array.isArray(t) ? !1 : Object.keys(e).sort().join(",") === Li && Object.keys(t).sort().join(",") === Li && Object.keys(e).every((n) => e[n] === t[n]);
+var zi = "apiKey,apiUrl,configPath,daemonOrigin,home,profile,scopedCwd,scopedTools";
+function Bi(e, t) {
+	return !e || !t || typeof e != "object" || typeof t != "object" || Array.isArray(e) || Array.isArray(t) ? !1 : Object.keys(e).sort().join(",") === zi && Object.keys(t).sort().join(",") === zi && Object.keys(e).every((n) => e[n] === t[n]);
 }
-function zi(e, t) {
-	return Ri({
+function Vi(e, t) {
+	return Bi({
 		...e,
 		apiUrl: t.apiUrl,
 		daemonOrigin: t.daemonOrigin
 	}, t);
 }
-async function Bi(e) {
+async function Hi(e) {
 	if (!e) return;
 	let t = d.join(e, "hermes-scoped.json"), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
@@ -9750,25 +9843,25 @@ async function Bi(e) {
 			let e = JSON.parse(await a(t, "utf8"));
 			if (!e || ![1, 2].includes(e.version) || Object.keys(e).sort().join(",") !== (e.version === 1 ? "configuration,version" : "configuration,previousConfiguration,version")) throw Q();
 			for (let t of e.version === 1 ? [e.configuration] : [e.configuration, e.previousConfiguration]) {
-				if (!t || Object.keys(t).sort().join(",") !== Li || t.apiKey !== "" || t.apiUrl !== t.daemonOrigin) throw Q();
-				Ii(t);
+				if (!t || Object.keys(t).sort().join(",") !== zi || t.apiKey !== "" || t.apiUrl !== t.daemonOrigin) throw Q();
+				Ri(t);
 			}
-			if (e.version === 2 && !zi(e.configuration, e.previousConfiguration)) throw Q();
+			if (e.version === 2 && !Vi(e.configuration, e.previousConfiguration)) throw Q();
 			return e;
 		} catch {
 			throw Q();
 		}
 	}
 }
-async function Vi(e, t) {
-	if (Ii(e), !d.isAbsolute(e.configPath) || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(e.profile) || e.assetManifestPath !== void 0 || Fi.some((e) => t[e] !== void 0) || t.ENVOI_SCOPED_TOOLS !== void 0 && t.ENVOI_SCOPED_TOOLS !== "true") throw Q();
+async function Ui(e, t) {
+	if (Ri(e), !d.isAbsolute(e.configPath) || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(e.profile) || e.assetManifestPath !== void 0 || Li.some((e) => t[e] !== void 0) || t.ENVOI_SCOPED_TOOLS !== void 0 && t.ENVOI_SCOPED_TOOLS !== "true") throw Q();
 	let n = await X(e.configPath), r = await X(d.join(e.home, ".env"));
 	if (n === null || /envoi|sinaloa/i.test(n) || /(?:ENVOI|SINALOA)_(?:MCP|API|ENROLLMENT|AGENT|ACCESS|REFRESH)/i.test(r ?? "")) throw Q();
 }
-async function Hi(e, t) {
+async function Wi(e, t) {
 	let n = e.env ?? process.env;
 	if (n.ENVOI_SCOPED_TOOLS !== void 0 && !["true", "false"].includes(n.ENVOI_SCOPED_TOOLS)) throw Q();
-	let r = await Bi(e.stateDir), i = r?.configuration, a = t?.scopedTools === !0 ? t : i, o = r?.version === 2 && a && Ri(a, r.previousConfiguration) ? i : a;
+	let r = await Hi(e.stateDir), i = r?.configuration, a = t?.scopedTools === !0 ? t : i, o = r?.version === 2 && a && Bi(a, r.previousConfiguration) ? i : a;
 	if (o && n.ENVOI_SCOPED_TOOLS === "false") throw Q();
 	if (!o && n.ENVOI_SCOPED_TOOLS !== "true") return null;
 	if (t && t.scopedTools !== !0 && t.assetManifestPath !== void 0) throw Q();
@@ -9784,28 +9877,28 @@ async function Hi(e, t) {
 		daemonOrigin: n.HERMES_DAEMON_URL ?? o?.daemonOrigin ?? "",
 		scopedCwd: n.HERMES_SCOPED_CWD ?? o?.scopedCwd ?? s
 	};
-	if (i && !Ri(i, c) || o && (o.home !== c.home || o.daemonOrigin !== c.daemonOrigin || o.scopedCwd !== c.scopedCwd || o.configPath !== c.configPath || o.profile !== c.profile)) throw Q();
-	return await Vi(c, n), c;
+	if (i && !Bi(i, c) || o && (o.home !== c.home || o.daemonOrigin !== c.daemonOrigin || o.scopedCwd !== c.scopedCwd || o.configPath !== c.configPath || o.profile !== c.profile)) throw Q();
+	return await Ui(c, n), c;
 }
-async function Ui(e, t) {
-	let n = (await Bi(e))?.configuration;
-	if (n && !Ri(n, t)) throw Q();
+async function Gi(e, t) {
+	let n = (await Hi(e))?.configuration;
+	if (n && !Bi(n, t)) throw Q();
 	n || await z(d.join(e, "hermes-scoped.json"), {
 		version: 1,
 		configuration: t
 	});
 }
-async function Wi(e, t = {}) {
-	await Vi(e.runtime, t.env ?? process.env);
-	let n = await Hi({
+async function Ki(e, t = {}) {
+	await Ui(e.runtime, t.env ?? process.env);
+	let n = await Wi({
 		env: t.env ?? process.env,
 		stateDir: e.stateDir
 	}, e.runtime);
 	if (!n) throw Q();
 	let r = new Sr(e.stateDir);
 	if (await r.init(), !await r.load()) throw Error("No connector credentials were saved. Run setup first");
-	await Ui(e.stateDir, n);
-	let i = new Ir(e.stateDir), a = new AbortController(), o = /* @__PURE__ */ new Set(), s = Pi(Ii(n), i, t);
+	await Gi(e.stateDir, n);
+	let i = new Ir(e.stateDir), a = new AbortController(), o = /* @__PURE__ */ new Set(), s = Ii(Ri(n), i, t);
 	return {
 		connector: new or(e.apiUrl, r, {
 			fetch: t.fetch,
@@ -9839,18 +9932,22 @@ async function Wi(e, t = {}) {
 		store: r,
 		relayUrl: void 0,
 		close: async () => {
-			a.abort(), await Promise.allSettled([...o]);
+			o.size && Si(t.onRuntimeEvent, {
+				runtime: "hermes",
+				kind: "bridge_stop_requested",
+				monotonicMs: performance.now()
+			}), a.abort(), await Promise.allSettled([...o]);
 		}
 	};
 }
-async function Gi(e, t = {}) {
-	let n = t.env ?? process.env, r = await Hi({
+async function qi(e, t = {}) {
+	let n = t.env ?? process.env, r = await Wi({
 		env: n,
 		stateDir: e.stateDir
 	}, e.runtime);
 	if (r) {
 		if (e.relayToken !== void 0 || e.relayPort !== void 0 || e.writeEnabled !== void 0) throw Error("Scoped Hermes refuses legacy relay and write options");
-		return Wi({
+		return Ki({
 			apiUrl: e.apiUrl,
 			stateDir: e.stateDir,
 			runtime: r
@@ -9913,7 +10010,7 @@ async function Gi(e, t = {}) {
 		}
 	};
 }
-async function Ki() {
+async function Ji() {
 	let e = D();
 	await new Promise((t, n) => {
 		e.once("error", n), e.listen(0, "127.0.0.1", t);
@@ -9922,7 +10019,7 @@ async function Ki() {
 	if (await new Promise((t, n) => e.close((e) => e ? n(e) : t())), !t || typeof t == "string") throw new I("RELAY_UNAVAILABLE", "Could not allocate a private Hermes MCP relay port.");
 	return t.port;
 }
-async function qi(e) {
+async function Yi(e) {
 	let t = d.join(e.stateDir, "hermes-relay.json"), n = await X(t);
 	if (n !== null) {
 		let e;
@@ -9936,19 +10033,19 @@ async function qi(e) {
 	}
 	let r = ei(e.stateDir), i = {
 		version: 1,
-		port: await Ki(),
+		port: await Ji(),
 		token: b(32).toString("hex"),
 		serverName: r
 	};
 	return await z(t, i), i;
 }
-async function Ji(e, t) {
-	let n = await Hi(t, e);
+async function Xi(e, t) {
+	let n = await Wi(t, e);
 	if (n) {
-		await Vi(n, t.env ?? process.env);
+		await Ui(n, t.env ?? process.env);
 		return;
 	}
-	let r = await qi(t), i = `ENVOI_MCP_${r.serverName.slice(6).toUpperCase()}`, a = await X(e.configPath), o = [
+	let r = await Yi(t), i = `ENVOI_MCP_${r.serverName.slice(6).toUpperCase()}`, a = await X(e.configPath), o = [
 		`  ${r.serverName}:`,
 		`    url: "http://127.0.0.1:${r.port}/mcp"`,
 		"    headers:",
@@ -9960,36 +10057,36 @@ async function Ji(e, t) {
 	], s = ti(a ?? "", r.serverName, o), c = d.join(e.home, ".env"), l = await X(c);
 	await Jr(c, l, qr(l ?? "", i, r.token)), await Jr(e.configPath, a, s);
 }
-var Yi = {
+var Zi = {
 	runtime: "hermes",
 	async discover(e, t) {
-		return await Hi(e, t) ?? $r(e, t);
+		return await Wi(e, t) ?? $r(e, t);
 	},
 	async preflight(e, t) {
-		let n = await Hi(t, e);
+		let n = await Wi(t, e);
 		if (!n) return oi(e, t);
-		await Vi(n, t.env ?? process.env), (await ki(Ii(n), AbortSignal.any([t.signal ?? new AbortController().signal, AbortSignal.timeout(15e3)]))).close();
+		await Ui(n, t.env ?? process.env), (await ji(Ri(n), AbortSignal.any([t.signal ?? new AbortController().signal, AbortSignal.timeout(15e3)]))).close();
 	},
 	async configure(e, t) {
-		let n = await Hi(t, e);
+		let n = await Wi(t, e);
 		if (n) {
-			await Vi(n, t.env ?? process.env);
+			await Ui(n, t.env ?? process.env);
 			return;
 		}
-		await qi(t);
+		await Yi(t);
 	},
 	async createBridge(e, t) {
-		let n = await Hi(t, e);
-		if (n) return Gi({
+		let n = await Wi(t, e);
+		if (n) return qi({
 			apiUrl: t.apiUrl,
 			stateDir: t.stateDir,
 			hermesUrl: "",
 			hermesKey: "",
 			runtime: n
 		}, t);
-		let r = await qi(t), i = 0, a;
+		let r = await Yi(t), i = 0, a;
 		try {
-			a = await Gi({
+			a = await qi({
 				apiUrl: t.apiUrl,
 				stateDir: t.stateDir,
 				hermesUrl: e.apiUrl,
@@ -10012,7 +10109,7 @@ var Yi = {
 			throw e.code === "EADDRINUSE" ? new I("RELAY_UNAVAILABLE", "This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.") : e;
 		}
 		try {
-			await Ji(e, t);
+			await Xi(e, t);
 		} catch (e) {
 			throw await a.close(), e;
 		}
@@ -10037,7 +10134,7 @@ var Yi = {
 		};
 	}
 };
-function Xi(e) {
+function Qi(e) {
 	if (!e.apiKey || !e.model) throw TypeError("xAI API key and model are required");
 	let t = e.endpoint || "https://api.x.ai/v1/responses", n = new URL(t);
 	if ((n.protocol !== "https:" || n.hostname !== "api.x.ai") && !(n.protocol === "http:" && ["127.0.0.1", "localhost"].includes(n.hostname))) throw TypeError("xAI endpoint must be api.x.ai (or local test server)");
@@ -10098,7 +10195,7 @@ function Xi(e) {
 		return hr(l.output.filter((e) => e.type === "message" && Array.isArray(e.content)).flatMap((e) => e.content).filter((e) => e.type === "output_text" && typeof e.text == "string").map((e) => e.text).join("\n").trim());
 	};
 }
-function Zi(e) {
+function $i(e) {
 	if (!e.apiKey || /[\r\n]/.test(e.apiKey) || !e.model) throw TypeError("xAI credentials and model are required");
 	return Br({
 		model: e.model,
@@ -10116,7 +10213,7 @@ function Zi(e) {
 		})
 	});
 }
-function Qi(e, t, n = !0) {
+function ea(e, t, n = !0) {
 	let r, i;
 	try {
 		r = new URL(e), i = new URL(t);
@@ -10130,7 +10227,7 @@ function Qi(e, t, n = !0) {
 	].includes(i.hostname);
 	if (r.username || r.password || r.search || r.hash || i.username || i.password || i.search || i.hash || i.pathname !== "/mcp" || i.origin !== r.origin || n && (i.protocol !== "https:" || a) || !n && !(i.protocol === "https:" || i.protocol === "http:" && a)) throw TypeError("Envoi MCP destination must be the configured Envoi origin /mcp");
 }
-async function $i(e, t = {}) {
+async function ta(e, t = {}) {
 	let n = t.env ?? process.env, r = new Sr(e.stateDir);
 	if (await r.init(), !await r.load()) throw Error("No connector credentials were saved. Run setup first");
 	if (n.ENVOI_SCOPED_TOOLS !== void 0 && n.ENVOI_SCOPED_TOOLS !== "true" && n.ENVOI_SCOPED_TOOLS !== "false") throw TypeError("ENVOI_SCOPED_TOOLS must be true or false");
@@ -10141,7 +10238,7 @@ async function $i(e, t = {}) {
 				...t.fetch ? { fetch: t.fetch } : {},
 				caseSessionHandler: Nr({
 					admit: (e) => r.admit(e),
-					run: Zi({
+					run: $i({
 						apiKey: e.apiKey,
 						model: e.model,
 						store: n,
@@ -10164,8 +10261,8 @@ async function $i(e, t = {}) {
 		};
 	}
 	let i, a = await yr(e.assetManifestPath ?? n.ENVOI_ASSET_MANIFEST_PATH), o = e.mcpUrl ?? n.ENVOI_MCP_URL;
-	o && Qi(e.apiUrl, o);
-	let s = Xi({
+	o && ea(e.apiUrl, o);
+	let s = Qi({
 		apiKey: e.apiKey,
 		model: e.model,
 		...t.fetch ? { fetch: t.fetch } : {},
@@ -10189,8 +10286,8 @@ async function $i(e, t = {}) {
 		close: async () => {}
 	};
 }
-var ea = "https://api.x.ai/v1/responses", ta = (e) => e && typeof e == "object" && !Array.isArray(e) ? e : {};
-function na(e) {
+var na = "https://api.x.ai/v1/responses", ra = (e) => e && typeof e == "object" && !Array.isArray(e) ? e : {};
+function ia(e) {
 	if (!e || typeof e != "object" || Array.isArray(e) || Object.keys(e).some((e) => ![
 		"apiKey",
 		"model",
@@ -10211,20 +10308,20 @@ function na(e) {
 	}
 	if (e.assetManifestPath !== void 0 && (typeof e.assetManifestPath != "string" || !d.isAbsolute(e.assetManifestPath) || /[\x00-\x1f\x7f]/.test(e.assetManifestPath))) throw new I("RUNTIME_CONFIGURATION_INVALID", "The saved approved asset manifest path must be an absolute local path.");
 }
-async function ra(e = {}, t) {
+async function aa(e = {}, t) {
 	let n = e.env ?? process.env;
-	t !== void 0 && na(t);
+	t !== void 0 && ia(t);
 	let r = n.ENVOI_MCP_URL ?? t?.mcpUrl, i = n.ENVOI_ASSET_MANIFEST_PATH ?? t?.assetManifestPath, a = {
 		apiKey: n.XAI_API_KEY ?? t?.apiKey ?? "",
 		model: n.XAI_MODEL ?? t?.model ?? "grok-4.7",
 		...r ? { mcpUrl: r } : {},
 		...i ? { assetManifestPath: d.resolve(i) } : {}
 	};
-	return na(a), a;
+	return ia(a), a;
 }
-async function ia(e, t = {}) {
-	if (na(e), e.mcpUrl && t.apiUrl) try {
-		Qi(t.apiUrl, e.mcpUrl);
+async function oa(e, t = {}) {
+	if (ia(e), e.mcpUrl && t.apiUrl) try {
+		ea(t.apiUrl, e.mcpUrl);
 	} catch {
 		throw new I("RUNTIME_CONFIGURATION_INVALID", "ENVOI_MCP_URL must use the selected Envoi origin /mcp. Correct it before enrollment.");
 	}
@@ -10238,7 +10335,7 @@ async function ia(e, t = {}) {
 		await Promise.race([c, (async () => {
 			let n;
 			try {
-				n = await (t.fetch ?? fetch)(ea, {
+				n = await (t.fetch ?? fetch)(na, {
 					method: "POST",
 					redirect: "error",
 					signal: r,
@@ -10271,9 +10368,9 @@ async function ia(e, t = {}) {
 					if (o += e.value.byteLength, o > 1e6) throw await i.cancel().catch(() => {}), Error("response too large");
 					a.push(e.value);
 				}
-				let e = ta(JSON.parse(Buffer.concat(a).toString("utf8"))), t = Array.isArray(e.output) && e.output.some((e) => {
-					let t = ta(e);
-					return t.type === "message" && Array.isArray(t.content) && t.content.some((e) => ta(e).type === "output_text" && typeof ta(e).text == "string" && ta(e).text.trim());
+				let e = ra(JSON.parse(Buffer.concat(a).toString("utf8"))), t = Array.isArray(e.output) && e.output.some((e) => {
+					let t = ra(e);
+					return t.type === "message" && Array.isArray(t.content) && t.content.some((e) => ra(e).type === "output_text" && typeof ra(e).text == "string" && ra(e).text.trim());
 				});
 				if (e.status !== "completed" || !t) throw Error("incomplete response");
 			} catch {
@@ -10286,12 +10383,12 @@ async function ia(e, t = {}) {
 		clearTimeout(a), t.signal?.removeEventListener("abort", i), r.removeEventListener("abort", s);
 	}
 }
-var aa = {
+var sa = {
 	runtime: "grok",
-	discover: ra,
-	preflight: ia,
-	createBridge: async (e, t) => $i({
-		...await ra(t, e),
+	discover: aa,
+	preflight: oa,
+	createBridge: async (e, t) => ta({
+		...await aa(t, e),
 		apiUrl: t.apiUrl,
 		stateDir: t.stateDir
 	}, t),
@@ -10300,23 +10397,23 @@ var aa = {
 		model: e.model
 	})
 };
-function oa(e) {
+function ca(e) {
 	if (e === "openclaw") return Gr;
-	if (e === "hermes") return Yi;
-	if (e === "grok") return aa;
+	if (e === "hermes") return Zi;
+	if (e === "grok") return sa;
 	throw new I("RUNTIME_UNSUPPORTED", "Choose OpenClaw, Hermes or Grok");
 }
-var sa = 3e3, ca = /^[A-Za-z0-9._-]{1,64}$/;
-function la(e) {
+var la = 3e3, ua = /^[A-Za-z0-9._-]{1,64}$/;
+function da(e) {
 	return typeof e == "object" && !!e && !Array.isArray(e);
 }
-function ua(e) {
-	if (!la(e) || !Array.isArray(e.keys) || e.keys.length > 32) throw Error("Invalid wake key set");
+function fa(e) {
+	if (!da(e) || !Array.isArray(e.keys) || e.keys.length > 32) throw Error("Invalid wake key set");
 	let t = /* @__PURE__ */ new Map();
 	for (let n of e.keys) {
-		if (!la(n)) throw Error("Invalid wake key set");
+		if (!da(n)) throw Error("Invalid wake key set");
 		if (n.kty === "OKP" && n.crv === "Ed25519" && n.alg === "EdDSA") {
-			if (typeof n.kid != "string" || !ca.test(n.kid) || t.has(n.kid) || n.use !== "sig" || typeof n.status != "string" || ![
+			if (typeof n.kid != "string" || !ua.test(n.kid) || t.has(n.kid) || n.use !== "sig" || typeof n.status != "string" || ![
 				"active",
 				"next",
 				"retired"
@@ -10336,7 +10433,7 @@ function ua(e) {
 	}
 	return t;
 }
-function da(e) {
+function pa(e) {
 	let t = e.get("cache-control") ?? "";
 	if (/(?:^|,)\s*(?:no-store|no-cache)(?:\s|,|$)/i.test(t)) return 0;
 	let n = [...t.matchAll(/(?:^|,)\s*max-age\s*=\s*"?(\d+)"?\s*(?=,|$)/gi)], r = e.get("age") ?? "0";
@@ -10344,7 +10441,7 @@ function da(e) {
 	let i = Number(n[0][1]), a = Number(r);
 	return !Number.isSafeInteger(i) || !Number.isSafeInteger(a) ? 0 : Math.max(0, Math.min(300, i) - a) * 1e3;
 }
-var fa = class {
+var ma = class {
 	url;
 	fetcher;
 	now;
@@ -10376,7 +10473,7 @@ var fa = class {
 		let e = new AbortController(), t = this.now(), n, r, i = new Promise((t, r) => {
 			n = setTimeout(() => {
 				e.abort(), r(/* @__PURE__ */ Error("Wake key fetch timed out"));
-			}, sa);
+			}, la);
 		}), a = async () => {
 			let n = await this.fetcher(this.url, {
 				method: "GET",
@@ -10400,8 +10497,8 @@ var fa = class {
 			}
 			let s = new TextDecoder("utf-8", { fatal: !0 }).decode(Buffer.concat(a));
 			return {
-				keys: ua(JSON.parse(s)),
-				expiresAt: t + da(n.headers)
+				keys: fa(JSON.parse(s)),
+				expiresAt: t + pa(n.headers)
 			};
 		};
 		try {
@@ -10413,16 +10510,16 @@ var fa = class {
 			clearTimeout(n), e.abort(), r?.cancel().catch(() => {});
 		}
 	}
-}, pa = /^wake_evt_[A-Za-z0-9_-]{16,64}$/, ma = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, ha = /^[A-Za-z0-9._-]{1,64}$/, ga = /* @__PURE__ */ new Set([
+}, ha = /^wake_evt_[A-Za-z0-9_-]{16,64}$/, ga = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, _a = /^[A-Za-z0-9._-]{1,64}$/, va = /* @__PURE__ */ new Set([
 	"wake.challenge",
 	"wake.work_available",
 	"wake.control_changed"
 ]);
-function _a(e) {
+function ya(e) {
 	return typeof e == "object" && !!e && !Array.isArray(e);
 }
-function va(e) {
-	if (!_a(e) || e.version !== 1 || typeof e.type != "string" || !e.type.length || typeof e.id != "string" || !pa.test(e.id) || typeof e.subscriptionId != "string" || !ma.test(e.subscriptionId)) return;
+function ba(e) {
+	if (!ya(e) || e.version !== 1 || typeof e.type != "string" || !e.type.length || typeof e.id != "string" || !ha.test(e.id) || typeof e.subscriptionId != "string" || !ga.test(e.subscriptionId)) return;
 	let t = {
 		version: 1,
 		type: e.type,
@@ -10433,10 +10530,10 @@ function va(e) {
 	for (let n of ["createdAt", "expiresAt"]) typeof e[n] == "string" && Number.isFinite(Date.parse(e[n])) && (t[n] = e[n]);
 	return typeof e.challenge == "string" && /^envoi_wake_challenge_[A-Za-z0-9_-]{43}$/.test(e.challenge) && Buffer.from(e.challenge.slice(21), "base64url").toString("base64url") === e.challenge.slice(21) && (t.challenge = e.challenge), t;
 }
-function ya(e) {
-	return ga.has(e.type) && (e.type !== "wake.challenge" || !!e.challenge && !!e.expiresAt);
+function xa(e) {
+	return va.has(e.type) && (e.type !== "wake.challenge" || !!e.challenge && !!e.expiresAt);
 }
-function ba(e) {
+function Sa(e) {
 	try {
 		let t = new URL(e);
 		return e.length <= 2048 && t.protocol === "https:" && t.href === e && !t.username && !t.password && !e.includes("?") && !e.includes("#") && !/[\r\n]/.test(e) && (!t.port || t.port === "443");
@@ -10444,27 +10541,27 @@ function ba(e) {
 		return !1;
 	}
 }
-function xa(e) {
-	if (!_a(e) || e.version !== 1 || !_a(e.subscriptions) || !_a(e.accepted) || !_a(e.endedReasons) || Object.keys(e).some((e) => ![
+function Ca(e) {
+	if (!ya(e) || e.version !== 1 || !ya(e.subscriptions) || !ya(e.accepted) || !ya(e.endedReasons) || Object.keys(e).some((e) => ![
 		"version",
 		"subscriptions",
 		"accepted",
 		"endedReasons"
-	].includes(e)) || Object.keys(e.subscriptions).length > 64 || Object.keys(e.accepted).length > 4096 || Object.keys(e.endedReasons).length > 64 || !Object.entries(e.subscriptions).every(([e, t]) => ma.test(e) && _a(t) && typeof t.url == "string" && ba(t.url) && (t.status === "pending" || t.status === "active") && Object.keys(t).every((e) => [
+	].includes(e)) || Object.keys(e.subscriptions).length > 64 || Object.keys(e.accepted).length > 4096 || Object.keys(e.endedReasons).length > 64 || !Object.entries(e.subscriptions).every(([e, t]) => ga.test(e) && ya(t) && typeof t.url == "string" && Sa(t.url) && (t.status === "pending" || t.status === "active") && Object.keys(t).every((e) => [
 		"url",
 		"status",
 		"installationId"
 	].includes(e)) && typeof t.installationId == "string" && /^installation_[A-Za-z0-9_-]{3,128}$/.test(t.installationId))) return !1;
 	let t = 0;
 	for (let [n, r] of Object.entries(e.accepted)) {
-		if (!pa.test(n) || !_a(r) || typeof r.pending != "boolean" || typeof r.acknowledged != "boolean" || typeof r.receivedAt != "number" || !Number.isSafeInteger(r.receivedAt) || r.receivedAt < 0 || typeof r.expiresAt != "number" || !Number.isSafeInteger(r.expiresAt) || r.expiresAt < r.receivedAt + 39e5 || !_a(r.notification) || !va(r.notification) || r.notification.id !== n || Object.keys(r).some((e) => ![
+		if (!ha.test(n) || !ya(r) || typeof r.pending != "boolean" || typeof r.acknowledged != "boolean" || typeof r.receivedAt != "number" || !Number.isSafeInteger(r.receivedAt) || r.receivedAt < 0 || typeof r.expiresAt != "number" || !Number.isSafeInteger(r.expiresAt) || r.expiresAt < r.receivedAt + 39e5 || !ya(r.notification) || !ba(r.notification) || r.notification.id !== n || Object.keys(r).some((e) => ![
 			"receivedAt",
 			"expiresAt",
 			"notification",
 			"pending",
 			"acknowledged"
 		].includes(e))) return !1;
-		let e = va(r.notification);
+		let e = ba(r.notification);
 		if (Object.entries(r.notification).some(([t, n]) => !Object.hasOwn(e, t) || e[t] !== n) || Buffer.byteLength(JSON.stringify(e)) > 1024) return !1;
 		r.pending && t++;
 	}
@@ -10481,7 +10578,7 @@ function xa(e) {
 		"feature_disabled"
 	].includes(t)) && Buffer.byteLength(JSON.stringify(e)) <= 4194304;
 }
-function Sa(e) {
+function wa(e) {
 	let t = Object.create(null), n = 0, r = Object.entries(e.headers);
 	if (!(r.length > 64)) {
 		for (let [e, i] of r) if (i !== void 0) {
@@ -10491,23 +10588,23 @@ function Sa(e) {
 		return t;
 	}
 }
-var Ca = class {
+var Ta = class {
 	registeredUrl;
 	store;
 	keys;
 	now;
 	inFlight = 0;
 	constructor(e) {
-		if (typeof e.registeredUrl != "string" || !ba(e.registeredUrl)) throw Error("Wake receiver requires its registered canonical HTTPS URL");
+		if (typeof e.registeredUrl != "string" || !Sa(e.registeredUrl)) throw Error("Wake receiver requires its registered canonical HTTPS URL");
 		if (!e.store || typeof e.store.read != "function" || typeof e.store.update != "function" || e.now !== void 0 && typeof e.now != "function") throw Error("Invalid wake receiver configuration");
-		this.registeredUrl = e.registeredUrl, this.store = e.store, this.keys = new fa(e), this.now = e.now ?? Date.now;
+		this.registeredUrl = e.registeredUrl, this.store = e.store, this.keys = new ma(e), this.now = e.now ?? Date.now;
 	}
 	async receive(e) {
 		let t = (e) => ({
 			status: e,
 			headers: {}
-		}), n = Sa(e), r = n?.["envoi-wake-signature"]?.split(" ").filter((e) => e.startsWith("v1=")) ?? [], i = r[0]?.slice(3) ?? "";
-		if (e.method !== "POST" || !(e.body instanceof Uint8Array) || e.body.byteLength > 1024 || !n || !/^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?\s*$/i.test(n["content-type"] ?? "") || !pa.test(n["envoi-wake-id"] ?? "") || !ha.test(n["envoi-wake-key-id"] ?? "") || !/^[1-9][0-9]{0,11}$/.test(n["envoi-wake-timestamp"] ?? "") || !Number.isSafeInteger(Number(n["envoi-wake-timestamp"])) || r.length !== 1 || !/^[A-Za-z0-9_-]{86}$/.test(i) || Buffer.from(i, "base64url").toString("base64url") !== i) return t(400);
+		}), n = wa(e), r = n?.["envoi-wake-signature"]?.split(" ").filter((e) => e.startsWith("v1=")) ?? [], i = r[0]?.slice(3) ?? "";
+		if (e.method !== "POST" || !(e.body instanceof Uint8Array) || e.body.byteLength > 1024 || !n || !/^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?\s*$/i.test(n["content-type"] ?? "") || !ha.test(n["envoi-wake-id"] ?? "") || !_a.test(n["envoi-wake-key-id"] ?? "") || !/^[1-9][0-9]{0,11}$/.test(n["envoi-wake-timestamp"] ?? "") || !Number.isSafeInteger(Number(n["envoi-wake-timestamp"])) || r.length !== 1 || !/^[A-Za-z0-9_-]{86}$/.test(i) || Buffer.from(i, "base64url").toString("base64url") !== i) return t(400);
 		if (this.inFlight >= 16) return t(503);
 		let a = Buffer.from(e.body);
 		this.inFlight++;
@@ -10529,11 +10626,11 @@ var Ca = class {
 			} catch {
 				return t(400);
 			}
-			let c = va(s);
+			let c = ba(s);
 			if (!c || c.id !== n["envoi-wake-id"]) return t(400);
 			let l = t(503);
 			return await this.store.update((i) => {
-				if (!xa(i)) throw Error("Invalid wake state");
+				if (!Ca(i)) throw Error("Invalid wake state");
 				let a = Object.hasOwn(i.subscriptions, c.subscriptionId) ? i.subscriptions[c.subscriptionId] : void 0;
 				if (!a || a.url !== this.registeredUrl || i.endedReasons[a.installationId] === "revoked_by_owner") {
 					l = t(c.type === "wake.challenge" ? 503 : 400);
@@ -10543,14 +10640,14 @@ var Ca = class {
 				if (!Number.isSafeInteger(o) || o < r || Math.abs(Number(n["envoi-wake-timestamp"]) * 1e3 - o) > 3e5 || e.notAfter !== void 0 && e.notAfter <= o) return;
 				for (let [e, t] of Object.entries(i.accepted)) (!t.pending || !t.acknowledged) && t.expiresAt <= o && delete i.accepted[e];
 				if (Object.hasOwn(i.accepted, c.id)) {
-					l = ya(i.accepted[c.id].notification) ? {
+					l = xa(i.accepted[c.id].notification) ? {
 						status: 200,
 						headers: {},
 						acceptedId: c.id
 					} : t(200);
 					return;
 				}
-				let s = ya(c);
+				let s = xa(c);
 				if (!(Object.keys(i.accepted).length >= 4096 || s && Object.values(i.accepted).filter((e) => e.pending).length >= 256)) {
 					if (i.accepted[c.id] = {
 						receivedAt: o,
@@ -10576,8 +10673,8 @@ var Ca = class {
 			this.inFlight--;
 		}
 	}
-}, wa = 4194304;
-function Ta() {
+}, Ea = 4194304;
+function Da() {
 	return {
 		version: 1,
 		subscriptions: {},
@@ -10585,10 +10682,10 @@ function Ta() {
 		endedReasons: {}
 	};
 }
-function Ea(e) {
-	if (!xa(e)) throw Error("Invalid private wake state");
+function Oa(e) {
+	if (!Ca(e)) throw Error("Invalid private wake state");
 }
-var Da = class e {
+var ka = class e {
 	directory;
 	release;
 	writes = Promise.resolve();
@@ -10614,16 +10711,16 @@ var Da = class e {
 		let e = await this.filename(), t, r = !1;
 		try {
 			let a = await n(e, { bigint: !0 });
-			if (r = !0, !a.isFile() || a.isSymbolicLink() || a.size > wa) throw Error();
+			if (r = !0, !a.isFile() || a.isSymbolicLink() || a.size > Ea) throw Error();
 			t = await i(e, "r");
 			let o = await t.stat({ bigint: !0 });
-			if (!o.isFile() || o.size > wa || o.ino !== a.ino) throw Error();
+			if (!o.isFile() || o.size > Ea || o.ino !== a.ino) throw Error();
 			if (o.dev !== a.dev) {
 				if (process.platform !== "win32" || a.dev !== 0n || o.dev === 0n || a.ino === 0n) throw Error();
 				let t = await i(e, "r");
 				try {
 					let r = await t.stat({ bigint: !0 }), i = await n(e, { bigint: !0 });
-					if (!r.isFile() || r.size > wa || r.dev !== o.dev || r.ino !== o.ino || !i.isFile() || i.isSymbolicLink() || i.size > wa || i.dev !== a.dev || i.ino !== a.ino || await this.filename() !== e) throw Error();
+					if (!r.isFile() || r.size > Ea || r.dev !== o.dev || r.ino !== o.ino || !i.isFile() || i.isSymbolicLink() || i.size > Ea || i.dev !== a.dev || i.ino !== a.ino || await this.filename() !== e) throw Error();
 				} finally {
 					await t.close();
 				}
@@ -10634,11 +10731,11 @@ var Da = class e {
 				if (!e.bytesRead) break;
 				c += e.bytesRead;
 			}
-			if (c > wa) throw Error();
+			if (c > Ea) throw Error();
 			let l = JSON.parse(s.subarray(0, c).toString("utf8"));
-			return Ea(l), l;
+			return Oa(l), l;
 		} catch (e) {
-			if (!r && e.code === "ENOENT") return Ta();
+			if (!r && e.code === "ENOENT") return Da();
 			throw Error("Private wake state is unreadable");
 		} finally {
 			await t?.close();
@@ -10647,7 +10744,7 @@ var Da = class e {
 	update(e) {
 		let t = this.writes.then(async () => {
 			let t = await this.read();
-			if (e(t), Ea(t), Buffer.byteLength(JSON.stringify(t)) > wa) throw Error("Private wake state is full");
+			if (e(t), Oa(t), Buffer.byteLength(JSON.stringify(t)) > Ea) throw Error("Private wake state is full");
 			await z(await this.filename(), t);
 		});
 		return this.writes = t.catch(() => {}), t;
@@ -10655,7 +10752,7 @@ var Da = class e {
 	async close() {
 		await this.writes, !this.closed && (this.closed = !0, await this.release());
 	}
-}, Oa = (e) => !!e && typeof e == "object" && !Array.isArray(e), ka = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, Aa = /* @__PURE__ */ new Set([
+}, Aa = (e) => !!e && typeof e == "object" && !Array.isArray(e), ja = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, Ma = /* @__PURE__ */ new Set([
 	"superseded",
 	"replaced",
 	"challenge_expired",
@@ -10666,27 +10763,27 @@ var Da = class e {
 	"delivery_failed",
 	"expired",
 	"feature_disabled"
-]), ja = /* @__PURE__ */ new Set([
+]), Na = /* @__PURE__ */ new Set([
 	"challenge_expired",
 	"delivery_failed",
 	"expired",
 	"feature_disabled"
 ]);
-function Ma(e) {
+function Pa(e) {
 	let t = new URL(e);
 	if (t.protocol !== "https:" || t.username || t.password || t.search || t.hash || t.port || e.length > 8192) throw TypeError("A fixed HTTPS wake URL without credentials, query or fragment is required");
 	return t.href;
 }
-function Na(e) {
+function Fa(e) {
 	if (e === null) return null;
-	if (!Oa(e) || typeof e.id != "string" || !ka.test(e.id) || typeof e.status != "string" || ![
+	if (!Aa(e) || typeof e.id != "string" || !ja.test(e.id) || typeof e.status != "string" || ![
 		"pending",
 		"active",
 		"ended"
-	].includes(e.status) || !(e.expiresAt === null || typeof e.expiresAt == "string" && Number.isFinite(Date.parse(e.expiresAt))) || !(e.endedReason === null || typeof e.endedReason == "string" && Aa.has(e.endedReason)) || e.status === "ended" != (e.endedReason !== null) || e.status === "active" && e.expiresAt === null) throw new L("Invalid wake subscription response");
+	].includes(e.status) || !(e.expiresAt === null || typeof e.expiresAt == "string" && Number.isFinite(Date.parse(e.expiresAt))) || !(e.endedReason === null || typeof e.endedReason == "string" && Ma.has(e.endedReason)) || e.status === "ended" != (e.endedReason !== null) || e.status === "active" && e.expiresAt === null) throw new L("Invalid wake subscription response");
 	return e;
 }
-var Pa = class {
+var Ia = class {
 	identity;
 	connector;
 	constructor(e, t, n) {
@@ -10710,48 +10807,48 @@ var Pa = class {
 		}
 	}
 	subscription(e) {
-		if (!Oa(e) || !Oa(e.subscription)) throw new L("Invalid wake subscription response");
+		if (!Aa(e) || !Aa(e.subscription)) throw new L("Invalid wake subscription response");
 		let t = e.subscription;
-		if (Na(t), t.installationId !== this.identity.installationId || t.agentId !== this.identity.agentId || typeof t.url != "string" || Ma(t.url) !== t.url || !(t.replacesSubscriptionId === null || typeof t.replacesSubscriptionId == "string" && ka.test(t.replacesSubscriptionId))) throw new L("Wake subscription identity changed");
+		if (Fa(t), t.installationId !== this.identity.installationId || t.agentId !== this.identity.agentId || typeof t.url != "string" || Pa(t.url) !== t.url || !(t.replacesSubscriptionId === null || typeof t.replacesSubscriptionId == "string" && ja.test(t.replacesSubscriptionId))) throw new L("Wake subscription identity changed");
 		return t;
 	}
 	async status(e) {
 		let t = await this.request("/api/agent/status", void 0, e);
-		if (!Oa(t) || typeof t.state != "string" || !["active", "paused"].includes(t.state) || t.inboxId !== this.identity.inboxId || !Oa(t.agent) || t.agent.id !== this.identity.agentId || !Oa(t.installation) || t.installation.id !== this.identity.installationId) throw new L("Wake host identity changed");
+		if (!Aa(t) || typeof t.state != "string" || !["active", "paused"].includes(t.state) || t.inboxId !== this.identity.inboxId || !Aa(t.agent) || t.agent.id !== this.identity.agentId || !Aa(t.installation) || t.installation.id !== this.identity.installationId) throw new L("Wake host identity changed");
 		if (t.httpWake === void 0) return {
 			paused: t.state === "paused",
 			wake: null
 		};
 		let n = t.httpWake;
-		if (!Oa(n) || typeof n.available != "boolean" || n.version !== 1 || !Oa(t.installation) || t.installation.id !== this.identity.installationId) throw new L("Invalid wake availability response");
+		if (!Aa(n) || typeof n.available != "boolean" || n.version !== 1 || !Aa(t.installation) || t.installation.id !== this.identity.installationId) throw new L("Invalid wake availability response");
 		return {
 			paused: t.state === "paused",
 			wake: {
 				available: n.available,
 				version: 1,
-				subscription: Na(n.subscription)
+				subscription: Fa(n.subscription)
 			}
 		};
 	}
 	async create(e, t) {
-		return this.subscription(await this.request("/api/agent/wake-subscriptions", { url: Ma(e) }, t));
+		return this.subscription(await this.request("/api/agent/wake-subscriptions", { url: Pa(e) }, t));
 	}
 	async activate(e, t, n) {
-		if (!ka.test(e) || !/^envoi_wake_challenge_[A-Za-z0-9_-]{43}$/.test(t)) throw TypeError("Invalid wake activation");
+		if (!ja.test(e) || !/^envoi_wake_challenge_[A-Za-z0-9_-]{43}$/.test(t)) throw TypeError("Invalid wake activation");
 		return this.subscription(await this.request(`/api/agent/wake-subscriptions/${encodeURIComponent(e)}/activate`, { challenge: t }, n));
 	}
 	async list(e) {
 		let t = await this.request("/api/agent/wake-subscriptions", void 0, e);
-		if (!Oa(t) || t.installationId !== this.identity.installationId || !Array.isArray(t.subscriptions)) throw new L("Invalid wake subscription list");
+		if (!Aa(t) || t.installationId !== this.identity.installationId || !Array.isArray(t.subscriptions)) throw new L("Invalid wake subscription list");
 		let n = t.subscriptions.map((e) => this.subscription({ subscription: e }));
 		if (new Set(n.map((e) => e.id)).size !== n.length || n.filter((e) => e.status === "active").length > 1 || n.filter((e) => e.status === "pending").length > 1) throw new L("Inconsistent wake subscription list");
 		return n;
 	}
 	async end(e, t) {
-		if (!ka.test(e)) throw TypeError("Invalid wake subscription");
+		if (!ja.test(e)) throw TypeError("Invalid wake subscription");
 		return this.subscription(await this.request(`/api/agent/wake-subscriptions/${encodeURIComponent(e)}/end`, {}, t));
 	}
-}, Fa = class {
+}, La = class {
 	transport;
 	store;
 	driver;
@@ -10767,7 +10864,7 @@ var Pa = class {
 	subscriptionRetryAt = 0;
 	url;
 	constructor(e, t, n, r, i = Date.now) {
-		this.transport = e, this.store = t, this.driver = n, this.now = i, this.url = Ma(r);
+		this.transport = e, this.store = t, this.driver = n, this.now = i, this.url = Pa(r);
 	}
 	async disableWake() {
 		this.wakeAvailable = !1, await this.store.update((e) => {
@@ -10828,7 +10925,7 @@ var Pa = class {
 			if ((await this.store.read()).endedReasons[this.transport.identity.installationId] === "revoked_by_owner") return;
 			for (let e of a) e.url === this.url && (e.status !== "ended" || e.id === r?.id) && await this.remember(e);
 			let o = a.some((e) => e.url === this.url && e.status === "pending"), s = a.find((e) => e.status === "active"), c = (await this.store.read()).endedReasons[this.transport.identity.installationId];
-			if (t !== this.generation || o || c && !ja.has(c) || s && (s.url !== this.url || s.expiresAt && Date.parse(s.expiresAt) > this.now() + 6048e5) || this.now() < this.subscriptionRetryAt) return;
+			if (t !== this.generation || o || c && !Na.has(c) || s && (s.url !== this.url || s.expiresAt && Date.parse(s.expiresAt) > this.now() + 6048e5) || this.now() < this.subscriptionRetryAt) return;
 			e?.throwIfAborted();
 			let l = await this.transport.create(this.url, e);
 			if (t === this.generation) {
@@ -10905,7 +11002,7 @@ var Pa = class {
 					await this.disableWake();
 					return;
 				}
-				if (t instanceof L && t.code === "WAKE_SUBSCRIPTION_ENDED" && t.reason && Aa.has(t.reason)) {
+				if (t instanceof L && t.code === "WAKE_SUBSCRIPTION_ENDED" && t.reason && Ma.has(t.reason)) {
 					await this.store.update((n) => {
 						delete n.subscriptions[e.subscriptionId], n.endedReasons[this.transport.identity.installationId] !== "revoked_by_owner" && (n.endedReasons[this.transport.identity.installationId] = t.reason);
 					});
@@ -10980,12 +11077,12 @@ var Pa = class {
 		}
 	}
 };
-function Ia(e) {
+function Ra(e) {
 	if (!(e.connector instanceof or)) throw TypeError("An EnvoiConnector instance is required");
 	let t = e.connector.scopedWakeWorkDriver();
-	return new Fa(new Pa(e.origin, e.identity, e.connector), e.store, t, e.registeredUrl);
+	return new La(new Ia(e.origin, e.identity, e.connector), e.store, t, e.registeredUrl);
 }
-function La(e) {
+function za(e) {
 	if (!e.path.startsWith("/") || e.path.includes("?") || e.path.includes("#") || /[\r\n]/.test(e.path)) throw TypeError("A fixed receiver path is required");
 	return (t, n) => {
 		let r = (e) => {
@@ -11049,7 +11146,7 @@ function La(e) {
 		});
 	};
 }
-function Ra(e) {
+function Ba(e) {
 	let t = [
 		"ENVOI_WAKE_URL",
 		"ENVOI_WAKE_PORT",
@@ -11069,12 +11166,12 @@ function Ra(e) {
 		installationId: a
 	};
 }
-async function za(e) {
+async function Va(e) {
 	let { connector: t, session: n, stateDir: r, config: i, signal: a } = e;
 	if (!d.isAbsolute(r) || !/^agent_[A-Za-z0-9_-]{3,128}$/.test(n.agentId) || !/^inbox_[A-Za-z0-9_-]{3,128}$/.test(n.inboxId)) throw Error("Hosted wake needs an enrolled private scoped connector");
-	let o = await Da.open(d.join(r, "wake"));
+	let o = await ka.open(d.join(r, "wake"));
 	try {
-		let r = Ia({
+		let r = Ra({
 			connector: t,
 			store: o,
 			origin: t.wakeOrigin,
@@ -11084,11 +11181,11 @@ async function za(e) {
 				installationId: i.installationId
 			},
 			registeredUrl: i.registeredUrl
-		}), s = new Ca({
+		}), s = new Ta({
 			origin: t.wakeOrigin,
 			registeredUrl: i.registeredUrl,
 			store: o
-		}), c = new URL(i.registeredUrl), l = T(La({
+		}), c = new URL(i.registeredUrl), l = T(za({
 			path: c.pathname,
 			receiver: s,
 			host: r,
@@ -11109,47 +11206,47 @@ async function za(e) {
 		await o.close();
 	}
 }
-var Ba = (e) => d.join(e, "hosted-wake.json"), Va = () => /* @__PURE__ */ Error("Saved hosted wake configuration is invalid; stop the connector and configure wake again");
-async function Ha(e) {
-	let t = Ba(e), r = await n(t).catch((e) => {
+var Ha = (e) => d.join(e, "hosted-wake.json"), Ua = () => /* @__PURE__ */ Error("Saved hosted wake configuration is invalid; stop the connector and configure wake again");
+async function Wa(e) {
+	let t = Ha(e), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
 	});
 	if (!r) return null;
-	if (!r.isFile() || r.isSymbolicLink() || r.size > 4096 || process.platform !== "win32" && r.mode & 63) throw Va();
+	if (!r.isFile() || r.isSymbolicLink() || r.size > 4096 || process.platform !== "win32" && r.mode & 63) throw Ua();
 	let i;
 	try {
 		i = JSON.parse(await a(t, "utf8"));
 	} catch {
-		throw Va();
+		throw Ua();
 	}
-	if (!i || typeof i != "object" || Array.isArray(i)) throw Va();
+	if (!i || typeof i != "object" || Array.isArray(i)) throw Ua();
 	let o = i;
-	if (o.version !== 1 || typeof o.registeredUrl != "string" || typeof o.port != "number" || typeof o.installationId != "string" || Object.keys(o).sort().join(",") !== "installationId,port,registeredUrl,version") throw Va();
+	if (o.version !== 1 || typeof o.registeredUrl != "string" || typeof o.port != "number" || typeof o.installationId != "string" || Object.keys(o).sort().join(",") !== "installationId,port,registeredUrl,version") throw Ua();
 	let s;
 	try {
-		s = Ra({
+		s = Ba({
 			ENVOI_WAKE_URL: o.registeredUrl,
 			ENVOI_WAKE_PORT: String(o.port),
 			ENVOI_WAKE_INSTALLATION_ID: o.installationId
 		});
 	} catch {
-		throw Va();
+		throw Ua();
 	}
-	if (!s || s.port !== o.port) throw Va();
+	if (!s || s.port !== o.port) throw Ua();
 	return s;
 }
-async function Ua(e, t) {
-	let n = Ra(t), r = await Ha(e);
+async function Ga(e, t) {
+	let n = Ba(t), r = await Wa(e);
 	if (n && r && (n.registeredUrl !== r.registeredUrl || n.port !== r.port || n.installationId !== r.installationId)) throw Error("Hosted wake environment differs from saved configuration; stop the connector and configure wake again");
 	return n ?? r;
 }
-async function Wa(e, t = process.env, n = be) {
-	let r = Ra(t), i = await n(e), a = await B(i);
+async function Ka(e, t = process.env, n = be) {
+	let r = Ba(t), i = await n(e), a = await B(i);
 	try {
-		let e = await Ha(i);
+		let e = await Wa(i);
 		if (r && e && (r.registeredUrl !== e.registeredUrl || r.port !== e.port || r.installationId !== e.installationId)) throw Error("Hosted wake environment differs from saved configuration; use configure-wake to rotate it");
-		r && !e && await z(Ba(i), {
+		r && !e && await z(Ha(i), {
 			version: 1,
 			...r
 		});
@@ -11157,12 +11254,12 @@ async function Wa(e, t = process.env, n = be) {
 		await a();
 	}
 }
-async function Ga(e, t = process.env, n = be) {
-	let r = Ra(t);
+async function qa(e, t = process.env, n = be) {
+	let r = Ba(t);
 	if (!r) throw Error("Set ENVOI_WAKE_URL, ENVOI_WAKE_PORT and ENVOI_WAKE_INSTALLATION_ID together");
 	let i = await n(e), a = await B(i);
 	try {
-		await z(Ba(i), {
+		await z(Ha(i), {
 			version: 1,
 			...r
 		});
@@ -11170,16 +11267,16 @@ async function Ga(e, t = process.env, n = be) {
 		await a();
 	}
 }
-async function Ka(e, t = be) {
+async function Ja(e, t = be) {
 	let n = await t(e), r = await B(n);
 	try {
-		await l(Ba(n), { force: !0 });
+		await l(Ha(n), { force: !0 });
 	} finally {
 		await r();
 	}
 }
-var qa = _(g), Ja = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), Ya = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, Xa = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
-function Za(e, t = {}) {
+var Ya = _(g), Xa = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), Za = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, Qa = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
+function $a(e, t = {}) {
 	if (t.runtime && !oe.includes(t.runtime)) throw new R("Unsupported startup runtime");
 	let n = t.platform ?? process.platform, r = t.home ?? h(), i = t.node ?? process.execPath;
 	if ([
@@ -11197,7 +11294,7 @@ function Za(e, t = {}) {
 	if (n === "linux") return {
 		name: o,
 		filename: d.join(r, ".config", "systemd", "user", `${o}.service`),
-		contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[i, ...s].map(Ya).join(" ")}\nWorkingDirectory=${Ya(e)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`,
+		contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[i, ...s].map(Za).join(" ")}\nWorkingDirectory=${Za(e)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`,
 		commands: [{
 			executable: "systemctl",
 			args: ["--user", "daemon-reload"]
@@ -11216,7 +11313,7 @@ function Za(e, t = {}) {
 		return {
 			name: t,
 			filename: n,
-			contents: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${t}</string><key>ProgramArguments</key><array>${[i, ...s].map((e) => `<string>${Ja(e)}</string>`).join("")}</array><key>WorkingDirectory</key><string>${Ja(e)}</string><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${Ja(d.join(e, "service.log"))}</string><key>StandardErrorPath</key><string>${Ja(d.join(e, "service.log"))}</string></dict></plist>\n`,
+			contents: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${t}</string><key>ProgramArguments</key><array>${[i, ...s].map((e) => `<string>${Xa(e)}</string>`).join("")}</array><key>WorkingDirectory</key><string>${Xa(e)}</string><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${Xa(d.join(e, "service.log"))}</string><key>StandardErrorPath</key><string>${Xa(d.join(e, "service.log"))}</string></dict></plist>\n`,
 			commands: [{
 				executable: "launchctl",
 				args: [
@@ -11233,7 +11330,7 @@ function Za(e, t = {}) {
 		return {
 			name: o,
 			filename: n,
-			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${Ja(t.user)}</UserId></LogonTrigger></Triggers><Principals><Principal id="Author"><UserId>${Ja(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${Ja(i)}</Command><Arguments>${Ja(s.map(Xa).join(" "))}</Arguments><WorkingDirectory>${Ja(e)}</WorkingDirectory></Exec></Actions></Task>`,
+			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${Xa(t.user)}</UserId></LogonTrigger></Triggers><Principals><Principal id="Author"><UserId>${Xa(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${Xa(i)}</Command><Arguments>${Xa(s.map(Qa).join(" "))}</Arguments><WorkingDirectory>${Xa(e)}</WorkingDirectory></Exec></Actions></Task>`,
 			commands: [{
 				executable: _e("schtasks.exe", t.env),
 				args: [
@@ -11256,11 +11353,11 @@ function Za(e, t = {}) {
 	}
 	throw new R("Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor");
 }
-async function Qa() {
+async function eo() {
 	try {
-		if (process.platform === "linux") await qa("systemctl", ["--user", "show-environment"], { timeout: 1e4 });
-		else if (process.platform === "darwin") await qa("launchctl", ["list"], { timeout: 1e4 });
-		else if (process.platform === "win32") await qa(_e("schtasks.exe"), [
+		if (process.platform === "linux") await Ya("systemctl", ["--user", "show-environment"], { timeout: 1e4 });
+		else if (process.platform === "darwin") await Ya("launchctl", ["list"], { timeout: 1e4 });
+		else if (process.platform === "win32") await Ya(_e("schtasks.exe"), [
 			"/Query",
 			"/FO",
 			"CSV",
@@ -11274,11 +11371,11 @@ async function Qa() {
 		throw new R("A user startup service is unavailable. Run setup without --install-service and use your host process supervisor to run the printed start command");
 	}
 }
-async function $a(e, t = "openclaw") {
-	await Qa(), await Wa(e);
+async function to(e, t = "openclaw") {
+	await eo(), await Ka(e);
 	let n;
 	process.platform === "win32" && (n = await ve());
-	let i = Za(e, {
+	let i = $a(e, {
 		user: n,
 		runtime: t
 	});
@@ -11287,7 +11384,7 @@ async function $a(e, t = "openclaw") {
 		mode: 448
 	}), await u(i.filename, process.platform === "win32" ? Buffer.from(`\uFEFF${i.contents}`, "utf16le") : i.contents, { mode: 384 });
 	try {
-		for (let e of i.commands) await qa(e.executable, e.args, {
+		for (let e of i.commands) await Ya(e.executable, e.args, {
 			timeout: 2e4,
 			windowsHide: !0
 		});
@@ -11296,26 +11393,26 @@ async function $a(e, t = "openclaw") {
 	}
 	return i.name;
 }
-async function eo(e, t) {
+async function no(e, t) {
 	let r;
 	process.platform === "win32" && (r = await ve());
-	let i = Za(d.resolve(e), {
+	let i = $a(d.resolve(e), {
 		user: r,
 		runtime: t
 	});
 	return await n(i.filename).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
-	}) && (process.platform === "linux" ? (await qa("systemctl", [
+	}) && (process.platform === "linux" ? (await Ya("systemctl", [
 		"--user",
 		"disable",
 		"--now",
 		`${i.name}.service`
-	], { timeout: 2e4 }), await l(i.filename, { force: !0 }), await qa("systemctl", ["--user", "daemon-reload"], { timeout: 2e4 })) : process.platform === "darwin" ? (await qa("launchctl", [
+	], { timeout: 2e4 }), await l(i.filename, { force: !0 }), await Ya("systemctl", ["--user", "daemon-reload"], { timeout: 2e4 })) : process.platform === "darwin" ? (await Ya("launchctl", [
 		"unload",
 		"-w",
 		i.filename
-	], { timeout: 2e4 }), await l(i.filename, { force: !0 })) : process.platform === "win32" && (await qa(_e("schtasks.exe"), [
+	], { timeout: 2e4 }), await l(i.filename, { force: !0 })) : process.platform === "win32" && (await Ya(_e("schtasks.exe"), [
 		"/Change",
 		"/TN",
 		i.name,
@@ -11323,7 +11420,7 @@ async function eo(e, t) {
 	], {
 		timeout: 2e4,
 		windowsHide: !0
-	}), await qa(_e("schtasks.exe"), [
+	}), await Ya(_e("schtasks.exe"), [
 		"/Delete",
 		"/TN",
 		i.name,
@@ -11338,43 +11435,43 @@ var $ = class extends Error {
 	constructor(e) {
 		super(e), this.code = e, this.name = "HostTaskError";
 	}
-}, to = (e) => typeof e == "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(e);
-function no(e) {
+}, ro = (e) => typeof e == "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(e);
+function io(e) {
 	if (!e || typeof e != "object" || Array.isArray(e)) throw new $("TASK_INVALID");
 	let t = e;
 	if (Object.keys(t).some((e) => ![
 		"requestId",
 		"recipientAddress",
 		"text"
-	].includes(e)) || !to(t.requestId) || typeof t.recipientAddress != "string" || t.recipientAddress.length > 254 || !/^[a-z0-9][a-z0-9._+-]*@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(t.recipientAddress) || typeof t.text != "string" || !t.text.trim() || Buffer.byteLength(t.text, "utf8") > 15e3 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(t.text)) throw new $("TASK_INVALID");
+	].includes(e)) || !ro(t.requestId) || typeof t.recipientAddress != "string" || t.recipientAddress.length > 254 || !/^[a-z0-9][a-z0-9._+-]*@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(t.recipientAddress) || typeof t.text != "string" || !t.text.trim() || Buffer.byteLength(t.text, "utf8") > 15e3 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(t.text)) throw new $("TASK_INVALID");
 	return {
 		requestId: t.requestId,
 		recipientAddress: t.recipientAddress,
 		text: t.text
 	};
 }
-var ro = (e, t) => e?.apiUrl === t.apiUrl && e?.runtime === t.runtime && e?.address === t.address, io = (e, t) => d.join(e, `host-task-${t}.json`), ao = (e, t) => `case_${v("sha256").update(JSON.stringify([
+var ao = (e, t) => e?.apiUrl === t.apiUrl && e?.runtime === t.runtime && e?.address === t.address, oo = (e, t) => d.join(e, `host-task-${t}.json`), so = (e, t) => `case_${v("sha256").update(JSON.stringify([
 	e.apiUrl,
 	e.address,
 	t
 ])).digest("hex").slice(0, 32)}`;
-async function oo(e, t, r) {
-	if (!to(r)) throw new $("TASK_INVALID");
-	let i = io(e, r), o = await n(i).catch((e) => {
+async function co(e, t, r) {
+	if (!ro(r)) throw new $("TASK_INVALID");
+	let i = oo(e, r), o = await n(i).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
 	});
 	if (!o) return null;
 	if (!o.isFile() || o.isSymbolicLink() || o.size > 1e5) throw new $("TASK_STATE_INVALID");
 	try {
-		let e = JSON.parse(await a(i, "utf8")), n = no(e.request);
-		if (e.version !== 1 || !ro(e.identity, t) || n.requestId !== r || e.caseId !== ao(t, r) || !["prepared", "accepted"].includes(e.state) || e.state === "accepted" && (typeof e.messageId != "string" || !/^msg_[a-zA-Z0-9_-]{1,128}$/.test(e.messageId))) throw Error();
+		let e = JSON.parse(await a(i, "utf8")), n = io(e.request);
+		if (e.version !== 1 || !ao(e.identity, t) || n.requestId !== r || e.caseId !== so(t, r) || !["prepared", "accepted"].includes(e.state) || e.state === "accepted" && (typeof e.messageId != "string" || !/^msg_[a-zA-Z0-9_-]{1,128}$/.test(e.messageId))) throw Error();
 		return e;
 	} catch {
 		throw new $("TASK_STATE_INVALID");
 	}
 }
-function so(e, t, n, r = z) {
+function lo(e, t, n, r = z) {
 	t = {
 		apiUrl: t.apiUrl,
 		runtime: t.runtime,
@@ -11388,7 +11485,7 @@ function so(e, t, n, r = z) {
 		replayed: n
 	});
 	return async (o) => {
-		let s = no(o);
+		let s = io(o);
 		if (s.recipientAddress === t.address) throw new $("TASK_SELF_RECIPIENT");
 		let c = JSON.stringify(s), l = i.get(s.requestId);
 		if (l) {
@@ -11396,7 +11493,7 @@ function so(e, t, n, r = z) {
 			return l.promise;
 		}
 		let u = (async () => {
-			let i = await oo(e, t, s.requestId);
+			let i = await co(e, t, s.requestId);
 			if (i && JSON.stringify(i.request) !== c) throw new $("TASK_IDEMPOTENCY_CONFLICT");
 			if (i?.state === "accepted") return a(i, !0);
 			let o = n();
@@ -11404,9 +11501,9 @@ function so(e, t, n, r = z) {
 				version: 1,
 				identity: { ...t },
 				request: s,
-				caseId: ao(t, s.requestId),
+				caseId: so(t, s.requestId),
 				state: "prepared"
-			}, await r(io(e, s.requestId), i));
+			}, await r(oo(e, s.requestId), i));
 			let l = await o.startCase(`host-task:${s.requestId}`, {
 				caseId: i.caseId,
 				recipientEmail: s.recipientAddress,
@@ -11420,7 +11517,7 @@ function so(e, t, n, r = z) {
 				...i,
 				state: "accepted",
 				messageId: u.id
-			}, await r(io(e, s.requestId), i), a(i, !1);
+			}, await r(oo(e, s.requestId), i), a(i, !1);
 		})();
 		i.set(s.requestId, {
 			fingerprint: c,
@@ -11433,7 +11530,7 @@ function so(e, t, n, r = z) {
 		}
 	};
 }
-async function co(e, t, n, r = () => ({ status: "running" }), i) {
+async function uo(e, t, n, r = () => ({ status: "running" }), i) {
 	let o = b(32).toString("base64url"), s = (/* @__PURE__ */ new Date()).toISOString(), c = d.join(e, "control.json"), u = T(async (e, a) => {
 		let c = u.address(), l = c && typeof c == "object" ? `127.0.0.1:${c.port}` : "", d = Buffer.from(e.headers.authorization || ""), f = Buffer.from(`Bearer ${o}`);
 		if (e.headers.host !== l || e.headers.origin || d.length !== f.length || !S(d, f)) {
@@ -11474,7 +11571,7 @@ async function co(e, t, n, r = () => ({ status: "running" }), i) {
 				} catch {
 					throw new $("TASK_INVALID");
 				}
-				let o = await i(no(r));
+				let o = await i(io(r));
 				a.writeHead(200), a.end(JSON.stringify(o));
 			} catch (e) {
 				let t = e instanceof $ ? e.code : "TASK_SEND_UNCERTAIN";
@@ -11502,7 +11599,7 @@ async function co(e, t, n, r = () => ({ status: "running" }), i) {
 		u.closeAllConnections(), await new Promise((e) => u.close(() => e())), (await a(c, "utf8").then((e) => JSON.parse(e)).catch(() => null))?.secret === o && await l(c, { force: !0 });
 	} };
 }
-async function lo(e) {
+async function fo(e) {
 	let t = d.join(e, "control.json"), r = await n(t);
 	if (!r.isFile() || r.isSymbolicLink() || r.size > 2048) throw new I("CONTROL_INVALID", "Invalid connector control file");
 	let i;
@@ -11514,8 +11611,8 @@ async function lo(e) {
 	if (!i || typeof i != "object" || Array.isArray(i) || i.version !== 1 || !Number.isInteger(i.port) || i.port < 1 || i.port > 65535 || typeof i.secret != "string" || !/^[A-Za-z0-9_-]{43}$/.test(i.secret)) throw new I("CONTROL_INVALID", "Invalid connector control file");
 	return i;
 }
-async function uo(e, t) {
-	let n = await lo(e), r = await fetch(`http://127.0.0.1:${n.port}/${t}`, {
+async function po(e, t) {
+	let n = await fo(e), r = await fetch(`http://127.0.0.1:${n.port}/${t}`, {
 		method: t === "stop" ? "POST" : "GET",
 		redirect: "error",
 		headers: { authorization: `Bearer ${n.secret}` },
@@ -11524,7 +11621,7 @@ async function uo(e, t) {
 	if (!r.ok) throw new I("CONNECTOR_UNREACHABLE", "The connector is not responding to local management");
 	return await r.json();
 }
-var fo = [
+var mo = [
 	"ENROLLMENT_HTTP_ERROR",
 	"ENROLLMENT_TOKEN_REJECTED",
 	"ENROLLMENT_RUNTIME_MISMATCH",
@@ -11537,7 +11634,7 @@ var fo = [
 	"ENROLLMENT_RESPONSE_INVALID",
 	"ENROLLMENT_PERSISTENCE_FAILED",
 	"ENROLLMENT_UNCERTAIN"
-], po = {
+], ho = {
 	ENROLLMENT_TOKEN_REJECTED: "The token was rejected as invalid, expired, or already used.",
 	ENROLLMENT_RUNTIME_MISMATCH: "The selected runtime does not match the enrollment token.",
 	ENROLLMENT_OWNER_INVALID: "The issuing workspace owner could not be authorized. Check workspace membership.",
@@ -11549,21 +11646,21 @@ var fo = [
 	ENROLLMENT_RESPONSE_INVALID: "Envoi responded without a valid credential session.",
 	ENROLLMENT_PERSISTENCE_FAILED: "Envoi returned credentials, but saving them locally failed. Check storage permissions and capacity."
 };
-async function mo(e, t) {
-	let n = e instanceof Zn || e instanceof Xn, r = e instanceof Xn ? "ENROLLMENT_PERSISTENCE_FAILED" : e instanceof Zn && fo.includes(e.code) ? e.code : "ENROLLMENT_UNCERTAIN", i = {
+async function go(e, t) {
+	let n = e instanceof Zn || e instanceof Xn, r = e instanceof Xn ? "ENROLLMENT_PERSISTENCE_FAILED" : e instanceof Zn && mo.includes(e.code) ? e.code : "ENROLLMENT_UNCERTAIN", i = {
 		code: r,
 		checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
 		...n && e.status !== void 0 ? { httpStatus: e.status } : {},
 		...n && e.requestId ? { requestId: e.requestId } : {}
 	};
-	return await z(d.join(t, "enrollment-error.json"), i).catch(() => {}), new I(r, `${po[r] ?? "Enrollment did not finish."}${i.httpStatus ? ` HTTP ${i.httpStatus}.` : ""}${i.requestId ? ` Request ID: ${i.requestId}.` : ""} State directory: ${t}. Preserve it and check Agent connections before creating another token; it may have been consumed. Use Reconnect runtime for an existing identity if credentials were lost.`);
+	return await z(d.join(t, "enrollment-error.json"), i).catch(() => {}), new I(r, `${ho[r] ?? "Enrollment did not finish."}${i.httpStatus ? ` HTTP ${i.httpStatus}.` : ""}${i.requestId ? ` Request ID: ${i.requestId}.` : ""} State directory: ${t}. Preserve it and check Agent connections before creating another token; it may have been consumed. Use Reconnect runtime for an existing identity if credentials were lost.`);
 }
-async function ho(e) {
+async function _o(e) {
 	try {
 		let t = d.join(e, "enrollment-error.json"), r = await n(t);
 		if (!r.isFile() || r.isSymbolicLink() || r.size > 16384) return;
 		let i = JSON.parse(await a(t, "utf8"));
-		return !i || !fo.includes(i.code) || typeof i.checkedAt != "string" || !Number.isFinite(Date.parse(i.checkedAt)) ? void 0 : {
+		return !i || !mo.includes(i.code) || typeof i.checkedAt != "string" || !Number.isFinite(Date.parse(i.checkedAt)) ? void 0 : {
 			code: i.code,
 			checkedAt: new Date(i.checkedAt).toISOString(),
 			...Number.isInteger(i.httpStatus) && i.httpStatus >= 100 && i.httpStatus <= 599 ? { httpStatus: i.httpStatus } : {},
@@ -11573,15 +11670,15 @@ async function ho(e) {
 		return;
 	}
 }
-var go = (e) => n(e).catch((e) => {
+var vo = (e) => n(e).catch((e) => {
 	if (e.code === "ENOENT") return null;
 	throw e;
 });
-async function _o(e) {
+async function yo(e) {
 	let t = d.resolve(await s(e));
 	if ((process.platform === "win32" ? t.toLowerCase() !== e.toLowerCase() : t !== e) || !(await n(e)).isDirectory()) throw new I("STATE_INVALID", "State migration requires an owned directory without symbolic links");
 }
-async function vo(e) {
+async function bo(e) {
 	try {
 		let t = JSON.parse(await a(e, "utf8"));
 		if (!t || typeof t != "object" || Array.isArray(t)) throw Error();
@@ -11590,16 +11687,16 @@ async function vo(e) {
 		throw new I("STATE_INVALID", "Saved migration state is unreadable; preserve the private directory for recovery");
 	}
 }
-async function yo(e) {
-	let t = d.join(e, "hermes-relay.json"), n = await go(t);
+async function xo(e) {
+	let t = d.join(e, "hermes-relay.json"), n = await vo(t);
 	if (!n) return;
 	if (!n.isFile() || n.isSymbolicLink() || n.size > 128e3) throw new I("STATE_INVALID", "Hermes relay state must be a regular private file");
-	let r = await vo(t);
+	let r = await bo(t);
 	if (typeof r.serverName != "string" || !/^sinaloa_[a-f0-9]{16}$/.test(r.serverName)) return;
 	if (r.version !== 1 || !Number.isSafeInteger(r.port) || r.port < 1 || r.port > 65535 || !/^[a-f0-9]{64}$/.test(r.token)) throw new I("STATE_INVALID", "The prior Hermes relay state is invalid");
-	let i = d.join(e, "connection.json"), a = await go(i);
+	let i = d.join(e, "connection.json"), a = await vo(i);
 	if (!a?.isFile() || a.isSymbolicLink() || a.size > 128e3) throw new I("STATE_INVALID", "The migrated connection needs its saved Hermes profile");
-	let o = await vo(i), s = o.configuration;
+	let o = await bo(i), s = o.configuration;
 	if (o.runtime !== "hermes" || typeof s?.home != "string" || !d.isAbsolute(s.home) || typeof s.configPath != "string" || !d.isAbsolute(s.configPath)) throw new I("STATE_INVALID", "The migrated Hermes profile paths are invalid");
 	let c = r.serverName.slice(8), l = `envoi_${c}`, u = `SINALOA_MCP_${c.toUpperCase()}`, f = `ENVOI_MCP_${c.toUpperCase()}`, p = await X(s.configPath);
 	if (p !== null) {
@@ -11619,28 +11716,28 @@ async function yo(e) {
 		serverName: l
 	});
 }
-async function bo(e, t = be) {
+async function So(e, t = be) {
 	let n = d.resolve(e), r = d.dirname(n), i = d.dirname(r), a = d.basename(i), o = d.basename(r), s = d.basename(n);
 	if (!["envoi", "sinaloa"].includes(a) || !oe.includes(o) || !/^[a-f0-9]{24}$/.test(s)) return n;
 	let l = d.dirname(i), u = d.join(l, "envoi", o, s), f = d.join(l, "sinaloa", o, s);
-	if (!await go(f)) {
-		if (o === "hermes" && await go(u)) {
-			await _o(u);
+	if (!await vo(f)) {
+		if (o === "hermes" && await vo(u)) {
+			await yo(u);
 			let e = await B(u);
 			try {
-				await yo(u);
+				await xo(u);
 			} finally {
 				await e();
 			}
 		}
 		return u;
 	}
-	await _o(f), await t(d.dirname(u));
+	await yo(f), await t(d.dirname(u));
 	let p = await B(d.dirname(u)), m = !1, h;
 	try {
-		if (!await go(f)) return u;
-		if (await go(u)) throw new I("STATE_MIGRATION_CONFLICT", "Both prior and current state directories exist. Preserve both and resolve their identity before starting");
-		return h = await B(f, () => m ? u : f), await c(f, u), m = !0, o === "hermes" && await yo(u), u;
+		if (!await vo(f)) return u;
+		if (await vo(u)) throw new I("STATE_MIGRATION_CONFLICT", "Both prior and current state directories exist. Preserve both and resolve their identity before starting");
+		return h = await B(f, () => m ? u : f), await c(f, u), m = !0, o === "hermes" && await xo(u), u;
 	} finally {
 		try {
 			await h?.();
@@ -11649,7 +11746,7 @@ async function bo(e, t = be) {
 		}
 	}
 }
-function xo(e, t) {
+function Co(e, t) {
 	return new Promise((n) => {
 		if (t.aborted) {
 			n();
@@ -11661,7 +11758,7 @@ function xo(e, t) {
 		t.addEventListener("abort", r, { once: !0 });
 	});
 }
-async function So(e, t, n = {}) {
+async function wo(e, t, n = {}) {
 	if (!e.verify) return;
 	let r = AbortSignal.timeout(n.timeoutMs ?? 36e4), i = AbortSignal.any([t, r]);
 	for (; !i.aborted;) try {
@@ -11672,15 +11769,15 @@ async function So(e, t, n = {}) {
 		if (t.aborted) throw new I("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.");
 		if (r.aborted) break;
 		if (!(e instanceof I) || e.code !== "TOOLS_NOT_READY") throw e;
-		n.onWaiting?.(e.code), await xo(n.retryMs ?? 15e3, i);
+		n.onWaiting?.(e.code), await Co(n.retryMs ?? 15e3, i);
 	}
 	throw t.aborted ? new I("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new I("TOOLS_NOT_READY", "Runtime tools did not recover within six minutes. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
 }
-function Co(e, t, n, r = {}) {
+function To(e, t, n, r = {}) {
 	let i = r.env ?? process.env, a = r.homeDir ?? h(), o = r.platform ?? process.platform, s = v("sha256").update(`${se(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), c = o === "win32" ? i.LOCALAPPDATA || d.join(a, "AppData", "Local") : o === "darwin" ? d.join(a, "Library", "Application Support") : i.XDG_STATE_HOME && d.isAbsolute(i.XDG_STATE_HOME) ? i.XDG_STATE_HOME : d.join(a, ".local", "state");
 	return d.join(c, "envoi", n, s);
 }
-function wo(e, t = process.platform) {
+function Eo(e, t = process.platform) {
 	let n = [
 		process.execPath,
 		d.join(e, "connector.mjs"),
@@ -11690,11 +11787,11 @@ function wo(e, t = process.platform) {
 	];
 	return t === "win32" ? `& ${n.map((e) => `'${e.replaceAll("'", "''")}'`).join(" ")}` : n.map((e) => `'${e.replaceAll("'", "'\"'\"'")}'`).join(" ");
 }
-var To = (e = fetch) => (t, n) => e(t, {
+var Do = (e = fetch) => (t, n) => e(t, {
 	...n,
 	redirect: "error"
 });
-async function Eo(n, r) {
+async function Oo(n, r) {
 	if (!r || d.resolve(r) === d.join(n, "connector.mjs")) return;
 	let i = d.join(n, `.connector-${x()}.tmp`);
 	try {
@@ -11703,7 +11800,7 @@ async function Eo(n, r) {
 		await l(i, { force: !0 });
 	}
 }
-async function Do(e) {
+async function ko(e) {
 	let t = d.join(e, "session.json"), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
@@ -11725,7 +11822,7 @@ async function Do(e) {
 	].some((e) => typeof i[e] != "string" || !i[e]) || !Number.isFinite(Date.parse(i.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(i.agentRefreshTokenExpiresAt))) throw new I("STATE_INVALID", "Saved credentials are invalid; preserve the connection directory for recovery");
 	return i;
 }
-async function Oo(e) {
+async function Ao(e) {
 	let t = d.join(e, "connection.json"), r = await n(t);
 	if (!r.isFile() || r.isSymbolicLink() || r.size > 128e3) throw new I("STATE_INVALID", "Choose a regular private saved connection");
 	let i;
@@ -11737,7 +11834,7 @@ async function Oo(e) {
 	if (!i || typeof i != "object" || Array.isArray(i) || (i.runtime === "openclaw" && !i.configuration && i.openclaw && (i.configuration = i.openclaw), i.version !== 1 || !oe.includes(i.runtime) || !i.configuration || typeof i.configuration != "object" || Array.isArray(i.configuration) || typeof i.address != "string" || typeof i.agentName != "string")) throw new I("STATE_INVALID", "The saved connection is invalid");
 	return i.apiUrl = se(i.apiUrl), i;
 }
-async function ko(e, t) {
+async function jo(e, t) {
 	let n;
 	try {
 		n = await t(`${se(e)}/health`, { signal: AbortSignal.timeout(1e4) });
@@ -11750,7 +11847,7 @@ async function ko(e, t) {
 		throw new I("ENVOI_UNREACHABLE", "The selected URL did not return Envoi health. Check the deployment origin before enrolling");
 	}
 }
-async function Ao(e, t, n, r, i) {
+async function Mo(e, t, n, r, i) {
 	await t.reportConnectionStatus({
 		version: 1,
 		runtime: e.runtime,
@@ -11759,9 +11856,9 @@ async function Ao(e, t, n, r, i) {
 		...i ? { errorCode: i } : {}
 	});
 }
-async function jo(e, t, n, r = {}) {
-	let i = To(r.fetch);
-	await ko(t, i);
+async function No(e, t, n, r = {}) {
+	let i = Do(r.fetch);
+	await jo(t, i);
 	let a = n(e), o = await a.discover({
 		...r,
 		fetch: i
@@ -11777,18 +11874,18 @@ async function jo(e, t, n, r = {}) {
 		note: "Preparation did not enroll an agent or prove unattended receiving"
 	};
 }
-async function Mo(e, t, n = {}) {
-	let r = ce(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? be)(await bo(n.stateDir ?? Co(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a = await B(i), o = To(n.fetch), s, c, u;
+async function Po(e, t, n = {}) {
+	let r = ce(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? be)(await So(n.stateDir ?? To(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a = await B(i), o = Do(n.fetch), s, c, u;
 	try {
 		let a = new Sr(i);
 		await a.init();
-		let f = await Do(i), p = await Oo(i).catch((e) => {
+		let f = await ko(i), p = await Ao(i).catch((e) => {
 			if (e.code !== "ENOENT") throw e;
 		});
 		if (p && (p.apiUrl !== r.apiUrl || p.address !== r.address || p.runtime !== r.runtime) || f && f.address !== r.address) throw new I("STATE_MISMATCH", "This directory belongs to another connection. Use a separate agent-specific directory");
 		if (f && !p) throw new I("STATE_INVALID", "Saved credentials have no connection configuration; preserve this directory and inspect it");
 		let m = r.operation === "reconnect" ? v("sha256").update(r.enrollmentToken).digest("hex") : void 0, h = f?.setupRedemptionId, g = !f || !!m && h !== m && p?.lastReconnectId !== m;
-		g && ce(e), n.installService && await Qa(), n.onProgress?.("Checking Envoi reachability"), await ko(r.apiUrl, o);
+		g && ce(e), n.installService && await eo(), n.onProgress?.("Checking Envoi reachability"), await jo(r.apiUrl, o);
 		let _ = t(r.runtime), y = {
 			...n,
 			apiUrl: r.apiUrl,
@@ -11805,7 +11902,7 @@ async function Mo(e, t, n = {}) {
 			agentName: r.agentName,
 			configuration: b,
 			...p?.lastReconnectId ? { lastReconnectId: p.lastReconnectId } : {}
-		}, await z(d.join(i, "connection.json"), c), await Eo(i, n.executableFile), g) {
+		}, await z(d.join(i, "connection.json"), c), await Oo(i, n.executableFile), g) {
 			n.onProgress?.(r.operation === "reconnect" ? "Reconnecting the existing agent" : "Enrolling the agent");
 			let e = {
 				load: () => a.load(),
@@ -11821,14 +11918,14 @@ async function Mo(e, t, n = {}) {
 					fetch: o
 				});
 			} catch (e) {
-				throw await mo(e, i);
+				throw await go(e, i);
 			}
 			m && (c.lastReconnectId = m, await z(d.join(i, "connection.json"), c));
 		}
 		if (!f || f.address !== r.address) throw new I("STATE_MISMATCH", "The enrolled address differs from this handoff. Inspect Agent connections before starting");
 		await l(d.join(i, "enrollment-error.json"), { force: !0 }), u = new or(c.apiUrl, a, { fetch: o }), await _.configure?.(b, y), await z(d.join(i, "connection.json"), c), n.onProgress?.("Verifying runtime tools and Envoi access"), s = await _.createBridge(b, y), await s.connector.start(), await s.connector.checkStatus();
 		let x = (await s.connector.lifecycle()).paused;
-		x || (await s.verify?.(), await Ao(c, s.connector, "ready", o));
+		x || (await s.verify?.(), await Mo(c, s.connector, "ready", o));
 		let S = x ? "deferred_while_paused" : "passed";
 		return await z(d.join(i, "setup-check.json"), {
 			runtime: c.runtime,
@@ -11842,7 +11939,7 @@ async function Mo(e, t, n = {}) {
 			checks: S
 		};
 	} catch (e) {
-		throw c && (s || u) && await Ao(c, s?.connector ?? u, "error", o, e instanceof I ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
+		throw c && (s || u) && await Mo(c, s?.connector ?? u, "error", o, e instanceof I ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
 	} finally {
 		try {
 			await s?.close();
@@ -11851,17 +11948,17 @@ async function Mo(e, t, n = {}) {
 		}
 	}
 }
-async function No(e, t, n, r = {}) {
-	Ra(r.env ?? process.env);
-	let i = await (r.secureDirectory ?? be)(await bo(e, r.secureDirectory)), a = await B(i), o = To(r.fetch), s = new AbortController(), c = () => s.abort();
+async function Fo(e, t, n, r = {}) {
+	Ba(r.env ?? process.env);
+	let i = await (r.secureDirectory ?? be)(await So(e, r.secureDirectory)), a = await B(i), o = Do(r.fetch), s = new AbortController(), c = () => s.abort();
 	t.addEventListener("abort", c, { once: !0 }), t.aborted && s.abort();
 	let l, u, f, p = {
 		status: "starting",
 		runtimeChecks: "pending"
 	};
 	try {
-		let e = await Ua(i, r.env ?? process.env);
-		if (f = await Oo(i), !await Do(i)) throw new I("STATE_INVALID", "Saved credentials are missing; reconnect through Envoi before starting");
+		let e = await Ga(i, r.env ?? process.env);
+		if (f = await Ao(i), !await ko(i)) throw new I("STATE_INVALID", "Saved credentials are missing; reconnect through Envoi before starting");
 		let t = new or(f.apiUrl, new Sr(i), { fetch: o });
 		await t.start();
 		let a = n(f.runtime), m = {
@@ -11871,11 +11968,11 @@ async function No(e, t, n, r = {}) {
 			stateDir: i,
 			fetch: o
 		};
-		r.control !== !1 && (u = await co(i, {
+		r.control !== !1 && (u = await uo(i, {
 			runtime: f.runtime,
 			address: f.address,
 			apiUrl: f.apiUrl
-		}, c, () => p, so(i, f, () => {
+		}, c, () => p, lo(i, f, () => {
 			if (!l || p.runtimeChecks !== "passed" || s.signal.aborted) throw new $("CONNECTOR_NOT_READY");
 			return l.connector;
 		})));
@@ -11883,7 +11980,7 @@ async function No(e, t, n, r = {}) {
 		for (h.retryAt && await w(Math.max(0, Date.parse(h.retryAt) - Date.now()), void 0, { signal: s.signal }).catch((e) => {
 			if (!s.signal.aborted) throw e;
 		}); !s.signal.aborted;) try {
-			await ko(f.apiUrl, o);
+			await jo(f.apiUrl, o);
 			let t = await a.discover(m, f.configuration);
 			await a.preflight(t, m), await a.configure?.(t, m), f.configuration = t, await z(d.join(i, "connection.json"), f), l = await a.createBridge(t, m), e && l.connector.scopedWakeWorkDriver(), l.connector.onState((e) => {
 				p = {
@@ -11892,7 +11989,7 @@ async function No(e, t, n, r = {}) {
 					lifecycle: e,
 					guidance: e.guidance
 				};
-			}), await l.connector.start(), await l.connector.checkStatus(), (await l.connector.lifecycle()).paused || (f.runtime === "hermes" ? await So(l, s.signal, {
+			}), await l.connector.start(), await l.connector.checkStatus(), (await l.connector.lifecycle()).paused || (f.runtime === "hermes" ? await wo(l, s.signal, {
 				timeoutMs: r.toolRecoveryTimeoutMs,
 				retryMs: r.toolRecoveryRetryMs,
 				onWaiting(e) {
@@ -11903,7 +12000,7 @@ async function No(e, t, n, r = {}) {
 						guidance: "Waiting for the selected Gateway to rediscover Envoi tools. Saved enrollment is unchanged."
 					}, r.onWaiting?.(e);
 				}
-			}) : await l.verify?.(), (await l.connector.lifecycle()).paused || await Ao(f, l.connector, "ready", o));
+			}) : await l.verify?.(), (await l.connector.lifecycle()).paused || await Mo(f, l.connector, "ready", o));
 			let n = await l.connector.lifecycle();
 			p = {
 				status: n.state.toLowerCase(),
@@ -11938,7 +12035,7 @@ async function No(e, t, n, r = {}) {
 		if (e) {
 			let t = await new Sr(i).load();
 			if (!t) throw new I("STATE_INVALID", "Hosted wake needs saved connector identity");
-			await za({
+			await Va({
 				connector: l.connector,
 				session: t,
 				stateDir: i,
@@ -11948,7 +12045,7 @@ async function No(e, t, n, r = {}) {
 			});
 		} else r.onReady?.(), await l.connector.run(s.signal);
 	} catch (e) {
-		if (f && l && !s.signal.aborted && await Ao(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
+		if (f && l && !s.signal.aborted && await Mo(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
 	} finally {
 		t.removeEventListener("abort", c);
 		try {
@@ -11958,8 +12055,8 @@ async function No(e, t, n, r = {}) {
 		}
 	}
 }
-async function Po(e) {
-	let t = d.resolve(e), n = await Oo(t), r = await Do(t), i = await uo(t, "status").catch(() => null), o = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), s = await ho(t);
+async function Io(e) {
+	let t = d.resolve(e), n = await Ao(t), r = await ko(t), i = await po(t, "status").catch(() => null), o = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), s = await _o(t);
 	return {
 		runtime: n.runtime,
 		address: n.address,
@@ -11977,17 +12074,17 @@ async function Po(e) {
 		note: "A running connector is not proof of successful message delivery. Verify a real agent exchange"
 	};
 }
-async function Fo(e, t, n = {}) {
-	let r = d.resolve(e), i = await uo(r, "doctor").catch(() => null);
+async function Lo(e, t, n = {}) {
+	let r = d.resolve(e), i = await po(r, "doctor").catch(() => null);
 	if (i) return {
-		...await Po(r),
+		...await Io(r),
 		...i,
 		note: "Checks are from the running connector; verify a real message exchange"
 	};
 	let a = await B(r);
 	try {
-		let e = await Oo(r), i = t(e.runtime), a = To(n.fetch);
-		await ko(e.apiUrl, a);
+		let e = await Ao(r), i = t(e.runtime), a = Do(n.fetch);
+		await jo(e.apiUrl, a);
 		let o = {
 			...n,
 			apiUrl: e.apiUrl,
@@ -11997,7 +12094,7 @@ async function Fo(e, t, n = {}) {
 		await i.preflight(s, o);
 		let c = new Sr(r);
 		return await new or(e.apiUrl, c, { fetch: a }).checkStatus(), {
-			...await Po(r),
+			...await Io(r),
 			runtimeChecks: "passed",
 			...i.describe(s)
 		};
@@ -12005,7 +12102,7 @@ async function Fo(e, t, n = {}) {
 		await a();
 	}
 }
-async function Io(e) {
+async function Ro(e) {
 	let t = d.resolve(e), n, r = Date.now() + 15e3;
 	for (; !n;) try {
 		n = await B(t);
@@ -12019,7 +12116,7 @@ async function Io(e) {
 		await n();
 	}
 }
-var Lo = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|configure-wake|clear-wake|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", Ro = [
+var zo = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|configure-wake|clear-wake|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", Bo = [
 	"--handoff",
 	"--state-dir",
 	"--runtime",
@@ -12028,26 +12125,26 @@ var Lo = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --
 	"--profile",
 	"--agent",
 	"--gateway-url"
-], zo = [
+], Vo = [
 	"--handoff-stdin",
 	"--install-service",
 	"--prepare-runtime"
 ];
-async function Bo(e = process.argv.slice(2)) {
+async function Ho(e = process.argv.slice(2)) {
 	if (!e.length || e.length === 1 && e[0] === "--help") {
-		process.stdout.write(Lo);
+		process.stdout.write(zo);
 		return;
 	}
 	if (Number(process.versions.node.split(".")[0]) < 22) throw new I("NODE_UNSUPPORTED", "Install Node.js 22 or newer before connecting");
 	let [t, ...r] = e, i = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Set();
 	for (let e = 0; e < r.length; e++) {
 		let t = r[e];
-		if (zo.includes(t)) {
+		if (Vo.includes(t)) {
 			if (o.has(t)) throw new I("ARGUMENT_INVALID", "Duplicate option");
 			o.add(t);
 			continue;
 		}
-		if (!Ro.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new I("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
+		if (!Bo.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new I("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
 		i.set(t, r[++e]);
 	}
 	let s = {
@@ -12059,7 +12156,7 @@ async function Bo(e = process.argv.slice(2)) {
 	};
 	if (t === "prepare") {
 		if (!oe.includes(i.get("--runtime")) || !i.get("--api-url") || o.has("--install-service") || o.has("--handoff-stdin") || i.has("--handoff") || i.has("--state-dir")) throw new I("ARGUMENT_INVALID", "Supply --runtime and --api-url for prepare. Run --help");
-		let e = await jo(i.get("--runtime"), i.get("--api-url"), oa, s);
+		let e = await No(i.get("--runtime"), i.get("--api-url"), ca, s);
 		process.stdout.write(`${JSON.stringify(e)}\n`);
 		return;
 	}
@@ -12085,15 +12182,15 @@ async function Bo(e = process.argv.slice(2)) {
 		} catch {
 			throw new I("HANDOFF_INVALID", "Download a valid Envoi setup file");
 		}
-		let r = await Mo(t, oa, {
+		let r = await Po(t, ca, {
 			...s,
 			stateDir: i.get("--state-dir"),
 			installService: o.has("--install-service"),
 			executableFile: m(import.meta.url),
 			onProgress: (e) => process.stderr.write(`${e}…\n`)
 		});
-		if (process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${wo(r.stateDir)}\n`), o.has("--install-service")) {
-			let e = await $a(r.stateDir, r.runtime);
+		if (process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${Eo(r.stateDir)}\n`), o.has("--install-service")) {
+			let e = await to(r.stateDir, r.runtime);
 			process.stdout.write(`${JSON.stringify({
 				startupService: e,
 				startsAt: "user login",
@@ -12114,30 +12211,30 @@ async function Bo(e = process.argv.slice(2)) {
 	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new I("ARGUMENT_INVALID", "Supply a supported command and --state-dir. Run --help");
 	let c = d.resolve(i.get("--state-dir"));
 	if (t === "configure-wake" || t === "clear-wake") {
-		await Oo(c), t === "configure-wake" ? await Ga(c) : await Ka(c), process.stdout.write(`${JSON.stringify({
+		await Ao(c), t === "configure-wake" ? await qa(c) : await Ja(c), process.stdout.write(`${JSON.stringify({
 			hostedWake: t === "configure-wake" ? "configured" : "disabled",
 			note: "Restart the connector service to apply this change"
 		})}\n`);
 		return;
 	}
 	if (t === "status") {
-		process.stdout.write(`${JSON.stringify(await Po(c))}\n`);
+		process.stdout.write(`${JSON.stringify(await Io(c))}\n`);
 		return;
 	}
 	if (t === "doctor") {
-		process.stdout.write(`${JSON.stringify(await Fo(c, oa))}\n`);
+		process.stdout.write(`${JSON.stringify(await Lo(c, ca))}\n`);
 		return;
 	}
 	if (t === "install-service") {
-		let e = await Oo(c);
+		let e = await Ao(c);
 		process.stdout.write(`${JSON.stringify({
-			startupService: await $a(c, e.runtime),
+			startupService: await to(c, e.runtime),
 			startsAt: "user login"
 		})}\n`);
 		return;
 	}
 	if (t === "stop") {
-		await uo(c, "stop").catch(() => {
+		await po(c, "stop").catch(() => {
 			throw new I("CONNECTOR_UNREACHABLE", "No responding connector. Use status or stop the installed service through its supervisor");
 		}), process.stdout.write(`${JSON.stringify({
 			status: "stop requested",
@@ -12146,7 +12243,7 @@ async function Bo(e = process.argv.slice(2)) {
 		return;
 	}
 	if (t === "uninstall") {
-		await eo(c, (await Oo(c)).runtime), await uo(c, "stop").catch(() => null), await Io(c), process.stdout.write(`${JSON.stringify({
+		await no(c, (await Ao(c)).runtime), await po(c, "stop").catch(() => null), await Ro(c), process.stdout.write(`${JSON.stringify({
 			status: "startup removed",
 			note: "Credentials and work history are preserved. Revoke access in Envoi to invalidate credentials"
 		})}\n`);
@@ -12155,7 +12252,7 @@ async function Bo(e = process.argv.slice(2)) {
 	let l = new AbortController(), u = () => l.abort();
 	process.once("SIGINT", u), process.once("SIGTERM", u);
 	try {
-		await No(c, l.signal, oa, {
+		await Fo(c, l.signal, ca, {
 			onReady: () => process.stdout.write("Envoi connector started. Waiting for incoming work.\n"),
 			onWaiting: (e) => process.stderr.write(`Connection temporarily unavailable (${e}); retrying automatically.\n`)
 		});
@@ -12163,7 +12260,7 @@ async function Bo(e = process.argv.slice(2)) {
 		process.removeListener("SIGINT", u), process.removeListener("SIGTERM", u);
 	}
 }
-function Vo(e) {
+function Uo(e) {
 	if (e instanceof I) return `${e.code}: ${e.message}`;
 	if (e instanceof R || e instanceof F) return e.message;
 	if (e instanceof L) {
@@ -12172,7 +12269,7 @@ function Vo(e) {
 	}
 	return "Connector failed. Check local configuration and connectivity with doctor; preserve the saved connection for recovery";
 }
-function Ho() {
+function Wo() {
 	if (!process.argv[1]) return !1;
 	try {
 		let e = O(process.argv[1]), t = O(m(import.meta.url));
@@ -12181,7 +12278,7 @@ function Ho() {
 		return !1;
 	}
 }
-Ho() && Bo().catch((e) => {
-	process.stderr.write(`${Vo(e)}\n`), process.exitCode = 1;
+Wo() && Ho().catch((e) => {
+	process.stderr.write(`${Uo(e)}\n`), process.exitCode = 1;
 });
-export { or as EnvoiConnector, L as EnvoiError, Da as FileWakeStore, Ca as HttpWakeReceiver, Ia as createScopedWakeHost, La as createWakeHttpHandler };
+export { or as EnvoiConnector, L as EnvoiError, ka as FileWakeStore, Ta as HttpWakeReceiver, Ra as createScopedWakeHost, za as createWakeHttpHandler };
