@@ -11,6 +11,23 @@ const DEVELOPMENT_ENVIRONMENT = 'development';
 
 export const isDeploymentName = value => typeof value === 'string' && DEPLOYMENT_NAME.test(value);
 
+// One extra exact human email that only the staging deployment admits, entered as its own secret
+// so the encrypted ENVOI_BETA_INVITED_EMAILS list stays untouched. Anywhere else the value is
+// ignored and grants nothing. A nonempty staging value that is not exactly one email address
+// (a list, whitespace or any `*` wildcard) fails closed; the error names the setting, never the value.
+export const STAGING_ADDITIONAL_INVITED_EMAIL = 'ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL';
+const SINGLE_EMAIL = /^[^\s@,;*]+@[^\s@,;*]+\.[^\s@,;*]+$/;
+
+export function stagingAdditionalInvitedEmail(value, environment) {
+  if (environment !== 'staging') return null;
+  const trimmed = typeof value === 'string' ? value.trim() : value;
+  if (trimmed === undefined || trimmed === null || trimmed === '') return null;
+  if (typeof trimmed !== 'string' || trimmed.length > 254 || !SINGLE_EMAIL.test(trimmed)) {
+    throw new Error(`${STAGING_ADDITIONAL_INVITED_EMAIL} must be one exact email address`);
+  }
+  return trimmed.toLowerCase();
+}
+
 // Production must name its deployment (production-config.js). Anything else defaults to
 // `development`, so a local server pointed at a hosted database refuses to start as well.
 export function configuredDeploymentIdentity(env = process.env) {

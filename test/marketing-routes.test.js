@@ -6,6 +6,8 @@ import { launch } from './a3-harness.js';
 test('marketing routes only expose the intended public pages and assets', () => {
   assert.deepEqual(marketingRoute('/'), { file: 'index.html' });
   assert.deepEqual(marketingRoute('/product/'), { file: 'product/index.html' });
+  assert.deepEqual(marketingRoute('/create-account'), { redirect: '/create-account/' });
+  assert.deepEqual(marketingRoute('/create-account/'), { file: 'create-account/index.html' });
   assert.deepEqual(marketingRoute('/team/'), { redirect: '/#team' });
   assert.deepEqual(marketingRoute('/agents/muse.svg'), { file: 'agents/muse.svg' });
   assert.equal(marketingRoute('/api/auth/workos/sign-in'), null);
@@ -31,7 +33,7 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   const aboutHtml = await about.text();
   assert.match(aboutHtml, /Break your agents out of their silos/);
   assert.match(aboutHtml, /content="index, follow"/);
-  assert.match(aboutHtml, /sign-up\?returnTo=%2Fapp/);
+  assert.match(aboutHtml, /href="\/create-account\/"/);
   const nonce = about.headers.get('content-security-policy').match(/script-src 'nonce-([^']+)'/)?.[1];
   assert.ok(nonce);
   for (const tag of aboutHtml.match(/<(?:script|style)\b[^>]*>|<link\b[^>]*rel="stylesheet"[^>]*>/g) || []) {
@@ -49,6 +51,13 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   const productHtml = await product.text();
   assert.match(productHtml, /Track your agents work in different email threads/);
   assert.match(productHtml, /content="index, follow"/);
+  assert.match(productHtml, /href="\/create-account\/"/);
+  const account = await get('/create-account/');
+  assert.equal(account.status, 200);
+  const accountHtml = await account.text();
+  assert.match(accountHtml, /Create your account/);
+  assert.match(accountHtml, /sign-up\?returnTo=%2Fapp/);
+  assert.equal((await get('/create-account?source=product')).headers.get('location'), '/create-account/?source=product');
   const team = await get('/team/');
   assert.equal(team.status, 301);
   assert.equal(team.headers.get('location'), '/#team');
@@ -60,7 +69,23 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   const app = await get('/app');
   assert.equal(app.status, 200);
   assert.equal(app.headers.get('x-robots-tag'), 'noindex, nofollow');
-  assert.match(await app.text(), /id="root"/);
+  assert.equal(app.headers.get('cache-control'), 'private, no-store');
+  const appHtml = await app.text();
+  assert.match(appHtml, /id="root"/);
+  const appNonce = app.headers.get('content-security-policy').match(/script-src 'nonce-([^']+)'/)?.[1];
+  assert.ok(appNonce);
+  const scriptTag = appHtml.match(/<script[^>]+src="(\/web\/assets\/[^\"]+\.js)"[^>]*>/)?.[0];
+  const stylesheetTag = appHtml.match(/<link[^>]+href="(\/web\/assets\/[^\"]+\.css)"[^>]*>/)?.[0];
+  assert.ok(scriptTag?.includes(`nonce="${appNonce}"`));
+  assert.ok(stylesheetTag?.includes(`nonce="${appNonce}"`));
+  for (const [tag, type] of [[scriptTag, /^text\/javascript/], [stylesheetTag, /^text\/css/]]) {
+    const assetPath = tag.match(/(?:src|href)="([^"]+)"/)?.[1];
+    const asset = await get(assetPath);
+    assert.equal(asset.status, 200, assetPath);
+    assert.match(asset.headers.get('content-type'), type);
+    assert.equal(asset.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.ok(Number(asset.headers.get('content-length')) > 0);
+  }
   for (const route of ['/claim', '/connect', '/authorize-agent']) {
     const response = await get(route);
     assert.equal(response.status, 200, route);

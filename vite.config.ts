@@ -2,14 +2,13 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { routeAvailabilityValidatorPlugin } from './frontend/build/route-availability.ts';
 import { remoteAuthValidatorPlugin } from './frontend/build/remote-auth.ts';
-import { inlineWebBuild } from './scripts/vite-inline-web.ts';
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const localApiUrl = loadEnv(mode, '.', 'ENVOI_LOCAL_API_URL').ENVOI_LOCAL_API_URL || 'http://127.0.0.1:8787';
   return {
     root: 'frontend',
-    base: './',
-    plugins: [routeAvailabilityValidatorPlugin(), remoteAuthValidatorPlugin(), react(), inlineWebBuild()],
+    base: command === 'build' ? '/web/' : './',
+    plugins: [routeAvailabilityValidatorPlugin(), remoteAuthValidatorPlugin(), react()],
     build: {
       outDir: '../web',
       emptyOutDir: true,

@@ -32,9 +32,11 @@ html[data-page="product"] .site-header.scrolled { background: var(--porcelain); 
 .main-nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px 18px; border-radius: var(--pill); }
 .main-nav a[aria-current="page"], .main-nav a[aria-current="page"]:hover { color: var(--on-accent); background: var(--brand-navy); }
 .main-nav a:hover, .site-footer a:hover { color: var(--accent); }
-.sign-in { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line-strong); padding: 9px 15px; border-radius: var(--pill); font-size: 14px; font-weight: 700; font-synthesis: weight; }
-.sign-in > span { color: var(--ink-dim); }
-.sign-in:hover { background: var(--accent-wash); border-color: var(--accent); }
+.header-auth-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.header-auth-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border: 1px solid var(--line-strong); padding: 9px 15px; border-radius: var(--pill); white-space: nowrap; font-size: 14px; font-weight: 700; font-synthesis: weight; }
+.header-auth-link:hover { background: var(--accent-wash); border-color: var(--accent); }
+.header-auth-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.header-auth-create { border-color: var(--accent); background: var(--accent-wash); }
 .hero { max-width: 1440px; padding-top: 140px; padding-bottom: 80px; display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); column-gap: 56px; align-items: center; }
 .hero-copy { position: relative; }
 .hero-brand { width: 144px; margin-bottom: 28px; }
@@ -319,7 +321,6 @@ strong, b, input, button { font-weight: 300; }
 @media (min-width: 1600px) { .hero { align-items: center; padding-top: 150px; padding-bottom: 96px; } .hero-copy { padding-top: 0; } }
 @media (max-width: 1150px) {
   .hero { column-gap: 40px; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); }
-  .sign-in > span { display: none; }
   .form-row { flex-wrap: wrap; }
   .form-row input { width: auto; flex: 1; }
   .form-row button { width: 100%; justify-content: space-between; }
@@ -396,7 +397,7 @@ strong, b, input, button { font-weight: 300; }
   .main-nav { display: flex; padding: 3px; gap: 0; }
   .main-nav a { font-size: 12px; padding: 5px 10px; min-height: 32px; }
   .site-header .wordmark { width: 48px; }
-  .sign-in { margin-left: auto; font-size: 13px; padding: 7px 12px; min-height: 36px; }
+  .header-auth-link { font-size: 13px; padding: 7px 12px; min-height: 36px; }
   .hero { display: flex; flex-direction: column; gap: 56px; padding-top: 120px; padding-bottom: 40px; }
   .hero-copy { padding-top: 0; width: 100%; }
   .hero-brand { width: 112px; margin-bottom: 24px; }

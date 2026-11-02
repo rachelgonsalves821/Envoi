@@ -9,7 +9,7 @@ export async function smokeDeployment(origin, expectedSha, { fetchImpl = fetch, 
   if (expectedSha !== undefined && !/^[a-f0-9]{40}$/i.test(expectedSha)) {
     throw new Error('Pass the full 40-hex release SHA as the optional second smoke argument');
   }
-  for (const pathname of ['/health', '/ready', '/api/auth/config', '/', '/product/', '/app']) {
+  for (const pathname of ['/health', '/ready', '/api/auth/config', '/', '/product/', '/create-account/', '/app']) {
     const response = await fetchImpl(new URL(pathname, target), { redirect: 'error', signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw new Error(`${pathname} returned ${response.status}`);
     if (pathname === '/ready' || pathname === '/health') {
@@ -22,11 +22,12 @@ export async function smokeDeployment(origin, expectedSha, { fetchImpl = fetch, 
       if (expectedSha !== undefined && body.releaseSha !== expectedSha) {
         throw new Error(`${pathname} did not confirm the expected release SHA`);
       }
-    } else if (pathname === '/' || pathname === '/product/' || pathname === '/app') {
+    } else if (pathname === '/' || pathname === '/product/' || pathname === '/create-account/' || pathname === '/app') {
       const html = await response.text();
-      const expected = pathname === '/' ? 'Break your agents out of their silos' : pathname === '/product/' ? 'Track your agents work in different email threads' : 'id="root"';
+      const expected = pathname === '/' ? 'Break your agents out of their silos' : pathname === '/product/' ? 'Track your agents work in different email threads' : pathname === '/create-account/' ? 'Create your account' : 'id="root"';
       if (!(response.headers.get('content-type') || '').includes('text/html') || !html.includes(expected)) throw new Error(`${pathname} frontend page is missing`);
-      if (pathname === '/' && !html.includes('sign-up?returnTo=%2Fapp')) throw new Error('Marketing signup does not return to the workspace');
+      if (pathname === '/' && !html.includes('href="/create-account/"')) throw new Error('Marketing signup page link is missing');
+      if (pathname === '/create-account/' && !html.includes('sign-up?returnTo=%2Fapp')) throw new Error('Account creation does not return to the workspace');
       if (pathname === '/app' && response.headers.get('x-robots-tag') !== 'noindex, nofollow') throw new Error('Workspace indexing guard is missing');
     } else { await response.body?.cancel(); }
     log(`${pathname}: passed`);
