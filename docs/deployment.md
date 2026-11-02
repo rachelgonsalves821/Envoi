@@ -34,6 +34,7 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 - `WORKOS_COOKIE_NAME`, `WORKOS_COOKIE_DOMAIN`, `ENVOI_COOKIE_SAMESITE`, `ENVOI_COOKIE_SECURE`: optional session-cookie controls. Production cookies are always secure and HTTP-only.
 - `ENVOI_PUBLIC_URL`: canonical HTTPS origin used for logout returns and one-time agent enrollment links.
 - `ENVOI_BETA_INVITED_EMAILS`: exact comma-separated email allowlist required for production human admission.
+- `ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL`: optional Secret, one exact email, admitted only when `ENVOI_DEPLOYMENT_ENVIRONMENT` is `staging` (see `docs/workos-public-signup-rollout.md`, Amendment 1). Ignored everywhere else; it never replaces `ENVOI_BETA_INVITED_EMAILS`.
 - `ENVOI_DATA_ENCRYPTION_KEY`: required in production; encrypts authenticator secrets at rest. Store it in the hosting provider's secret manager.
 - `ENVOI_ENABLE_EXTERNAL_EMAIL`: defaults to `false`. Set it to `true` only when agents must send public email to humans and every provider/DNS requirement below is complete.
 - `ENVOI_EMAIL_PROVIDER`: set to `resend` when public transport is enabled; the default is `disabled`.
