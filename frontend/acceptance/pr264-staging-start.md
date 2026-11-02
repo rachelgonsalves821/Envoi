@@ -10,7 +10,9 @@ Current pre-deployment observation on November 1: staging `/health` and `/ready`
 
 ## 2. Human release-owner start
 
-From a clean checkout of the reviewed PR head, the release owner records the SHA and CI result, then uses the explicit staging-only deploy helper. The release owner keeps the previous Worker version and Container image reference for rollback. No beta or production target is part of this run. `promote-release.mjs --deploy` is not the path for this draft head: that helper requires HEAD to equal fetched `origin/main`.
+The current staging owner and PR owner agree on an exclusive UTC start/end window before any upload. Pause other staging deployments and Phase C tests during that window; identify who will deploy, who will run acceptance, and who can execute rollback. Record the live Worker deployment/version and Container application/image references immediately before starting, plus a tested command or dashboard path for restoring **both**. A Worker-only rollback can leave incompatible code and assets paired with the new Container image. If either rollback reference cannot be confirmed, do not start.
+
+From a clean checkout of the reviewed PR head, the release owner records the SHA and CI result, then uses the explicit staging-only deploy helper. Preserve the three existing staging behaviors in this candidate: additional-email admission, same-origin WorkOS links, and the Create-account page. No beta or production target is part of this run. `promote-release.mjs --deploy` is not the path for this draft head: that helper requires HEAD to equal fetched `origin/main`.
 
 ```powershell
 $candidate = git rev-parse HEAD
@@ -22,6 +24,8 @@ node scripts/smoke-deployment.mjs https://sinaloa-staging.rachelgonsalves821.wor
 ```
 
 The smoke must pass `/health`, `/ready`, auth config, About, Product, app shell, team redirect, and WorkOS redirect at the **same SHA**. If `/health` or `/ready` differs, stop. Do not treat a passing public smoke as authenticated inbox acceptance.
+
+If upload, readiness, smoke, or acceptance fails, the staging owner restores the recorded Worker version **and** Container image, then checks `/health` and `/ready` against the prior staging SHA and repeats the public smoke. Record both resulting references and any incomplete rollback in the handoff. End the exclusive window only after the candidate passes or the paired rollback is verified.
 
 ## 3. Browser and network acceptance
 
