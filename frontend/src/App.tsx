@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
+import { appLocation, appPath, createAppNavigation } from './app-navigation';
 import { createWorkspaceSwitch } from './workspace-switch';
 import { INTERNAL_ROUTE_EVENT, internalRoute, navigateInternal } from './internal-navigation';
 import LandingPage from './LandingPage';
@@ -135,6 +136,7 @@ export default function App() {
       else setWorkspaceMounted(true);
     };
     const followInternalLink = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
       const anchor = (event.target as Element)?.closest?.('a[href]');
       if (!anchor) return;
       const route = internalRoute(anchor.getAttribute('href') || '', window.location.origin, anchor.getAttribute('target') || '', anchor.hasAttribute('download'), event.metaKey || event.ctrlKey || event.shiftKey || event.altKey, event.button);
@@ -360,7 +362,9 @@ function WorkspaceApp({ route }: { route: string }) {
       publishSessionIdentity(nextHuman.id);
       const nextWorkspaces = await loadWorkspaceDirectory();
       if (!isCurrentSession(generation)) return;
-      const savedId = localStorage.getItem(WORKSPACE_KEY);
+      const linkedInbox = window.location.pathname === '/app' ? new URLSearchParams(window.location.search).get('inbox') : null;
+      const savedId = linkedInbox || localStorage.getItem(WORKSPACE_KEY);
+      if (linkedInbox && !nextWorkspaces.some(item => item.id === linkedInbox)) throw new Error('This inbox is unavailable for your account.');
       const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
       if (!selected) {
         setWorkspace(null);
@@ -815,16 +819,20 @@ export function AppShell(props: ShellProps) {
   const { human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
   const canManageInbox = view.canManageInbox === true;
   const authorizationRoute = typeof window !== 'undefined' && window.location.pathname === '/authorize-agent';
-  const [section, setSection] = useState<NavSection>(props.initialSection || 'inbox');
-  const inboxSelection = useRef(0);
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [initialLocation] = useState(() => {
+    const fallback = { inbox: workspace.id, section: props.initialSection || 'inbox', folder: null, case: null };
+    return typeof window === 'undefined' ? fallback : appLocation(window.location.search, fallback);
+  });
+  const [section, setSection] = useState<NavSection>(initialLocation.section);
+
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialLocation.case);
   const [railOpen, setRailOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<string[]>([]);
   const [toast, setToast] = useState('');
   const [childViews, setChildViews] = useState<Record<string, HumanView>>({});
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(initialLocation.folder);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [advancedConnectOpen, setAdvancedConnectOpen] = useState(false);
   const [connectResult, setConnectResult] = useState<EnrollmentResult | null>(null);
@@ -832,6 +840,44 @@ export function AppShell(props: ShellProps) {
   const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderError, setFolderError] = useState('');
+  const navigationProps = useRef(props);
+  navigationProps.current = props;
+  const ownHistoryWrite = useRef(false);
+  const navigation = useRef<ReturnType<typeof createAppNavigation> | null>(null);
+  if (!navigation.current) navigation.current = createAppNavigation(initialLocation, {
+    cancel: () => navigationProps.current.onCancelNavigation?.(),
+    select: async target => {
+      const next = navigationProps.current.workspaces.find(item => item.id === target.inbox);
+      if (!next) throw new Error('This inbox is unavailable for your account.');
+      await navigationProps.current.onSelectWorkspace(next, target.section);
+    },
+    commit: target => {
+      setSection(target.section); setSelectedFolderId(target.folder); setSelectedCaseId(target.case);
+      setFolderMenuId(null); setNavOpen(false);
+    },
+    write: (target, replace) => {
+      ownHistoryWrite.current = true;
+      try { navigateInternal(appPath(target, new URLSearchParams(window.location.search).has('preview')), replace); }
+      finally { ownHistoryWrite.current = false; }
+    },
+    error: caught => { if (!(caught instanceof SessionRequestCancelled)) setToast(errorMessage(caught)); }
+  });
+  useEffect(() => {
+    const restore = () => {
+      if (ownHistoryWrite.current) return;
+      if (window.location.pathname !== '/app') { navigation.current!.cancel(); return; }
+      const params = new URLSearchParams(window.location.search);
+      void navigation.current!.go(appLocation(window.location.search, navigation.current!.current()), params.has('inbox') && params.has('section') ? 'restore' : 'replace');
+    };
+    window.addEventListener('popstate', restore);
+    window.addEventListener(INTERNAL_ROUTE_EVENT, restore);
+    if (window.location.pathname === '/app') void navigation.current!.go(appLocation(window.location.search, navigation.current!.current()), 'replace');
+    return () => {
+      navigation.current!.cancel();
+      window.removeEventListener('popstate', restore);
+      window.removeEventListener(INTERNAL_ROUTE_EVENT, restore);
+    };
+  }, []);
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
   const agentInboxes = workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === rootWorkspace.id);
   const agentInboxKey = agentInboxes.map(item => item.id).sort().join(',');
@@ -910,20 +956,10 @@ export function AppShell(props: ShellProps) {
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
 
   function chooseSection(next: NavSection) {
-    inboxSelection.current++;
-    props.onCancelNavigation?.();
-    setSelectedFolderId(null);
-    setFolderMenuId(null);
-    setSection(next); setSelectedCaseId(null); setNavOpen(false);
+    void navigation.current!.go({ inbox: workspace.id, section: next, folder: null, case: null });
   }
-  function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox'): Promise<void> {
-    const selection = ++inboxSelection.current;
-    // The old inbox and its section stay visible until the next authorized
-    // snapshot commits. A stale or denied response cannot change either one.
-    setNavOpen(false);
-    return onSelectWorkspace(next, nextSection).then(() => { if (selection === inboxSelection.current) chooseSection(nextSection); }).catch(caught => {
-      if (!(caught instanceof SessionRequestCancelled)) setToast(errorMessage(caught));
-    });
+  async function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox'): Promise<void> {
+    await navigation.current!.go({ inbox: next.id, section: nextSection, folder: null, case: null });
   }
   async function refreshSelectedCase() {
     if (selectedCaseView.inbox.id === workspace.id) { await onRefresh(); return; }
@@ -964,7 +1000,7 @@ export function AppShell(props: ShellProps) {
     try {
       if (workspace.id === previewWorkspace.id) throw new Error('Folder changes are unavailable in the design preview. Sign in to save changes.');
       await api.deleteInboxFolder(workspace.id, folderToDelete.id);
-      if (selectedFolderId === folderToDelete.id) setSelectedFolderId(null);
+      if (navigation.current!.current().folder === folderToDelete.id) await navigation.current!.go({ ...navigation.current!.current(), folder: null, case: null }, 'replace');
       setFolderToDelete(null);
       try { await refreshInboxPreferences(); setToast('Folder deleted'); }
       catch { setToast('Folder deleted. Refresh to update the list.'); }
@@ -974,7 +1010,7 @@ export function AppShell(props: ShellProps) {
   function openCase(item: WorkCase) {
     const source = caseSources.find(entry => entry.workCase === item);
     if (!source) return;
-    setSelectedCaseId(source.key);
+    void navigation.current!.go({ inbox: workspace.id, section, folder: selectedFolderId, case: source.key });
     const patch = readAcknowledgementForCase(item);
     if (patch && !item.inboxPreference?.read && source.sourceView.inbox.id !== previewWorkspace.id) {
       void api.updateInboxPreference(source.sourceView.inbox.id, item.id, patch)
@@ -989,8 +1025,7 @@ export function AppShell(props: ShellProps) {
     const source = caseSources.find(entry => entry.workCase.id === item.id && entry.sourceView.inbox.id === view.inbox.id)
       || caseSources.find(entry => entry.workCase.id === item.id);
     if (!source) { setToast('Load the conversation’s history before opening it.'); return; }
-    chooseSection(source.workCase.inboxPreference?.archived ? 'completed' : 'inbox');
-    openCase(source.workCase);
+    void navigation.current!.go({ inbox: workspace.id, section: source.workCase.inboxPreference?.archived ? 'completed' : 'inbox', folder: null, case: source.key });
   }
   function toggleAgent(agentId: string) {
     setExpandedAgents(current => current.includes(agentId) ? current.filter(id => id !== agentId) : [...current, agentId]);
@@ -1021,7 +1056,7 @@ export function AppShell(props: ShellProps) {
           {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
           <div className="nav-section-heading"><span>Folders</span><button aria-label="Create folder" disabled={!view.folders} onClick={() => { setFolderError(''); setFolderDialogOpen(true); }}><Plus size={15} /></button></div>
           {view.folders?.map(folder => <div key={folder.id} className="folder-nav-row" onContextMenu={event => { event.preventDefault(); setFolderMenuId(folder.id); }}>
-            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>
+            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { void navigation.current!.go({ inbox: workspace.id, section: 'inbox', folder: folder.id, case: null }); }}><Folder size={16} /><span>{folder.name}</span></button>
             <button className="folder-menu-trigger icon-button" aria-label={`More options for ${folder.name}`} aria-haspopup="menu" aria-expanded={folderMenuId === folder.id} onClick={() => setFolderMenuId(current => current === folder.id ? null : folder.id)}><MoreHorizontal size={16} /></button>
             {folderMenuId === folder.id && <div className="folder-context-menu" role="menu" aria-label={`${folder.name} options`}><button role="menuitem" onClick={() => { setFolderMenuId(null); setFolderError(''); setFolderToDelete(folder); }}><Trash2 size={16} />Delete folder</button></div>}
           </div>)}
@@ -1040,7 +1075,7 @@ export function AppShell(props: ShellProps) {
       <section className={`application ${utilitySection || props.claimRoute ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
         {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span></div>}
 
-        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); chooseSection('integrations'); navigateInternal('/app'); } }} /></main> : utilitySection ? (
+        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await navigation.current!.go({ inbox: inbox.id, section: 'integrations', folder: null, case: null }); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
 {section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={() => chooseSection('integrations')} />}
@@ -1052,7 +1087,7 @@ export function AppShell(props: ShellProps) {
           <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}`}>
 {!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={() => chooseSection('integrations')} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
             {selectedCase && <main id="main-content" className="case-main">
-<CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
+<CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { void navigation.current!.go({ inbox: workspace.id, section, folder: selectedFolderId, case: null }); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); if (navigation.current!.current().case === selectedCaseEntry?.key) await navigation.current!.go({ ...navigation.current!.current(), case: null }, 'replace'); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
             </main>}
           </div>
         )}

@@ -7,12 +7,12 @@ Source: frozen draft #264, lane-b/inbox-navigation-fast, df01e525cfc7a76502eb353
 
 ## Exact carry ledger
 
-- frontend/src/internal-navigation.ts: copied from df01e525, unchanged at extraction (internalRoute, navigateInternal, INTERNAL_ROUTE_EVENT).
+- frontend/src/internal-navigation.ts: copied from df01e525 (internalRoute, navigateInternal, INTERNAL_ROUTE_EVENT); extended here with replaceState support for canonical and refused history entries.
 - frontend/src/workspace-switch.ts: copied from df01e525, unchanged at extraction (abort and latest-authorized-response coordination).
 - frontend/test/internal-navigation.test.ts and frontend/test/workspace-switch.test.ts: copied unchanged from df01e525.
 - frontend/src/App.tsx: navigation imports only; App route/popstate/click handling and retained Connect/Workspace mounts; WorkspaceApp route prop and reactive claim/authorization route rendering; workspaceSwitch reference and private-state cancellation; authorized selectWorkspace staging; defer requested section until selection succeeds; chooseInbox deferred section update; claim-to-app navigation; Manage agents selection callback; ClaimPage Back client navigation.
 - Original App diff hunk old-line starts carried: 122, 167, 180, 523, 559, 581, 866, 985, 1013 (against 5b4d7c2). The original import hunk is reduced to the two navigation modules.
-- Additional work here: selection intent guards across promise continuations and cancellation when choosing a section; pending/failure/stale-response regression coverage. History restoration beyond the original top-level route handling remains to finish and verify.
+- Additional work here: selection intent guards across promise continuations and cancellation when choosing a section; pending/failure/stale-response regression coverage. Added app-navigation.ts and its regression suite for URL-backed inbox/section/folder/case intent, latest-selection commit, Back/Forward restoration, cancellation and refusal repair. Wired AppShell clicks and history events through that coordinator; direct loads select the URL inbox only from the authorized directory. Synthetic fixture and current browser findings are recorded in acceptance/navigation-local.md. Remaining browser and complete delivery checks remain open.
 
 ## Excluded source
 

@@ -10,10 +10,10 @@ export function internalRoute(href: string, origin: string, target = '', downloa
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-export function navigateInternal(path: string) {
+export function navigateInternal(path: string, replace = false) {
   const route = internalRoute(path, window.location.origin);
   if (!route) throw new Error('Unsupported internal route');
   if (`${window.location.pathname}${window.location.search}${window.location.hash}` === route) return;
-  window.history.pushState(null, '', route);
+  window.history[replace ? 'replaceState' : 'pushState'](null, '', route);
   window.dispatchEvent(new Event(INTERNAL_ROUTE_EVENT));
 }
