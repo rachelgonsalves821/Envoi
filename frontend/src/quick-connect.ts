@@ -78,12 +78,28 @@ export function dotsSetupPrompt(origin: string, name: string, requestedAddress: 
   }
   return `Connect my ChatGPT Dot ${name} to Envoi for on-demand work. Ask me to install the Envoi custom MCP plugin at ${origin}/mcp in my ChatGPT Work account and complete its OAuth authorization. Do not ask for an Envoi enrollment token or paste credentials into chat. When Envoi asks me to approve the connection, I will select this workspace, request ${requestedAddress} as the agent address, and review the requested permissions. That address is assigned only after approval and OAuth exchange. Once connected, verify the actual Envoi address and permissions before doing work. Ask me to designate a test case and exact recipient before sending a test reply.
 
-If I ask for background receiving, create a native monitoring task subscribed to envoi.work_available with arguments {} using normal defaults. Let ChatGPT retain the callback and signing secret privately; never display them. Do not impose a TTL field the native interface does not expose or use a model timer as a background receiver. A connected plugin alone does not start monitoring. An event is only a hint: fetch and claim authorized work through Envoi tools, use the current lease when acknowledging or settling it, and use stable idempotency keys for replies and settlement. Ask for any send approval required by the host or by my instructions. Report completed work only after the canonical send and settlement succeed. If subscription creation fails, report the exact public error and stop rather than retrying indefinitely. When I stop monitoring, disable the native task and unsubscribe. Revoking the Envoi installation also ends its access.`;
+If I ask for background receiving, create a native monitoring task subscribed to envoi.work_available with arguments {} using normal defaults. Let ChatGPT retain the callback and signing secret privately; never display them. Do not impose a TTL field the native interface does not expose or use a model timer as a background receiver. A connected plugin alone does not start monitoring. An event is only a hint: fetch and claim authorized work through Envoi tools, use the current lease when acknowledging or settling it, and use stable idempotency keys for replies and settlement. Ask for any send approval required by the host or by my instructions. Report completed work only after the canonical send and settlement succeed. A delivered notification only means Envoi handed off the hint; until you claim, reply and settle, that work is still pending. If subscription creation fails, report the exact public error and stop rather than retrying indefinitely.
+
+If an Envoi tool asks for reauthentication or reports an authentication error, ask me to reconnect the plugin's OAuth and choose this same agent under "Reconnect an existing agent" in Envoi. Never create or switch to another agent yourself. After reconnecting, verify the address and permissions again, then recreate the monitoring task if I still want background receiving, because reconnecting replaces the earlier installation and ends its subscription. When I stop monitoring, disable the native task and unsubscribe. Revoking the Envoi installation also ends its access and its subscription.`;
 }
 
 export function dotsSetupSkillFile(origin: string, name: string, requestedAddress: string) {
-  return `---\nname: envoi-dots-setup\ndescription: Connect a ChatGPT Dot to Envoi for on-demand work.\n---\n\n# Connect Dots to Envoi\n\n${dotsSetupPrompt(origin, name, requestedAddress)}\n`;
+  return `---\nname: envoi-dots-setup\ndescription: Connect a ChatGPT Dot to Envoi with OAuth, with optional native background notifications.\n---\n\n# Connect Dots to Envoi\n\n${dotsSetupPrompt(origin, name, requestedAddress)}\n`;
 }
+
+/** Owner-facing Dots steps rendered by the Connect Dots dialog. Kept here so the claims are unit tested. */
+export function dotsSetupSteps(origin: string) {
+  return [
+    `In your ChatGPT Work account, add Envoi as a custom MCP plugin at ${origin}/mcp with OAuth authentication.`,
+    'When ChatGPT opens Envoi, sign in, create a new agent or choose “Reconnect an existing agent”, then review its workspace, address and permissions. Receiving needs envoi.agent; replies also need envoi.send.',
+    'In your Dot, ask it to check its Envoi identity and confirm the address and permissions match what you approved. You can then use Envoi tools in an active chat.',
+    'For notifications while the chat or Chrome is closed, explicitly ask the Dot to start a native monitoring task subscribed to envoi.work_available. Connecting the plugin alone does not start one.',
+    'A delivered notification is only a hint. The work stays pending until the Dot claims it, replies and settles it in Envoi.',
+    'To stop, ask the Dot to stop monitoring and unsubscribe. To disconnect only this Dot, use Revoke installation in the agent’s Runtime installations panel; Revoke agent access freezes the agent and every connection.'
+  ] as const;
+}
+
+export const dotsRouteUnavailableNotice = 'You can prepare the prompt now. OAuth approval works only after this deployment enables the Dots OAuth route; background notifications also need its native event support.';
 
 // Serial, bounded polling: one in-flight request, cancelled when the dialog closes.
 export function watchEnrollmentStatus(options: {

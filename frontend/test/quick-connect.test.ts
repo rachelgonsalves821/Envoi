@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnrollmentDialog, RuntimePicker, RuntimePreparation } from '../src/App';
 import { api } from '../src/api';
-import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, dotsSetupPrompt, dotsSetupSkillFile, dotsSetupSteps, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
+import { agentCatalog } from '../src/onboarding/agent-catalog';
 import type { Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
@@ -54,6 +55,28 @@ describe('Quick Connect handoff', () => {
     expect(prompt).not.toContain(handoff.enrollmentToken);
     expect(dotsSetupSkillFile('https://envoi.example', 'Milo', 'milo@agents.envoi.example')).toContain(prompt);
     expect(() => dotsSetupPrompt('javascript:alert(1)', 'Milo', 'milo@agents.envoi.example')).toThrow();
+  });
+
+  it('describes Dots OAuth, native monitoring, pending work, reconnect and cleanup without stale claims', () => {
+    const prompt = dotsSetupPrompt('https://envoi.example', 'Milo', 'milo@agents.envoi.example');
+    const steps = dotsSetupSteps('https://envoi.example');
+    const dots = agentCatalog.find(agent => agent.id === 'dots')!;
+    const owner = [...steps, dotsRouteUnavailableNotice, dots.instructions].join('\n');
+    for (const text of [prompt, owner]) {
+      expect(text).not.toMatch(/still being verified|not implemented|unimplemented|closed-app delivery/i);
+      expect(text).toContain('envoi.work_available');
+      expect(text).toMatch(/alone does not start/);
+      expect(text).toMatch(/pending until the Dot claims|still pending/);
+      expect(text).toContain('Reconnect an existing agent');
+    }
+    expect(steps[0]).toContain('https://envoi.example/mcp');
+    expect(steps.join('\n')).toMatch(/envoi\.agent; replies also need envoi\.send/);
+    expect(steps.join('\n')).toContain('Revoke installation');
+    expect(prompt).toMatch(/Never create or switch to another agent yourself/);
+    expect(prompt).toMatch(/recreate the monitoring task/);
+    expect(prompt).toMatch(/disable the native task and unsubscribe/);
+    expect(prompt).not.toMatch(/envoi_agent_(access|refresh)_/);
+    expect(dotsRouteUnavailableNotice).toMatch(/native event support/);
   });
 
   it.each(RUNTIME_OPTIONS)('provides the same setup flow for $label with isolated runtime-specific preparation', option => {
