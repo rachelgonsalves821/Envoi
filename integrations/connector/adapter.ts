@@ -1,5 +1,6 @@
 import type { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
+import type { ScopedRuntimeObserver } from '../agent-bridges/runtime-events';
 
 export class ConnectorSetupError extends Error {
   constructor(public readonly code: string, message: string) { super(message); this.name = 'ConnectorSetupError'; }
@@ -17,6 +18,14 @@ export interface AdapterOptions {
   prepareRuntime?: boolean;
   fetch?: typeof fetch;
   signal?: AbortSignal;
+  /** Trusted-host, allowlisted runtime diagnostics; never part of model input. */
+  onRuntimeEvent?: ScopedRuntimeObserver;
+  beforeNativeSubmit?: import('../hermes/native-binding').NativeSubmissionGuard;
+  beforeScopedTurn?: import('../hermes/native-binding').ScopedPreparationGuard;
+  nativeRequestGate?: import('../hermes/request-gate-attestation').NativeRequestGateExpectation;
+  /** Opt-in trusted local target selection; conveys no native egress capability. */
+  openClawTargetResolver?: import('../openclaw/scoped-target').OpenClawTargetResolver;
+  openClawTargetSelection?: import('../openclaw/scoped-target').OpenClawTargetSelectionAuthority;
 }
 export interface AdapterContext extends AdapterOptions {
   apiUrl: string;
@@ -33,6 +42,8 @@ export interface ConnectorAdapter<C = unknown> {
   runtime: ConnectorRuntime;
   discover(options: AdapterOptions, previous?: C): Promise<C>;
   preflight(config: C, options: AdapterOptions): Promise<void>;
+  /** Restart-only, read-only readiness probe. Setup still uses the full model preflight. */
+  startupCheck?(config: C, options: AdapterOptions): Promise<void>;
   /** Configure local tools after enrollment, before the runtime bridge starts. */
   configure?(config: C, context: AdapterContext): Promise<void>;
   createBridge(config: C, context: AdapterContext): Promise<RuntimeBridge>;
