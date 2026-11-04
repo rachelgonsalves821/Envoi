@@ -9,6 +9,9 @@ const controls = new Map();
 const requests = [];
 const fixture = {
   name: 'synthetic-navigation-fixture',
+  transformIndexHtml(html) {
+    return html.replace('</body>', `<nav aria-label="Synthetic fixture routes"><a href="/authorize-agent?request=synthetic-one">Fixture authorize one</a> <a href="/authorize-agent?request=synthetic-two">Fixture authorize two</a> <a href="/api/auth/workos/sign-in?returnTo=%2Fapp">Fixture sign-in</a></nav><meta name="synthetic-document" content="${Date.now()}"></body>`);
+  },
   configureServer(server) {
     server.middlewares.use(async (req, res, next) => {
       const url = new URL(req.url, 'http://127.0.0.1');
@@ -21,6 +24,8 @@ const fixture = {
       if (url.pathname === '/fixture-signed-out') { res.setHeader('content-type', 'text/html'); return res.end('<h1>Synthetic sign-out confirmed</h1>'); }
       if (!url.pathname.startsWith('/api/')) return next();
       requests.push({ method: req.method, path: url.pathname, at: Date.now() });
+      if (url.pathname === '/api/auth/workos/sign-in') { res.setHeader('content-type', 'text/html'); return res.end('<h1>Synthetic identity-provider sign-in</h1>'); }
+      if (url.pathname.startsWith('/api/oauth/authorization-requests/')) return send({ message: 'Synthetic authorization request ' + url.pathname.split('/').pop() + ' unavailable' }, 404);
       if (url.pathname === '/api/auth/config') return send({ provider: 'local', hosted: false });
       if (url.pathname === '/api/auth/me') return signedOut ? send({ message: 'Signed out' }, 401) : send({ id: 'human_preview', displayName: 'Synthetic owner', auth: { provider: 'local', assurance: 'mfa' } });
       if (url.pathname === '/api/auth/logout') { signedOut = true; return send({ revoked: true, logoutUrl: '/fixture-signed-out' }); }
