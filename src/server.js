@@ -4498,7 +4498,8 @@ async function route(req, res) {
     }
     return a2aJson(res, 501, { error: { code: 'UNSUPPORTED_OPERATION', message: 'A2A operation is not supported' } });
   }
-  if (url.pathname.startsWith('/api/agent/a2a/')) return a2aJson(res, 501, { error: { code: 'UNSUPPORTED_OPERATION', message: 'A2A operation is not supported' } });
+  // phase-d v1 §1: with the A2A flag off, no Phase D route (including this fallback) exists.
+  if (onboardingFlags.a2aGateway && url.pathname.startsWith('/api/agent/a2a/')) return a2aJson(res, 501, { error: { code: 'UNSUPPORTED_OPERATION', message: 'A2A operation is not supported' } });
 
   if (req.method === 'GET' && url.pathname === '/api/agent/status') {
     const identity = await getAgentWorkIdentity(req);

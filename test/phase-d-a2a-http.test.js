@@ -96,4 +96,11 @@ test('[FileStore] A2A edge is absent while its flag is off', { timeout: 30000 },
   const disabled = await a2a(server.baseUrl, `${route(who.agent.address)}/card`, who.agentApiToken);
   assert.equal(disabled.status, 404);
   assert.equal(disabled.payload.code, 'FEATURE_DISABLED');
+  // Paths outside the contracted edge fall through to the pre-Phase D not-found route, not a 501 A2A error.
+  for (const pathname of [`${route(who.agent.address)}/message:stream`, route(who.agent.address), '/api/agent/a2a/unknown']) {
+    const absent = await a2a(server.baseUrl, pathname, who.agentApiToken, { method: 'POST', payload: {} });
+    assert.equal(absent.status, 404, pathname);
+    assert.notEqual(absent.payload?.error?.code, 'UNSUPPORTED_OPERATION', pathname);
+    assert.doesNotMatch(String(absent.contentType), /a2a\+json/, pathname);
+  }
 });
