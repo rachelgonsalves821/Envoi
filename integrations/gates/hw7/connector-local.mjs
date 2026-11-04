@@ -13,6 +13,14 @@ const exec = promisify(execFile);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runtime = path.resolve(here, '../.runtime');
 const retryBaseMs = Number(process.env.ENVOI_HW7_RETRY_BASE_MS || 20000);
+const evidenceRun = process.env.ENVOI_HW7_EVIDENCE_RUN || '';
+assert.match(evidenceRun, /^[A-Za-z0-9_-]{0,24}$/, 'Invalid evidence run label');
+const databaseUrlFile = process.env.ENVOI_HW7_DATABASE_URL_FILE;
+const databaseUrlInput = databaseUrlFile ? (await readFile(databaseUrlFile, 'utf8')).trim() : '';
+const databaseUrlParsed = databaseUrlInput ? new URL(databaseUrlInput) : null;
+if (databaseUrlParsed) databaseUrlParsed.searchParams.delete('sslmode');
+const databaseUrl = databaseUrlParsed?.toString() || '';
+if (databaseUrlFile) assert.match(databaseUrl, /^postgres(?:ql)?:\/\//, 'Expected a PostgreSQL URL in the private file');
 assert.ok(Number.isSafeInteger(retryBaseMs) && retryBaseMs >= 1000 && retryBaseMs <= 60000);
 const root = path.resolve(process.env.ENVOI_GA4_TARGET_ROOT || '');
 const sha = process.env.ENVOI_GA4_SHA;
@@ -30,13 +38,16 @@ const { owner, api, send, eventually, sleep, ownerMessages, ownerEvents, readDat
 
 const scratch = await mkdtemp(path.join(tmpdir(), 'envoi-ga4-private-'));
 const stateDir = path.join(scratch, 'connector'); await mkdir(stateDir);
-const env = { ...process.env, DATABASE_URL: '' };
+const env = { ...process.env, DATABASE_URL: databaseUrl };
 for (const key of Object.keys(env)) if (/^(ENVOI|SINALOA)_/.test(key)) delete env[key];
 Object.assign(env, { ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: path.join(scratch, 'data'),
-  ENVOI_RELEASE_SHA: sha, ENVOI_AGENT_WORK_RETRY_BASE_MS: String(retryBaseMs) });
+  ENVOI_RELEASE_SHA: sha, ENVOI_AGENT_WORK_RETRY_BASE_MS: String(retryBaseMs),
+  ...(databaseUrl ? { ENVOI_DB_SSL_MODE: 'verify-full' } : {}) });
+if (databaseUrl) process.env.ENVOI_DB_SSL_MODE = 'verify-full';
 const entries = [], children = new Set(), streams = new Set();
-let service, worker, baseUrl, proxy, blocked = false, droppedStreams = 0, blockedReconnects = 0, forwardedAfterCut = 0;
-const summary = { testedSha: sha, artifactSha256, storage: 'FileStore', serverCommand: 'npm start',
+let service, worker, baseUrl, proxy, databaseStore, blocked = false, droppedStreams = 0, blockedReconnects = 0, forwardedAfterCut = 0;
+const storage = databaseUrl ? 'hosted PostgreSQL' : 'FileStore';
+const summary = { testedSha: sha, artifactSha256, storage, serverCommand: 'npm start',
   node: process.version, recordedAt: new Date().toISOString(), result: 'FAIL',
   connector: 'production startConnection + EnvoiConnector + FileBridgeStore, separate child process',
   handler: 'controlled local durable handler; no provider or real host',
@@ -44,8 +55,8 @@ const summary = { testedSha: sha, artifactSha256, storage: 'FileStore', serverCo
   networkFault: 'HTTP proxy closes active SSE sockets and rejects SSE reconnects; REST remains real and available',
   interruption: 'forced worker process termination before offline delivery',
   scenarios: [] };
-const spawnChild = args => {
-  const child = spawn(process.execPath, args, { cwd: root, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+const spawnChild = (args, envOverrides = {}) => {
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...env, ...envOverrides }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   children.add(child);
   for (const stream of [child.stdout, child.stderr]) stream.on('data', () => {}); // Drain without exporting credentials or payloads.
   return child;
@@ -59,7 +70,7 @@ async function kill(child) {
 }
 async function startWorker() {
   const first = entries.length;
-  worker = spawnChild([path.join(runtime, 'ga4-worker.mjs'), stateDir]);
+  worker = spawnChild([path.join(runtime, 'ga4-worker.mjs'), stateDir], { DATABASE_URL: '' });
   worker.on('message', entry => entries.push(entry));
   await wait(() => entries.slice(first).some(entry => entry.type === 'ready'), 'connector ready');
 }
@@ -87,12 +98,17 @@ try {
   const npmCli = path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
   service = spawnChild([npmCli, 'start']);
   baseUrl = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('FileStore server startup timeout')), 20000);
-    service.once('exit', () => { clearTimeout(timer); reject(new Error('FileStore server exited')); });
+    const timer = setTimeout(() => reject(new Error(`${storage} server startup timeout`)), databaseUrl ? 90000 : 20000);
+    service.once('exit', () => { clearTimeout(timer); reject(new Error(`${storage} server exited during startup`)); });
     service.stdout.on('data', chunk => { const match = String(chunk).match(/http:\/\/127\.0\.0\.1:\d+/); if (match) { clearTimeout(timer); resolve(match[0]); } });
   });
   const health = await (await fetch(`${baseUrl}/health`)).json(); assert.equal(health.releaseSha, sha); assert.equal(health.service, 'envoi');
   const server = { baseUrl, dataDir: env.ENVOI_DATA_DIR };
+  if (databaseUrl) {
+    const { PostgresStore } = await import(pathToFileURL(path.join(root, 'src/postgres-storage.js')).href);
+    databaseStore = new PostgresStore(databaseUrl);
+  }
+  const readWorkRecord = (...parts) => databaseStore ? databaseStore.getJson(parts.join('/')) : readData(server, ...parts);
   proxy = createServer((incoming, outgoing) => {
     const isSse = /^\/api\/inboxes\/[^/]+\/events(?:\?|$)/.test(incoming.url);
     if (isSse && blocked) { blockedReconnects += 1; incoming.socket.destroy(); return; }
@@ -110,7 +126,10 @@ try {
   });
   await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
   const proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
-  const actor = await owner(baseUrl, '9501'), peer = await owner(baseUrl, '9502');
+  // Hosted storage survives test process restarts; each run needs fresh dev identities.
+  const suffix = 1000 + Math.floor(Math.random() * 8998);
+  const caseTag = `${suffix}_${Date.now()}`;
+  const actor = await owner(baseUrl, String(suffix)), peer = await owner(baseUrl, String(suffix + 1));
   const bind = await api(baseUrl, `/api/inboxes/${actor.inbox.id}/agents/${actor.agent.id}/credentials/reconnect-token`, { session: actor.session, body: { runtime: 'hermes' } }); assert.equal(bind.status, 201);
   const bound = await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: bind.payload.enrollmentToken, runtime: 'hermes' } }); assert.equal(bound.status, 200); Object.assign(actor, bound.payload);
   const credentials = { agentId: actor.agent.id, inboxId: actor.inbox.id, address: actor.agent.address,
@@ -121,14 +140,14 @@ try {
     agentName: 'GA4 disposable controlled handler', configuration: { controlledGateHandler: true } }), { mode: 0o600 });
   await startWorker(); await wait(() => streams.size > 0, 'real SSE stream connected');
   worker.send({ command: 'fail-next' }); await wait(() => entries.some(entry => entry.type === 'fail-next-ready'), 'arm controlled retry');
-  const sent = await send(baseUrl, peer, actor, { text: 'GA4 delayed retry without a new wake', caseId: 'case_ga4_retry' }); assert.equal(sent.status, 202);
+  const sent = await send(baseUrl, peer, actor, { text: 'GA4 delayed retry without a new wake', caseId: `case_ga4_retry_${caseTag}` }); assert.equal(sent.status, 202, `retry send: ${sent.payload?.code} ${sent.payload?.message}`);
   const retryId = sent.payload.id;
-  const delayed = await wait(async () => { const record = await readData(server, ...workClaimParts(actor.inbox.id, retryId)); return record?.status === 'retryable' && record; }, 'durable retry-delayed work');
+  const delayed = await wait(async () => { const record = await readWorkRecord(...workClaimParts(actor.inbox.id, retryId)); return record?.status === 'retryable' && record; }, 'durable retry-delayed work');
   assert.ok(Date.parse(delayed.retryAt) > Date.now()); assert.equal((await log()).filter(entry => entry.id === retryId && entry.outcome === 'processing').length, 0);
   blocked = true;
   for (const stream of [...streams]) { droppedStreams += 1; stream.outgoing.destroy(); stream.response.destroy(); stream.upstream.destroy(); stream.incoming.socket.destroy(); }
   assert.ok(droppedStreams > 0); await crashWorker(); const before = await session();
-  const offline = await send(baseUrl, peer, actor, { text: 'GA4 arrived offline without a new wake', caseId: 'case_ga4_offline' }); assert.equal(offline.status, 202);
+  const offline = await send(baseUrl, peer, actor, { text: 'GA4 arrived offline without a new wake', caseId: `case_ga4_offline_${caseTag}` }); assert.equal(offline.status, 202, `offline send: ${offline.payload?.code} ${offline.payload?.message}`);
   const offlineId = offline.payload.id; await waitForMessageStatus(baseUrl, actor, offlineId, 'delivered');
   const wakesBefore = await wakeIds(actor);
   assert.ok(Date.parse(delayed.retryAt) > Date.now(), 'Retry must still be delayed when restarting');
@@ -139,11 +158,14 @@ try {
   await wait(() => entries.slice(recoveryStart).some(entry => entry.type === 'http' && entry.route === '/api/agent/work/claim' && entry.state === 'idle' && entry.hint > 0), 'real idle claim contains relative retry hint');
   for (const [id, label] of [[offlineId, 'offline-arrival'], [retryId, 'retry-delayed']]) {
     await wait(async () => (await ownerMessages(baseUrl, actor)).some(message => message.id === id && message.status === 'processed'), `${label} processed`);
-    const record = await readData(server, ...workClaimParts(actor.inbox.id, id)); assert.equal(record.status, 'completed');
+    const record = await readWorkRecord(...workClaimParts(actor.inbox.id, id)); assert.equal(record.status, 'completed');
     assert.equal(entries.filter(entry => entry.type === 'http' && entry.route === `/api/agent/work/${id}/complete` && entry.receiptState === 'processed').length, 1);
     assert.equal((await log()).filter(entry => entry.id === id && entry.outcome === 'processing').length, 1);
+    const effectAt = entries.find(entry => entry.type === 'effect' && entry.id === id)?.at;
+    const receiptAt = entries.find(entry => entry.type === 'http' && entry.route === `/api/agent/work/${id}/complete` && entry.receiptState === 'processed')?.at;
     summary.scenarios.push({ id: label, result: 'PASS', successfulProcessing: 1, successfulCompletionReceipts: 1,
-      recoveryLatencyMs: Date.now() - recoveryStartedAt }); console.log(`PASS ${label}`);
+      recoveryLatencyMs: Date.now() - recoveryStartedAt, effectLatencyMs: effectAt - recoveryStartedAt,
+      completionReceiptLatencyMs: receiptAt - recoveryStartedAt }); console.log(`PASS ${label}`);
   }
   const recoveryEntries = entries.slice(recoveryStart);
   summary.metrics = { elapsedMsToBothProcessed: Date.now() - recoveryStartedAt,
@@ -177,11 +199,12 @@ try {
 } finally {
   for (const stream of streams) { stream.outgoing.destroy(); stream.response.destroy(); stream.upstream.destroy(); }
   await Promise.all([...children].map(kill));
+  if (databaseStore) await databaseStore.close();
   if (proxy) { proxy.closeAllConnections(); await new Promise(resolve => proxy.close(resolve)); }
-  const output = path.join(here, 'evidence', `ga4-${sha.slice(0, 7)}-${retryBaseMs}`); await mkdir(output, { recursive: true });
+  const output = path.join(here, 'evidence', `ga4-${databaseUrl ? 'postgres-' : ''}${sha.slice(0, 7)}-${retryBaseMs}${evidenceRun ? `-${evidenceRun}` : ''}`); await mkdir(output, { recursive: true });
   // Failed details stay local; only successful, identifier-free evidence is publishable.
   await writeFile(path.join(output, summary.result === 'PASS' ? 'summary.json' : 'result.json'), JSON.stringify(summary, null, 2) + '\n');
   assert.equal(path.dirname(path.resolve(scratch)), path.resolve(tmpdir())); assert.ok(path.basename(scratch).startsWith('envoi-ga4-private-'));
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-  console.log(`${summary.result} GA4 FileStore @${sha}; evidence: ${output}`);
+  console.log(`${summary.result} GA4 ${storage} @${sha}; evidence: ${output}`);
 }

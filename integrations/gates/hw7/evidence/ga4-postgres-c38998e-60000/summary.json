@@ -1,0 +1,51 @@
+{
+  "testedSha": "c38998e224940e508b987af0b23ad24e7ec856ae",
+  "artifactSha256": "d1a71c40106ca39212e0f0dfd0dbb7cc5e95661ee2d809b0029301d4ef5517dc",
+  "storage": "hosted PostgreSQL",
+  "serverCommand": "npm start",
+  "node": "v24.11.1",
+  "recordedAt": "2026-11-04T23:01:27.976Z",
+  "result": "PASS",
+  "connector": "production startConnection + EnvoiConnector + FileBridgeStore, separate child process",
+  "handler": "controlled local durable handler; no provider or real host",
+  "timerOverrides": "none on client; server retry base 60000 ms",
+  "networkFault": "HTTP proxy closes active SSE sockets and rejects SSE reconnects; REST remains real and available",
+  "interruption": "forced worker process termination before offline delivery",
+  "scenarios": [
+    {
+      "id": "offline-arrival",
+      "result": "PASS",
+      "successfulProcessing": 1,
+      "successfulCompletionReceipts": 1,
+      "recoveryLatencyMs": 6717
+    },
+    {
+      "id": "retry-delayed",
+      "result": "PASS",
+      "successfulProcessing": 1,
+      "successfulCompletionReceipts": 1,
+      "recoveryLatencyMs": 59741
+    }
+  ],
+  "metrics": {
+    "elapsedMsToBothProcessed": 59741,
+    "restCallsToBothProcessed": 14,
+    "workClaimCallsToBothProcessed": 7,
+    "modelCalls": 0,
+    "modelTokens": 0,
+    "paidApiCostUsd": 0
+  },
+  "verification": {
+    "sseStreamsDropped": 1,
+    "blockedSseReconnects": 17,
+    "sseBytesAfterCut": 0,
+    "storedEventsDeliveredDuringRecovery": 0,
+    "deltaRequests": 0,
+    "newWakeEventsAfterOfflineDelivery": 0,
+    "relativeRetryHintObserved": true,
+    "identityAndCredentialsPreserved": true,
+    "cursorPreserved": true,
+    "laterSafetyClaimsAndSecondRestartProduceDuplicates": false,
+    "controlledFailureBeforeEffect": 1
+  }
+}
