@@ -1,0 +1,51 @@
+{
+  "testedSha": "86778ca2f8f544b2c63ba2b6015199ec814ac190",
+  "artifactSha256": "d1a71c40106ca39212e0f0dfd0dbb7cc5e95661ee2d809b0029301d4ef5517dc",
+  "storage": "FileStore",
+  "serverCommand": "npm start",
+  "node": "v24.11.1",
+  "recordedAt": "2026-11-04T17:43:29.612Z",
+  "result": "PASS",
+  "connector": "production startConnection + EnvoiConnector + FileBridgeStore, separate child process",
+  "handler": "controlled local durable handler; no provider or real host",
+  "timerOverrides": "none on client; server retry base 20 s to ensure work remains delayed through process restart",
+  "networkFault": "HTTP proxy closes active SSE sockets and rejects SSE reconnects; REST remains real and available",
+  "interruption": "forced worker process termination before offline delivery",
+  "scenarios": [
+    {
+      "id": "offline-arrival",
+      "result": "PASS",
+      "successfulProcessing": 1,
+      "successfulCompletionReceipts": 1,
+      "recoveryLatencyMs": 838
+    },
+    {
+      "id": "retry-delayed",
+      "result": "PASS",
+      "successfulProcessing": 1,
+      "successfulCompletionReceipts": 1,
+      "recoveryLatencyMs": 19616
+    }
+  ],
+  "metrics": {
+    "elapsedMsToBothProcessed": 19616,
+    "restCallsToBothProcessed": 11,
+    "workClaimCallsToBothProcessed": 4,
+    "modelCalls": 0,
+    "modelTokens": 0,
+    "paidApiCostUsd": 0
+  },
+  "verification": {
+    "sseStreamsDropped": 1,
+    "blockedSseReconnects": 12,
+    "sseBytesAfterCut": 0,
+    "storedEventsDeliveredDuringRecovery": 0,
+    "deltaRequests": 0,
+    "newWakeEventsAfterOfflineDelivery": 0,
+    "relativeRetryHintObserved": true,
+    "identityAndCredentialsPreserved": true,
+    "cursorPreserved": true,
+    "laterSafetyClaimsAndSecondRestartProduceDuplicates": false,
+    "controlledFailureBeforeEffect": 1
+  }
+}
