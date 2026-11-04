@@ -8,7 +8,7 @@ node integrations/gates/phase-c/offline/check.mjs
 
 On the operator's machine, add `--kit-root <absolute path to approved-continuation-v4>` to the **same command**. This verifies the assembled packet, SDK package and every source excerpt against the selected v4 bytes, then runs the original 65 tests on pinned disposable copies. Network and native-pipe connections are blocked before their imports; no file is executed in the original kit's directories. The command exits nonzero and prints the failing check/test with its reason. `SOURCE_CHANGED`, `V4_FILE_CHANGED` or `SELECTED_PACKET_CHANGED` requires a fresh source review and an explicitly refreshed snapshot; do not bypass the pin.
 
-The portable command runs the committed public v4 excerpts and production SDK against actual loopback server routes with fresh disposable FileStore state. It reuses the existing SDK/runtime regressions rather than copying their mocks into a new suite. CI runs the new `*.test.ts` files through the existing integrations runner and the reused SDK tests through its existing runner. No workflow or root package change is needed.
+The portable command runs the committed public v4 excerpts and production SDK against actual loopback server routes with fresh disposable FileStore state. It runs Vitest with two workers to reduce startup contention. It reuses the existing SDK/runtime regressions rather than copying their mocks into a new suite. CI runs the new `*.test.ts` files through the existing integrations runner and the reused SDK tests through its existing runner. No workflow or root package change is needed.
 
 ## Incident coverage
 

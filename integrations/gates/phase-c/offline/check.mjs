@@ -24,7 +24,7 @@ async function sourcePins() {
   for (const [name, entry] of Object.entries(selected.segments)) assert.equal(byteDigest(entry.source), entry.sha256, `V4_EXCERPT_CHANGED ${name}`);
 }
 async function suite(config, files) {
-  const child = spawn(process.execPath, [path.join(root, 'node_modules/vitest/vitest.mjs'), 'run', '--config', config, '--reporter=verbose', ...files],
+  const child = spawn(process.execPath, [path.join(root, 'node_modules/vitest/vitest.mjs'), 'run', '--config', config, '--maxWorkers=2', '--reporter=verbose', ...files],
     { cwd: root, env: process.env, stdio: 'inherit', windowsHide: true });
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
   assert.equal(code, 0, `TEST_FAILURE: rerun the named failing test from PowerShell; preserve its initiating error`);
