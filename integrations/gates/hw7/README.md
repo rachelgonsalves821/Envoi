@@ -12,7 +12,7 @@ Success is the recipient owner's API showing the message as `processed` within f
 
 ## Reproduce
 
-Use Windows PowerShell, Node 24, and the repository dependencies at the source commit. From the repository root:
+Check out the `lane-b/hw7-benchmark` evidence branch, whose parent is the tested source commit. Use Windows PowerShell and Node 24. From the repository root:
 
 ```powershell
 npm.cmd install
