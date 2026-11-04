@@ -16,7 +16,9 @@ export const isDeploymentName = value => typeof value === 'string' && DEPLOYMENT
 // ignored and grants nothing. A nonempty staging value that is not exactly one email address
 // (a list, whitespace or any `*` wildcard) fails closed; the error names the setting, never the value.
 export const STAGING_ADDITIONAL_INVITED_EMAIL = 'ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL';
+export const STAGING_UNCAPPED_AGENT_HUMAN_IDS = 'ENVOI_STAGING_UNCAPPED_AGENT_HUMAN_IDS';
 const SINGLE_EMAIL = /^[^\s@,;*]+@[^\s@,;*]+\.[^\s@,;*]+$/;
+const HUMAN_ID = /^human_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function stagingAdditionalInvitedEmail(value, environment) {
   if (environment !== 'staging') return null;
@@ -26,6 +28,20 @@ export function stagingAdditionalInvitedEmail(value, environment) {
     throw new Error(`${STAGING_ADDITIONAL_INVITED_EMAIL} must be one exact email address`);
   }
   return trimmed.toLowerCase();
+}
+
+// An exact, staging-only exception for at most two existing humans. IDs come from their own
+// authenticated /api/auth/me responses; no email, wildcard, or account creation is inferred.
+export function stagingUncappedAgentHumanIds(value, environment) {
+  if (value === undefined || value === null || value === '') return new Set();
+  if (environment !== 'staging' || typeof value !== 'string') {
+    throw new Error(`${STAGING_UNCAPPED_AGENT_HUMAN_IDS} is only valid in staging`);
+  }
+  const ids = value.split(',').map(id => id.trim());
+  if (ids.length < 1 || ids.length > 2 || ids.some(id => !HUMAN_ID.test(id)) || new Set(ids).size !== ids.length) {
+    throw new Error(`${STAGING_UNCAPPED_AGENT_HUMAN_IDS} must contain one or two distinct exact human IDs`);
+  }
+  return new Set(ids);
 }
 
 // Production must name its deployment (production-config.js). Anything else defaults to
