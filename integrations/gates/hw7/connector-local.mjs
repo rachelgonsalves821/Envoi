@@ -12,6 +12,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const exec = promisify(execFile);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runtime = path.resolve(here, '../.runtime');
+const retryBaseMs = Number(process.env.ENVOI_HW7_RETRY_BASE_MS || 20000);
+assert.ok(Number.isSafeInteger(retryBaseMs) && retryBaseMs >= 1000 && retryBaseMs <= 60000);
 const root = path.resolve(process.env.ENVOI_GA4_TARGET_ROOT || '');
 const sha = process.env.ENVOI_GA4_SHA;
 assert.match(sha || '', /^[a-f0-9]{40}$/, 'Set ENVOI_GA4_SHA to the complete exact target SHA');
@@ -31,14 +33,14 @@ const stateDir = path.join(scratch, 'connector'); await mkdir(stateDir);
 const env = { ...process.env, DATABASE_URL: '' };
 for (const key of Object.keys(env)) if (/^(ENVOI|SINALOA)_/.test(key)) delete env[key];
 Object.assign(env, { ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: path.join(scratch, 'data'),
-  ENVOI_RELEASE_SHA: sha, ENVOI_AGENT_WORK_RETRY_BASE_MS: '20000' });
+  ENVOI_RELEASE_SHA: sha, ENVOI_AGENT_WORK_RETRY_BASE_MS: String(retryBaseMs) });
 const entries = [], children = new Set(), streams = new Set();
 let service, worker, baseUrl, proxy, blocked = false, droppedStreams = 0, blockedReconnects = 0, forwardedAfterCut = 0;
 const summary = { testedSha: sha, artifactSha256, storage: 'FileStore', serverCommand: 'npm start',
   node: process.version, recordedAt: new Date().toISOString(), result: 'FAIL',
   connector: 'production startConnection + EnvoiConnector + FileBridgeStore, separate child process',
   handler: 'controlled local durable handler; no provider or real host',
-  timerOverrides: 'none on client; server retry base 20 s to ensure work remains delayed through process restart',
+  timerOverrides: `none on client; server retry base ${retryBaseMs} ms`,
   networkFault: 'HTTP proxy closes active SSE sockets and rejects SSE reconnects; REST remains real and available',
   interruption: 'forced worker process termination before offline delivery',
   scenarios: [] };
@@ -176,7 +178,7 @@ try {
   for (const stream of streams) { stream.outgoing.destroy(); stream.response.destroy(); stream.upstream.destroy(); }
   await Promise.all([...children].map(kill));
   if (proxy) { proxy.closeAllConnections(); await new Promise(resolve => proxy.close(resolve)); }
-  const output = path.join(here, 'evidence', `ga4-${sha.slice(0, 7)}`); await mkdir(output, { recursive: true });
+  const output = path.join(here, 'evidence', `ga4-${sha.slice(0, 7)}-${retryBaseMs}`); await mkdir(output, { recursive: true });
   // Failed details stay local; only successful, identifier-free evidence is publishable.
   await writeFile(path.join(output, summary.result === 'PASS' ? 'summary.json' : 'result.json'), JSON.stringify(summary, null, 2) + '\n');
   assert.equal(path.dirname(path.resolve(scratch)), path.resolve(tmpdir())); assert.ok(path.basename(scratch).startsWith('envoi-ga4-private-'));
