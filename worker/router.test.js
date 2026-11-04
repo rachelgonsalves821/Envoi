@@ -201,3 +201,12 @@ test('the container receives the staging additional invited email and its finger
   // Without the setting the forwarded environment is exactly what it was before this key existed.
   assert.deepEqual(selectEnvironment({ ENVOI_BETA_INVITED_EMAILS: 'old@example.test' }, CONTAINER_ENV_KEYS, {}), { ENVOI_BETA_INVITED_EMAILS: 'old@example.test' });
 });
+
+test('the staging agent-limit exception reaches the container and changes its settings fingerprint', async () => {
+  const key = 'ENVOI_STAGING_UNCAPPED_AGENT_HUMAN_IDS';
+  assert.ok(CONTAINER_ENV_KEYS.includes(key));
+  const baseline = { ENVOI_DEPLOYMENT_ENVIRONMENT: 'staging' };
+  const configured = { ...baseline, [key]: 'human_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' };
+  assert.deepEqual(selectEnvironment(configured, CONTAINER_ENV_KEYS, {}), configured);
+  assert.notEqual(await environmentFingerprint(baseline), await environmentFingerprint(configured));
+});

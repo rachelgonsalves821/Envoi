@@ -1,7 +1,7 @@
 import { scannerHealthUrl } from './dependency-readiness.js';
 import { createPostgresOptions } from './postgres-options.js';
 import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from './envoi-environment.js';
-import { isDeploymentName, STAGING_ADDITIONAL_INVITED_EMAIL, stagingAdditionalInvitedEmail } from './deployment-identity.js';
+import { isDeploymentName, STAGING_ADDITIONAL_INVITED_EMAIL, stagingAdditionalInvitedEmail, STAGING_UNCAPPED_AGENT_HUMAN_IDS, stagingUncappedAgentHumanIds } from './deployment-identity.js';
 import { onboardingFlagErrors } from './onboarding-flags.js';
 
 const required = (env, name, errors, minimumLength = 1) => {
@@ -60,6 +60,8 @@ export function validateProductionConfiguration(env = process.env) {
   if (new Set(invitedEmails).size > 32) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 32 distinct addresses for the first beta');
   // A separate, optional staging-only address; the original list's own checks above are unchanged.
   try { stagingAdditionalInvitedEmail(env[STAGING_ADDITIONAL_INVITED_EMAIL], deploymentEnvironment); }
+  catch (error) { errors.push(error.message); }
+  try { stagingUncappedAgentHumanIds(env[STAGING_UNCAPPED_AGENT_HUMAN_IDS], deploymentEnvironment); }
   catch (error) { errors.push(error.message); }
   const signupMode = env.ENVOI_HUMAN_SIGNUP_MODE || 'invite-only';
   if (!['invite-only', 'public'].includes(signupMode)) errors.push('ENVOI_HUMAN_SIGNUP_MODE must be invite-only or public');
