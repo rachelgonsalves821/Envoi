@@ -34,12 +34,16 @@ describe('Dots onboarding route and grant recovery', () => {
     ]) { const value = structuredClone(body); mutate(value); expect(() => connectionOffer(value)).toThrow('unavailable'); }
   });
 
-  it('offers explicit plugin installation and a copyable endpoint without a browser link to /mcp', () => {
+  it('uses one official plugin and reserves the endpoint for diagnostics', () => {
     const html = renderToStaticMarkup(createElement(DotsSetupGuide, { origin, name: 'Example', address: 'example@envoi.example', reconnect: true }));
     expect(html).toContain('value="https://envoi.example/mcp"');
     expect(html).toContain('https://chatgpt.com/plugins');
     expect(html).not.toContain('href="https://envoi.example/mcp"');
-    expect(html).toContain('Add custom MCP server');
+    expect(html).not.toContain('Add custom MCP server');
+    expect(html).toContain('official Envoi plugin');
+    expect(html).toContain('Do not create a separate custom plugin');
+    expect(html).toContain('Repeated reconnects cannot fix a missing scope');
+    expect(html).toContain('For connection diagnostics');
     expect(html).toContain('receive-only grant cannot send');
     expect(html).toContain('Reconnect an existing agent');
     expect(html).toContain('cases and history');
@@ -49,7 +53,10 @@ describe('Dots onboarding route and grant recovery', () => {
 
   it('reuses installed plugins and verifies identity and scope before any send', () => {
     const prompt = dotsSetupPrompt(origin, 'Example', 'example@envoi.example', true);
-    expect(prompt).toContain('Use my installed Envoi plugin first');
+    expect(prompt).toContain('Use the official Envoi plugin already installed');
+    expect(prompt).not.toContain('Add custom MCP server');
+    expect(prompt).toContain('Do not create a separate personal plugin');
+    expect(prompt).toContain('stop and report the missing send scope');
     expect(prompt).toContain('envoi.agent envoi.send');
     expect(prompt).toContain('explicitly select Send agent messages');
     expect(prompt).toContain('stop before sending');
