@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
+import { loadInboxStartup, readInboxViews, verifyInboxSnapshot } from './inbox-startup';
+import { authorizedChildView, provisionalAgentInboxes, rememberAgentInboxIds } from './agent-inbox-cache';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
@@ -233,14 +235,14 @@ function WorkspaceApp() {
     }
   }, []);
 
-  const loadView = useCallback(async (workspaceId: string, quiet = false) => {
+  const loadView = useCallback(async (workspaceId: string, quiet = false, initialView?: HumanView) => {
     const generation = sessionGeneration();
     if (!quiet) activeWorkspace.current = workspaceId;
     if (activeWorkspace.current !== workspaceId) throw new SessionRequestCancelled();
     const ticket = viewOrder.current.begin();
-    if (!quiet) setView(null);
+    if (!quiet && !initialView) setView(null);
     try {
-      const next = await api.humanView(workspaceId, undefined, viewRequests.current.signal);
+      const next = initialView ?? await api.humanView(workspaceId, undefined, viewRequests.current.signal);
       if (!isCurrentSession(generation) || !viewOrder.current.isCurrent(ticket) || activeWorkspace.current !== workspaceId) throw new SessionRequestCancelled();
       checkViewIdentity(next, workspaceId);
       setView(current => {
@@ -273,6 +275,7 @@ function WorkspaceApp() {
     const workspaceGroups = await Promise.all(nextOrganizations.map(item => api.workspaces(item.id, signal)));
     if (!isCurrentSession(generation)) throw new SessionRequestCancelled();
     const nextWorkspaces = workspaceGroups.flat();
+    try { if (humanRef.current) rememberAgentInboxIds(localStorage, humanRef.current.id, nextWorkspaces); } catch { /* Optional browser storage. */ }
     setOrganizations(nextOrganizations);
     setWorkspaces(nextWorkspaces);
     return nextWorkspaces;
@@ -310,11 +313,13 @@ function WorkspaceApp() {
     try {
       setBoot('loading');
       setError('');
-      const nextConfig = await api.authConfig();
+      const [configResult, humanResult] = await Promise.allSettled([api.authConfig(), api.me(undefined, false)]);
       if (!isCurrentSession(generation)) return;
+      if (configResult.status === 'rejected') throw configResult.reason;
+      const nextConfig = configResult.value;
       setConfig(nextConfig);
-      const nextHuman = await api.me();
-      if (!isCurrentSession(generation)) return;
+      if (humanResult.status === 'rejected') throw humanResult.reason;
+      const nextHuman = humanResult.value;
       humanRef.current = nextHuman;
       setHuman(nextHuman);
       if (nextHuman.auth?.assurance === 'phone') {
@@ -324,10 +329,13 @@ function WorkspaceApp() {
       }
       hadAuthenticatedSession.current = true;
       publishSessionIdentity(nextHuman.id);
-      const nextWorkspaces = await loadWorkspaceDirectory();
+      let savedId: string | null = null;
+      try { savedId = localStorage.getItem(WORKSPACE_KEY); } catch { /* Optional preference storage. */ }
+      const { selected, view: initialView, directory } = await loadInboxStartup(savedId, { humanId: nextHuman.id, provider: nextConfig.provider }, {
+        directory: () => loadWorkspaceDirectory(viewRequests.current.signal),
+        snapshot: id => api.humanView(id, undefined, viewRequests.current.signal)
+      });
       if (!isCurrentSession(generation)) return;
-      const savedId = localStorage.getItem(WORKSPACE_KEY);
-      const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
       if (!selected) {
         setWorkspace(null);
         rememberSessionStatus('active');
@@ -336,12 +344,24 @@ function WorkspaceApp() {
         return;
       }
       setWorkspace(selected);
-      localStorage.setItem(WORKSPACE_KEY, selected.id);
-      await loadView(selected.id);
+      let provisional: Workspace[] = [];
+      try { provisional = provisionalAgentInboxes(localStorage, nextHuman.id, selected); } catch { /* Optional browser storage. */ }
+      setWorkspaces(current => current.length ? current : [selected, ...provisional]);
+      try { localStorage.setItem(WORKSPACE_KEY, selected.id); } catch { /* Optional preference storage. */ }
+      await loadView(selected.id, false, initialView!);
       if (!isCurrentSession(generation)) return;
       rememberSessionStatus('active');
       setAuthNotice('');
       setBoot('ready');
+      void directory.then(items => {
+        const active = activeWorkspace.current;
+        if (isCurrentSession(generation) && active && !items.some(item => item.id === active)) loseWorkspaceAccess(active);
+      }).catch(caught => {
+        if (!isCurrentSession(generation) || activeWorkspace.current !== selected.id) return;
+        if (caught instanceof ApiError && caught.status === 401) expireSession();
+        else if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(selected.id);
+        else setSyncNotice('Your inbox is ready. The workspace list could not be refreshed; try refreshing the workspace.');
+      });
     } catch (caught) {
       if (!isCurrentSession(generation)) return;
       const nextConfig = config || await api.authConfig().catch(() => null);
@@ -354,7 +374,7 @@ function WorkspaceApp() {
         setBoot('error');
       }
     }
-  }, [clearPrivateState, config, expireSession, loadView, loadWorkspaceDirectory]);
+  }, [clearPrivateState, config, expireSession, loadView, loadWorkspaceDirectory, loseWorkspaceAccess]);
 
   loadAccountRef.current = loadAccount;
 
@@ -575,7 +595,7 @@ function WorkspaceApp() {
       config={config}
       human={human}
       organizations={organizations}
-      workspaces={workspaces}
+      workspaces={workspaces.length ? workspaces : [workspace]}
       workspace={workspace}
       view={view}
       syncNotice={syncNotice}
@@ -787,7 +807,10 @@ export function AppShell(props: ShellProps) {
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
   const agentInboxes = workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === rootWorkspace.id);
   const agentInboxKey = agentInboxes.map(item => item.id).sort().join(',');
-  const agentEntries: AgentEntry[] = agentInboxes.flatMap(inbox => (childViews[inbox.id] || (workspace.id === inbox.id ? view : null))?.agents.filter(agent => agent.id === inbox.ownerAgentId).map(agent => ({ agent, inbox, view: childViews[inbox.id] || view })) || []);
+  const agentEntries: AgentEntry[] = agentInboxes.flatMap(inbox => {
+    const source = workspace.id === inbox.id ? view : childViews[inbox.id];
+    return source?.agents.filter(agent => agent.id === inbox.ownerAgentId).map(agent => ({ agent, inbox: source.inbox, view: source })) || [];
+  });
   if (workspace.id === rootWorkspace.id) {
     for (const agent of view.agents) if (!agentEntries.some(entry => entry.agent.id === agent.id)) agentEntries.push({ agent, inbox: workspace, view });
   }
@@ -825,22 +848,25 @@ export function AppShell(props: ShellProps) {
       if (loading) return;
       loading = true;
       try {
-        const results = await Promise.all(inboxes.map(async inbox => {
+        await readInboxViews(inboxes.filter(inbox => inbox.id !== workspace.id), async inbox => {
           const order = childResponseOrder(inbox.id);
           const ticket = order.begin();
           try {
             const refreshed = await api.humanView(inbox.id);
+            verifyInboxSnapshot(refreshed, inbox.id, { humanId: human.id, provider: props.config.provider });
+            if (!authorizedChildView(refreshed, inbox, human.id, props.config.provider)) return null;
             return { key: inbox.id, value: refreshed, order, ticket };
           }
           catch { return null; }
-        }));
-        if (!cancelled) setChildViews(current => cancelled ? current : applyOrderedViewResponses(current, results));
+        }, result => {
+          if (!cancelled && result) setChildViews(current => cancelled ? current : applyOrderedViewResponses(current, [result]));
+        });
       } finally { loading = false; }
     }
     void refreshChildren();
     const timer = window.setInterval(() => void refreshChildren(), 30_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [rootWorkspace.id, agentInboxKey]);
+  }, [rootWorkspace.id, agentInboxKey, workspace.id, human.id, props.config.provider]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
