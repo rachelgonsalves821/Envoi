@@ -941,6 +941,18 @@
         "list-cursor-still-refused.json",
         "list-limit-still-refused.json"
       ]
+    },
+    {
+      "id": "agent-remote-auth-message-access",
+      "version": 1,
+      "status": "approved",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-remote-auth-message-access-v1",
+      "dir": "agent-remote-auth-message-access",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "message-access-required.json",
+        "message-access-ready.json"
+      ]
     }
   ]
 }
