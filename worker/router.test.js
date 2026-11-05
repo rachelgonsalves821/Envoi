@@ -95,7 +95,7 @@ test('forwarded headers are derived from the trusted request URL and Cloudflare 
     body: JSON.stringify({ hello: 'world' })
   });
 
-  const forwarded = createForwardedRequest(original);
+  const forwarded = createForwardedRequest(original, 'request-123');
   assert.equal(new URL(forwarded.url).pathname, '/api/messages');
   assert.equal(new URL(forwarded.url).search, '?cursor=a%2Fb');
   assert.equal(forwarded.headers.get('x-forwarded-proto'), 'https');
@@ -104,6 +104,7 @@ test('forwarded headers are derived from the trusted request URL and Cloudflare 
   assert.equal(forwarded.headers.get('x-forwarded-for'), '203.0.113.42');
   assert.equal(forwarded.headers.get('x-real-ip'), '203.0.113.42');
   assert.equal(forwarded.headers.get('x-envoi-mcp-dispatch'), null, 'the internal dispatch marker is never forwarded from outside');
+  assert.equal(forwarded.headers.get('x-request-id'), 'request-123');
   assert.deepEqual(await forwarded.json(), { hello: 'world' });
 });
 
@@ -124,20 +125,23 @@ test('proxied responses remain streaming-compatible and cannot be cached', async
   });
   const response = withNoStoreHeaders(new Response(stream, {
     headers: { 'content-type': 'text/event-stream' }
-  }));
+  }), '', 'request-123');
 
   assert.equal(response.headers.get('cache-control'), 'private, no-store');
   assert.equal(response.headers.get('cdn-cache-control'), 'no-store');
+  assert.equal(response.headers.get('x-request-id'), 'request-123');
   assert.equal(await response.text(), 'event: ready\n\n');
 });
 
 test('container failures return a sanitized retryable response', async () => {
-  const response = serviceUnavailableResponse();
+  const response = serviceUnavailableResponse('request-123');
   assert.equal(response.status, 503);
   assert.equal(response.headers.get('retry-after'), '5');
+  assert.equal(response.headers.get('x-request-id'), 'request-123');
   assert.deepEqual(await response.json(), {
     error: 'SERVICE_UNAVAILABLE',
-    message: 'Envoi is temporarily unavailable'
+    message: 'Envoi is temporarily unavailable',
+    requestId: 'request-123'
   });
 });
 
