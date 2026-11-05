@@ -274,6 +274,14 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
     return sendJson(res, 200, rpcResult(id, toolResult(response)));
   } catch (error) {
     if ((wakeTool || name === messageAccessTool.name) && error.statusCode) throw wakeHttpError(error, res);
-    return sendJson(res, 200, rpcResult(id, toolResult({ error: 'Tool temporarily unavailable' }, true)));
+    const suppliedRequestId = req.headers['x-request-id'];
+    const requestId = typeof suppliedRequestId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(suppliedRequestId) ? suppliedRequestId : undefined;
+    console.error('Envoi MCP tool failed', {
+      ...(requestId ? { requestId } : {}),
+      tool: name,
+      name: error instanceof Error ? error.name : 'Error'
+    });
+    return sendJson(res, 200, rpcResult(id, toolResult({ error: 'Tool temporarily unavailable',
+      ...(requestId ? { requestId } : {}) }, true)));
   }
 }

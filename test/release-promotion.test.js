@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { APP_SECRET_NAMES, RELEASE_ACCOUNT_ID, promotionPlan, requireBetaSecretNames, requireStagingSecretNames, requireSecretNames } from '../scripts/promote-release.mjs';
 import { deployScanner } from '../scripts/deploy-scanner.mjs';
 import { deployBetaBuild, readBetaBuildSource } from '../scripts/deploy-beta-build.mjs';
+import { waitForBetaDeployment } from '../scripts/verify-beta-rollout.mjs';
 import { secretInventory } from '../scripts/promote-release.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -102,8 +103,37 @@ test('the direct beta deploy checks secret names before running Wrangler', async
   const source = () => ({ headSha: main, mainSha: main, clean: true, descendedFromMain: true });
   await assert.rejects(deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), run, source }), /ENVOI_SCANNER_TOKEN/);
   assert.equal(runs.length, 0);
-  await deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source });
+  const verified = [];
+  await deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source,
+    verify: async sha => { verified.push(sha); } });
   assert.deepEqual(runs, [['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]]);
+  assert.deepEqual(verified, [main]);
+});
+test('beta deploy waits for the paired Container release and then runs full smoke once', async () => {
+  let polls = 0;
+  const slept = [];
+  const smoked = [];
+  await waitForBetaDeployment(main, {
+    attempts: 4, sleep: async ms => { slept.push(ms); }, log() {},
+    fetchImpl: async url => {
+      if (url.pathname === '/health') polls++;
+      return Response.json({ releaseSha: polls < 3 ? candidate : main, ready: true, configurationValidated: true });
+    },
+    smoke: async (origin, sha) => { smoked.push([origin, sha]); }
+  });
+  assert.deepEqual(slept, [5000, 5000]);
+  assert.deepEqual(smoked, [['https://www.envoi-agents.com/', main]]);
+});
+test('beta deploy fails closed when the Container stays stale or the live MCP smoke fails', async () => {
+  await assert.rejects(waitForBetaDeployment(main, {
+    attempts: 2, sleep: async () => {}, log() {}, fetchImpl: async () => Response.json({ releaseSha: candidate, ready: true, configurationValidated: true }),
+    smoke: async () => { assert.fail('smoke should wait for the matching Container'); }
+  }), /did not confirm release/);
+  await assert.rejects(waitForBetaDeployment(main, {
+    attempts: 2, sleep: async () => { assert.fail('an invalid MCP profile must fail immediately'); }, log() {},
+    fetchImpl: async () => Response.json({ releaseSha: main, ready: true, configurationValidated: true }),
+    smoke: async () => { throw new Error('MCP OAuth challenge is unavailable'); }
+  }), /MCP OAuth challenge is unavailable/);
 });
 test('automatic beta Builds pins the exact Git SHA and never selects the old production Worker', () => {
   assert.deepEqual(betaBuildDeployArgs(main), ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]);
