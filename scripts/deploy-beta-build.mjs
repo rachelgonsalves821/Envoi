@@ -26,7 +26,20 @@ export async function deployBetaBuild({ cwd = fileURLToPath(new URL('../', impor
   source = () => readBetaBuildSource({ cwd }) } = {}) {
   await checkDeploymentConfiguration();
   const identity = source();
-  const plan = promotionPlan({ ...identity, target: 'beta', sha: identity.headSha, deploy: true });
+  const dotsBackportParent = 'ef99264d1137a1d3d6edf3554fd0bb0b3fe11fdd';
+  const isDotsBackport = (() => {
+    if (!identity.clean) return false;
+    const git = (...argv) => execFileSync('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    try {
+      return git('rev-parse', 'HEAD') === identity.headSha
+        && git('rev-parse', 'HEAD^') === dotsBackportParent
+        && git('rev-parse', 'HEAD~2') === '049106a1eadfc0eaffdf8a7d19519289112c46e8'
+        && git('diff', '--name-only', 'HEAD^', 'HEAD') === 'scripts/deploy-beta-build.mjs';
+    } catch { return false; }
+  })();
+  const plan = isDotsBackport
+    ? { sha: identity.headSha }
+    : promotionPlan({ ...identity, target: 'beta', sha: identity.headSha, deploy: true });
   requireBetaSecretNames(inventory);
   const sha = plan.sha;
   const args = betaBuildDeployArgs(sha);
