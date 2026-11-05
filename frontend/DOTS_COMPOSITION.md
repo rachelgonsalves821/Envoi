@@ -11,3 +11,9 @@ This release carries selected onboarding source from #289 at `afc76d877a1154df47
 - Build generated `web/**` only with `npm run build` on this exact composition. Do not copy integration-generated output or reapply overlapping #259/#286/#289 source after this candidate.
 
 The current personal production plugin keeps its App binding, connection configuration and audience. Its onboarding skill update is prepared separately for the same plugin identity. Public publishing is deferred. Rachel's access to that plugin, each owner's broader OAuth approval, and a real Onion/Delta exchange must be verified separately; local tests and CI are not hosted acceptance.
+
+## Read-only recovery revision2 follow-up
+
+This increment is based on live main `2d33991c289d7746a8ef7117c92eadda0ab651fc` and carries the approved revision2 source from `c7820823aba046c5f7e181164f2e8739c3e2357a`. The recovery action's declared prerequisite becomes `envoi.agent` alone so a receive-only connection covers it. Its returned owner-consent challenge remains `envoi.agent envoi.send`; actual Send enforcement, tool filtering, identity/policy gates and forbidden responses are unchanged. The host visibility explanation remains an inference until a real Dot invokes the corrected action.
+
+The guide, prompt and official skill no longer require a fresh Dot chat. They keep the existing conversation, describe explicit plugin selection when available, and report a host tool-catalogue mismatch rather than treating an app settings list as proof the Dot can invoke it. Existing main controls are retained. Generated web was rebuilt from this exact production composition. No production release of this increment is implied by the source commit.
