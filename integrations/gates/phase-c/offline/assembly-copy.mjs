@@ -60,10 +60,15 @@ export async function checkOriginalAssembly(kitRoot) {
       await copyOne({ path: selectedPath, sha256: input.sha256 });
     }
     await writeFile(path.join(scratch, 'package.json'), '{"type":"module"}', { flag: 'wx', mode: 0o600 });
+    const temporary = path.join(scratch, 'test-temp');
+    await mkdir(temporary, { mode: 0o700 });
+    const environment = Object.fromEntries(['PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'HOME', 'USERPROFILE', 'USER', 'USERNAME']
+      .filter(key => process.env[key]).map(key => [key, process.env[key]]));
+    Object.assign(environment, { TMP: temporary, TEMP: temporary, TMPDIR: temporary, ENVOI_MONAD_PERMISSIONS: 'false' });
     const child = spawn(process.execPath, ['--import', new URL('./transport-guard.mjs', import.meta.url).href,
       '--test', '--test-concurrency=1', ...manifest.tests.map(file => within(scratch, file))], {
       cwd: within(scratch, path.relative(sourceRoot, kitRoot)), windowsHide: true,
-      env: { ...process.env, ENVOI_MONAD_PERMISSIONS: 'false' }, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, killSignal: 'SIGKILL'
+      env: environment, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, killSignal: 'SIGKILL'
     });
     let transcript = '';
     child.stdout.on('data', chunk => { transcript += chunk; });
