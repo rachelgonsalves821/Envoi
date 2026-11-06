@@ -57,6 +57,112 @@ async function fixture(runtime: ConnectorRuntime = 'hermes') {
     healthFails: (value = true) => { failHealth = value; }, preflightFails: () => { failPreflight = true; }, toolFails: (value: boolean) => { failVerify = value; } };
 }
 
+async function withRunningConnection(f: Awaited<ReturnType<typeof fixture>>, check: () => Promise<void>) {
+  await setupConnection(f.handoff, f.resolver, f.options);
+  const original = f.adapter.createBridge;
+  f.adapter.createBridge = async (config, context) => {
+    const bridge = await original(config, context);
+    bridge.connector.run = async signal => { await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); };
+    return bridge;
+  };
+  const stop = new AbortController();
+  let ready!: () => void;
+  const readiness = new Promise<void>(resolve => { ready = resolve; });
+  const running = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onReady: ready });
+  try { await Promise.race([readiness, running.then(() => { throw new Error('Connector stopped before ready'); })]); await check(); }
+  finally { stop.abort(); await running; }
+}
+
+describe('read-only setup retries against the existing Hermes owner', () => {
+  it('reports a current server pause as deferred without rerunning the model or modifying state', async () => {
+    const f = await fixture();
+    await withRunningConnection(f, async () => {
+      const before = f.counts();
+      const result = await setupConnection(f.handoff, f.resolver, { ...f.options, fetch: async () => Response.json({
+        state: 'paused', agent: { id: 'agent_hermes' }, inboxId: 'inbox_hermes'
+      }) });
+      expect(result).toMatchObject({ alreadyRunning: true, checks: 'deferred_while_paused' });
+      expect(f.counts()).toEqual(before);
+    });
+  });
+
+  it.each(['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED', 'ACCESS_TOKEN_EXPIRED'])('preserves authoritative %s without rotating owner credentials', async code => {
+    const f = await fixture();
+    await withRunningConnection(f, async () => {
+      const session = await readFile(path.join(f.options.stateDir, 'session.json'), 'utf8');
+      const requests: string[] = [];
+      await expect(setupConnection(f.handoff, f.resolver, { ...f.options, fetch: async url => {
+        requests.push(String(url)); return Response.json({ error: code, code, message: 'Denied' }, { status: 401 });
+      } })).rejects.toMatchObject({ code });
+      expect(requests).toEqual(['https://envoi.example/api/agent/status']);
+      expect(await readFile(path.join(f.options.stateDir, 'session.json'), 'utf8')).toBe(session);
+    });
+  });
+
+  it('does not report readiness from a different server identity or an offline status request', async () => {
+    const f = await fixture();
+    await withRunningConnection(f, async () => {
+      await expect(setupConnection(f.handoff, f.resolver, { ...f.options, fetch: async () => Response.json({
+        state: 'active', agent: { id: 'different-agent' }, inboxId: 'inbox_hermes'
+      }) })).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
+      await expect(setupConnection(f.handoff, f.resolver, { ...f.options, fetch: async () => { throw new TypeError('Network unavailable'); } }))
+        .rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    });
+  });
+
+  it.each([['REVOKED', 'CREDENTIAL_REVOKED'], ['NEEDS_RECONNECT', 'CREDENTIAL_EXPIRED']] as const)
+    ('honors saved %s before contacting Envoi despite a passed owner check', async (state, code) => {
+      const f = await fixture();
+      await withRunningConnection(f, async () => {
+        const store = new FileBridgeStore(f.options.stateDir);
+        const session = (await store.load())!;
+        await store.save({ ...session, lifecycle: { state, code, paused: false, failures: 0, changedAt: new Date().toISOString() } });
+        const fetcher = vi.fn<typeof fetch>();
+        await expect(setupConnection(f.handoff, f.resolver, { ...f.options, fetch: fetcher })).rejects.toMatchObject({ code });
+        expect(fetcher).not.toHaveBeenCalled();
+      });
+    });
+
+  it('observes one access-token successor written by the owner without rotating credentials itself', async () => {
+    const f = await fixture();
+    await withRunningConnection(f, async () => {
+      const store = new FileBridgeStore(f.options.stateDir);
+      const authorizations: string[] = [];
+      const result = await setupConnection(f.handoff, f.resolver, { ...f.options, fetch: async (_url, init) => {
+        authorizations.push(new Headers(init?.headers).get('authorization')!);
+        if (authorizations.length === 1) {
+          const session = (await store.load())!;
+          await store.save({ ...session, agentApiToken: 'owner-token-successor' });
+          return Response.json({ error: 'ACCESS_TOKEN_EXPIRED', code: 'ACCESS_TOKEN_EXPIRED', message: 'Expired' }, { status: 401 });
+        }
+        return Response.json({ state: 'active', agent: { id: 'agent_hermes' }, inboxId: 'inbox_hermes' });
+      } });
+      expect(result).toMatchObject({ alreadyRunning: true, checks: 'passed' });
+      expect(authorizations).toEqual(['Bearer access-secret-1', 'Bearer owner-token-successor']);
+      expect(f.counts().enrollmentCount).toBe(1);
+    });
+  });
+
+  it('rejects a recovering owner instead of treating its historical success as readiness', async () => {
+    const f = await fixture();
+    await withRunningConnection(f, async () => {
+      const control = await startControl(f.options.stateDir, { runtime: 'hermes', address: f.handoff.address,
+        apiUrl: f.handoff.apiUrl, agentId: 'agent_hermes', inboxId: 'inbox_hermes' }, () => {},
+        () => ({ status: 'waiting', phase: 'tool_verification', runtimeChecks: 'pending' }));
+      try { await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toMatchObject({ code: 'TOOLS_NOT_READY' }); }
+      finally { await control.close(); }
+    });
+  });
+
+  it('requires actual verification again after the owner stops', async () => {
+    const f = await fixture();
+    await withRunningConnection(f, async () => {});
+    f.toolFails(true);
+    await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toMatchObject({ code: 'TOOLS_NOT_READY' });
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
+});
+
 describe('shared connector lifecycle', () => {
   it('accepts the Envoi service health response used by the local server', async () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true, service: 'envoi',
@@ -369,7 +475,17 @@ describe('authenticated local management', () => {
       const checksBeforeDoctor = f.counts().checks;
       expect(await doctorConnection(f.options.stateDir, f.resolver, f.options)).toMatchObject({ status: 'running', runtimeChecks: 'passed' });
       expect(f.counts().checks).toBe(checksBeforeDoctor);
-      await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toThrow('already running');
+      const before = f.counts();
+      const files = ['session.json', 'connection.json', 'setup-check.json', 'connector.lock'];
+      const contents = await Promise.all(files.map(file => readFile(path.join(f.options.stateDir, file), 'utf8')));
+      expect(await setupConnection({ ...f.handoff, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options))
+        .toMatchObject({ checks: 'passed', alreadyRunning: true, agentId: 'agent_hermes' });
+      expect(f.counts()).toEqual(before);
+      expect(await Promise.all(files.map(file => readFile(path.join(f.options.stateDir, file), 'utf8')))).toEqual(contents);
+      await expect(setupConnection({ ...f.handoff, operation: 'reconnect', enrollmentToken: 'new-reconnect-token-12345678' }, f.resolver, f.options))
+        .rejects.toThrow('already running');
+      await expect(setupConnection(f.handoff, f.resolver, { ...f.options, profile: 'another-profile' }))
+        .rejects.toMatchObject({ code: 'STATE_MISMATCH' });
     } finally { stop.abort(); await started; }
     expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped',
       runtimeDiagnostic: { phase: 'stopped' } });
