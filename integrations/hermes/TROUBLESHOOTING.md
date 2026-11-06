@@ -55,11 +55,13 @@ Prepare that move while the owner can stop the sole connector and any prior
 restart task. Keep the complete session, relay identity and work/turn journals
 together. A copy of `session.json` alone loses recovery and deduplication state.
 
-Verify a private target, source/target identity and rollback copy before switching
+Verify a private target, source/target identity and rollback plan before switching
 the start command. Do not reset the saved relay name/token/port or make a second
 enrollment. Preserve unrelated Gateway/provider settings. Never run both state
-copies. Do not remove the rollback until the new location and a real exchange
-have been accepted. Host-specific migration remains owner-controlled.
+copies. Roll back by moving the latest stopped state back; restoring an old
+credential snapshot after rotation can lose the valid successor and new journals.
+Keep private backups until the new location and a real exchange have been accepted.
+Host-specific migration remains owner-controlled.
 
 ## Acceptance after release
 
