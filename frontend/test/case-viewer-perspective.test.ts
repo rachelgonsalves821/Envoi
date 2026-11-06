@@ -26,13 +26,13 @@ function source(ownerAgentId: string | null): HumanView {
     requester: { id: sender ? 'human_sender' : 'human_recipient', auth: { provider: 'local', assurance: 'totp' } },
     mode: 'human-observer', canManageInbox: true, capabilities: [], summary: { agents: 1, cases: 1, messages: 2, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
     agents: agents.filter(agent => agent.id === ownerAgentId),
-    participantDirectory: Object.fromEntries(agents.map(agent => [agent.id, { id: agent.id, type: agent.id === ownerAgentId ? 'internalAgent' : 'externalAgent', displayName: agent.name, address: agent.address, orgRef: agent.id === 'agent_je' ? 'Sender organization' : 'Recipient organization', accessState: 'active' }])),
+    participantDirectory: Object.fromEntries(agents.map(agent => [agent.id, { id: agent.id, type: agent.id === ownerAgentId ? 'internalAgent' : 'externalAgent', displayName: agent.name, address: agent.address, organizationId: agent.id === 'agent_je' ? 'org_sender' : 'org_recipient', orgRef: agent.id === 'agent_je' ? 'Sender organization' : 'Recipient organization', accessState: 'active' }])),
     caseQueue: [workCase], cases: [workCase], messages: [], assets: [], invitations: [], deliveryReceipts: [], recentEvents: [], calendarConnectors: [], calendarProviders: { google: { id: 'google', label: 'Google', configured: false }, outlook: { id: 'outlook', label: 'Outlook', configured: false } }
   } as HumanView;
 }
 
-function thread(view: HumanView, item = workCase) {
-  return renderToStaticMarkup(createElement(CaseWorkspace, { workCase: item, view, canManageInbox: true, railOpen: true, onRailToggle: vi.fn(), onBack: vi.fn(), onRefresh: vi.fn(), onPreferencesChanged: vi.fn(), notify: vi.fn() }));
+function thread(view: HumanView, item = workCase, canManageInbox = true) {
+  return renderToStaticMarkup(createElement(CaseWorkspace, { workCase: item, view, canManageInbox, railOpen: true, onRailToggle: vi.fn(), onBack: vi.fn(), onRefresh: vi.fn(), onPreferencesChanged: vi.fn(), notify: vi.fn() }));
 }
 
 function row(view: HumanView, item = workCase) {
@@ -65,6 +65,85 @@ describe('case inbox perspective', () => {
     expect(resolveParticipant(workCase, ownerId, view.agents, view.participantDirectory, localAgentId(workCase, view))).toMatchObject({ relationship: 'localAgent', type: 'internalAgent' });
     expect(workCase.actingAgent).toBe('agent_je');
     expect(workCase.principal).toBe('human_sender');
+  });
+
+  it.each(['agent_je', 'agent_rachel'])('labels a coworker from %s without changing inbox authority', ownerId => {
+    const view = source(ownerId);
+    const counterpartyId = agents.find(agent => agent.id !== ownerId)!.id;
+    view.participantDirectory![counterpartyId] = { ...view.participantDirectory![counterpartyId], organizationId: view.inbox.organizationId, orgRef: undefined };
+    const markup = thread(view);
+    expect(markup).toContain('<small>Agent in your organization</small>');
+    expect(markup).not.toContain('Agent for another organization');
+    expect(markup).toContain('>Block agent</button>');
+    expect(markup).not.toMatch(/Pause agent|Reconnect runtime|Revoke agent access|Remove agent/);
+    expect(resolveParticipant(workCase, counterpartyId, view.agents, view.participantDirectory, ownerId)).toMatchObject({ relationship: 'counterpartyAgent', type: 'externalAgent' });
+    const ownAgent = view.agents[0];
+    const otherName = view.participantDirectory![counterpartyId].displayName;
+    expect(markup).toContain(`<h2>${ownAgent.name} can</h2>`);
+    expect(markup).not.toContain(`<h2>${otherName} can</h2>`);
+    expect(markup.match(/<input aria-label="Instructions[^>]+>/)?.[0]).not.toContain('disabled');
+
+    view.participantDirectory![counterpartyId].accessState = 'blocked';
+    const blocked = thread(view);
+    expect(blocked).toContain('<small>Agent in your organization</small>');
+    expect(blocked).toContain('>Blocked</span>');
+    expect(blocked).toContain('>Unblock agent</button>');
+
+    const observer = thread(view, workCase, false);
+    expect(observer).toContain('<small>Agent in your organization</small>');
+    expect(observer).not.toMatch(/>Block agent<|>Unblock agent</);
+    expect(observer.match(/<input aria-label="Instructions[^>]+>/)?.[0]).toContain('disabled');
+    view.agents = [{ ...ownAgent, permissions: [] }];
+    expect(thread(view).match(/<input aria-label="Instructions[^>]+>/)?.[0]).toContain('disabled');
+  });
+
+  it.each([
+    ['different IDs', 'org_sender', 'org_recipient'],
+    ['null counterparty ID', 'org_sender', null],
+    ['absent counterparty ID', 'org_sender', undefined],
+    ['empty counterparty ID', 'org_sender', ''],
+    ['null inbox ID', null, 'org_recipient'],
+    ['absent inbox ID', undefined, 'org_recipient'],
+    ['empty inbox ID', '', 'org_recipient'],
+    ['both null IDs', null, null],
+    ['both absent IDs', undefined, undefined],
+    ['both empty IDs', '', '']
+  ])('keeps the fallback with %s despite matching email domains', (_name, inboxId, counterpartyId) => {
+    const original = source('agent_je');
+    const view = {
+      ...original,
+      inbox: { ...original.inbox, organizationId: inboxId },
+      participantDirectory: { ...original.participantDirectory, agent_rachel: { ...original.participantDirectory!.agent_rachel, organizationId: counterpartyId, orgRef: undefined } }
+    } as HumanView;
+    const markup = thread(view);
+    expect(markup).toContain('<small>Agent for another organization</small>');
+    expect(markup).not.toContain('Agent in your organization');
+    expect(markup).toContain('je@example.test');
+    expect(markup).toContain('probe@example.test');
+  });
+
+  it.each([
+    ['matching source inbox', 'org_child', 'org_child', 'Agent in your organization'],
+    ['matching aggregate inbox only', 'org_child', 'org_aggregate', 'Agent for another organization'],
+    ['missing source inbox ID', undefined, 'org_aggregate', 'Agent for another organization'],
+    ['missing counterparty ID', 'org_child', undefined, 'Agent for another organization']
+  ])('uses the child inbox organization in All inboxes with %s', (_name, inboxId, counterpartyId, label) => {
+    const original = source('agent_rachel');
+    const child = {
+      ...original,
+      inbox: { ...original.inbox, kind: 'agent', parentInboxId: 'inbox_all', organizationId: inboxId },
+      participantDirectory: { ...original.participantDirectory, agent_je: { ...original.participantDirectory!.agent_je, organizationId: counterpartyId, orgRef: undefined } }
+    } as HumanView;
+    const unrelated = source('agent_je');
+    const unrelatedCase = { ...workCase };
+    unrelated.caseQueue = [unrelatedCase];
+    const aggregate: HumanView = { ...unrelated, inbox: { ...unrelated.inbox, id: 'inbox_all', ownerAgentId: null, organizationId: 'org_aggregate' }, agents, sourceViews: [unrelated, child], caseQueue: [unrelatedCase, workCase] };
+    expect(caseSourceView(workCase, aggregate)).toBe(child);
+    const markup = thread(aggregate);
+    expect(markup).toContain(`<small>${label}</small><strong>Je</strong>`);
+    expect(markup).toContain('<small>Your agent</small><strong>Rachel probe</strong>');
+    expect(markup).toContain('>Block agent</button>');
+    expect(thread(aggregate, unrelatedCase)).toContain('<small>Agent for Recipient organization</small>');
   });
 
   it('uses each aggregate row source, even when both copies have the same case id', () => {
