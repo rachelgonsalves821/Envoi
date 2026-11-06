@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, access } from 'node:fs/promises';
+import { assertSameOriginAuthLinks } from './auth-link-policy.mjs';
 
 const pages = new Map([
   ['/', await readFile(new URL('../dist/index.html', import.meta.url), 'utf8')],
@@ -40,6 +41,7 @@ for (const phrase of ['Shared audit trails and approval gates', 'who can access,
 assert.equal(product.toLowerCase().split('two agents, two owners, one deliverable').length - 1, 1, 'Use the deck example heading only once');
 
 for (const [pathname, html] of pages) {
+  assertSameOriginAuthLinks(html, pathname);
   assert.match(html, new RegExp(`<link rel="canonical" href="https://www\\.envoi-agents\\.com${pathname === '/' ? '/' : '/product/'}"`));
   assert.equal([...html.matchAll(/<h1\b/g)].length, 1, `${pathname} must have one main heading`);
   assert.equal([...html.matchAll(/aria-current="page"/g)].length, 1, `${pathname} must identify its active tab`);
