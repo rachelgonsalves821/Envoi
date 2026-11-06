@@ -7264,13 +7264,20 @@ var lr = class {
 			} catch {
 				throw new L(c.aborted ? "Envoi MCP request timed out or canceled" : "Envoi MCP could not be reached", void 0, o?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
 			}
-			if (!l.ok) try {
-				await fe(l.clone(), "Envoi MCP request failed");
-			} catch (e) {
-				throw r && e instanceof L && (i = {
-					response: l,
-					code: e.code
-				}), e;
+			if (!l.ok) {
+				let e = r ? new Response(await l.arrayBuffer(), {
+					status: l.status,
+					statusText: l.statusText,
+					headers: l.headers
+				}) : l;
+				try {
+					await fe(e.clone(), "Envoi MCP request failed");
+				} catch (t) {
+					throw r && t instanceof L && (i = {
+						response: e,
+						code: t.code
+					}), t;
+				}
 			}
 			return l;
 		}, !0);
