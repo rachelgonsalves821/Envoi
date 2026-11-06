@@ -1103,6 +1103,8 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   const local = resolveParticipant(workCase, localAgentId(workCase, view), view.agents, view.participantDirectory, localAgentId(workCase, view));
   const counterpartyId = participantIds(workCase, events).find(id => id !== localAgentId(workCase, view) && id !== workCase.principal);
   const counterparty = resolveParticipant(workCase, counterpartyId, view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const sameOrganization = Boolean(counterparty.organizationId && view.inbox?.organizationId
+    && counterparty.organizationId === view.inbox.organizationId);
 
   async function act(actionKey: HumanActionKey) {
     setBusy(actionKey);
@@ -1158,7 +1160,7 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
           <div className="participant-duo">
             <ParticipantCard participant={local} label={local.relationship === 'localAgent' ? 'Your agent' : 'Local identity unavailable'} />
             <ArrowLeftRight size={18} className="participant-swap" aria-hidden="true" />
-            <ParticipantCard participant={counterparty} label={`Agent for ${counterparty.orgRef || 'another organization'}`} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
+            <ParticipantCard participant={counterparty} label={sameOrganization ? 'Agent in your organization' : `Agent for ${counterparty.orgRef || 'another organization'}`} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
           </div>
           {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => key === 'decline' ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
           {state === 'unknownExternalResult' && <InlineNotice title="Result unknown" body="The external service did not confirm the result. Do not retry with a new key." tone="unknown" />}
