@@ -8,6 +8,7 @@ import { connectionStatus, doctorConnection, prepareConnection, readConnection, 
 import { checkServiceManager, installConnectorService, uninstallConnectorService } from './service';
 import { queryOwnedControl } from './control';
 import { clearHostedWake, configureHostedWake } from './hosted-wake-config';
+import { withTerminationSignals } from './termination';
 
 const usage = `Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n
 prepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n
@@ -57,6 +58,10 @@ export async function connectorMain(args = process.argv.slice(2)) {
     const result = await setupConnection(input, adapterFor, { ...options, stateDir: values.get('--state-dir'),
       installService: flags.has('--install-service'), executableFile: fileURLToPath(import.meta.url), onProgress: text => process.stderr.write(`${text}…\n`) });
     process.stdout.write(`${JSON.stringify(result)}\n`);
+    if (result.alreadyRunning) {
+      process.stderr.write(`Setup checks: ${result.checks === 'passed' ? 'passed' : 'tool verification deferred while paused'}. Existing connector left running. Delete the temporary handoff.\n`);
+      return;
+    }
     process.stderr.write(`Setup checks: ${result.checks === 'passed' ? 'passed' : 'tool verification deferred while paused'}. Delete the temporary handoff.\nStart: ${startCommand(result.stateDir)}\n`);
     if (flags.has('--install-service')) {
       const name = await installConnectorService(result.stateDir, result.runtime);
@@ -103,9 +108,6 @@ export async function connectorMain(args = process.argv.slice(2)) {
     await removeInstalledExecutable(directory);
     process.stdout.write(`${JSON.stringify({ status: 'startup removed', note: 'Credentials and work history are preserved. Revoke access in Envoi to invalidate credentials' })}\n`); return;
   }
-  const stop = new AbortController(); const cancel = () => stop.abort();
-  process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
-  try { await startConnection(directory, stop.signal, adapterFor, { onReady: () => process.stdout.write('Envoi connector started. Waiting for incoming work.\n'),
-    onWaiting: code => process.stderr.write(`Connection temporarily unavailable (${code}); retrying automatically.\n`) }); }
-  finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
+  await withTerminationSignals(signal => startConnection(directory, signal, adapterFor, { onReady: () => process.stdout.write('Envoi connector started. Waiting for incoming work.\n'),
+    onWaiting: code => process.stderr.write(`Connection temporarily unavailable (${code}); retrying automatically.\n`) }));
 }

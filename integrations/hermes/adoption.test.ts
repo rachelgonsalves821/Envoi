@@ -24,7 +24,7 @@ function fixtureBody(contractId: string, filename: string): any {
 
 /** No real Hermes/profile/provider or Envoi server: only the disposable MCP relay is real HTTP.
  * A simulated Gateway ticks every 60 seconds and parks failed endpoints for 300 seconds.
- * Advancing 15 seconds per model attempt keeps this integration test fast; default wall-clock
+ * Advancing 15 seconds per independent status poll keeps this integration test fast; default wall-clock
  * 300-second recovery is independently covered by runtime-readiness.test.ts with fake timers.
  */
 async function fixture() {
@@ -56,6 +56,7 @@ async function fixture() {
     return result.json();
   }
   async function reconcile() {
+    if (connected) return;
     if (parked ? clock < probeAt : clock < nextReconcile) return;
     nextReconcile = clock + 60_000;
     const yaml = await readFile(configPath, 'utf8');
@@ -68,7 +69,10 @@ async function fixture() {
     const url = String(input); urls.push(url);
     const pathname = new URL(url).pathname;
     if (url.startsWith(apiUrl)) {
-      if (pathname === '/api/agent/status') return response(status);
+      if (pathname === '/api/agent/status') {
+        if (open > 0) { clock += 15_000; await reconcile(); }
+        return response(status);
+      }
       if (pathname === '/api/agent/connection-status') return response({ checkedAt: new Date().toISOString() });
       if (pathname === '/mcp') {
         const request = JSON.parse(String(init?.body));
@@ -87,8 +91,7 @@ async function fixture() {
       expect(runs.has(body.session_id)).toBe(false);
       runs.set(body.session_id, id);
       if (body.input.includes('setup verification')) {
-        verificationRuns++; clock += 15_000;
-        await reconcile();
+        verificationRuns++;
         if (connected && invokeIdentity) await rpc('tools/call', { name: 'envoi_agent_info', arguments: {} });
       }
       return response({ run_id: id }, 202);
@@ -129,8 +132,8 @@ describe('Hermes local-helper adoption with delayed Gateway MCP discovery', () =
     const f = await fixture();
     const result = await f.adopt();
     expect(result.checks).toBe('passed');
-    expect(f.snapshot()).toMatchObject({ clock: 60_000, verificationRuns: 4, identityCalls: 1, maximumOpen: 1, open: 0 });
-    expect(f.phases.filter(value => value.startsWith('Waiting'))).toHaveLength(3);
+    expect(f.snapshot()).toMatchObject({ clock: 60_000, verificationRuns: 2, identityCalls: 1, maximumOpen: 1, open: 0 });
+    expect(f.phases.filter(value => value.startsWith('Waiting'))).toHaveLength(2);
     expect(f.urls.filter(url => url.endsWith('/api/agent/connection-status'))).toHaveLength(1);
     expect(f.urls.some(url => /register|activate|enroll|work\/claim/.test(url))).toBe(false);
     await expect(f.rpc('tools/list')).rejects.toThrow(); // failed/finished adoption releases the port
@@ -148,7 +151,7 @@ describe('Hermes local-helper adoption with delayed Gateway MCP discovery', () =
     const runBefore = f.snapshot().verificationRuns;
     const recovered = await f.adopt();
     expect(recovered.checks).toBe('passed');
-    expect(f.snapshot().verificationRuns - runBefore).toBe(20);
+    expect(f.snapshot().verificationRuns - runBefore).toBe(2);
     expect(f.snapshot()).toMatchObject({ identityCalls: 1, maximumOpen: 1, open: 0, parked: false });
     expect(await f.relay()).toEqual(before);
     const resumed = JSON.parse(await readFile(path.join(f.directory, 'session.json'), 'utf8'));

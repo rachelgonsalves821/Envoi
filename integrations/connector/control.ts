@@ -6,7 +6,7 @@ import { privateJson } from './store';
 import { ConnectorSetupError } from './adapter';
 import { HostTaskError, validateHostTask, type HostTaskReceipt, type HostTaskRequest } from './host-task';
 
-export async function startControl(directory: string, identity: { runtime: string; address: string; apiUrl?: string }, stop: () => void,
+export async function startControl(directory: string, identity: { runtime: string; address: string; apiUrl?: string; agentId?: string; inboxId?: string }, stop: () => void,
   diagnostics: () => Record<string, unknown> = () => ({ status: 'running' }), sendTask?: (request: unknown) => Promise<HostTaskReceipt>) {
   const secret = randomBytes(32).toString('base64url');
   const startedAt = new Date().toISOString();

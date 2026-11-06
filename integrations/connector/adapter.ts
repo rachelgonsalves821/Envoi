@@ -37,6 +37,8 @@ export interface RuntimeBridge {
   close(): Promise<void>;
   /** Actual tool invocation, not discovery; runs before setup is reported ready. */
   verify?(signal?: AbortSignal): Promise<void>;
+  /** Metadata-only signal allowing another actual proof after tools were missing. */
+  readyToVerify?(): boolean;
 }
 export interface ConnectorAdapter<C = unknown> {
   runtime: ConnectorRuntime;

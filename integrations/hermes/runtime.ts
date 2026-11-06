@@ -23,7 +23,7 @@ export interface HermesBridgeConfiguration {
 /** Shared by the existing manual bridge and the unified installer. Recovery stays intact. */
 export async function createHermesBridge(config: HermesBridgeConfiguration,
   options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number; onSuccessfulToolCall?: (name: string) => void;
-    timeoutMs?: number; pollMs?: number; onRuntimeEvent?: ScopedRuntimeObserver;
+    timeoutMs?: number; pollMs?: number; onRuntimeEvent?: ScopedRuntimeObserver; onToolDiscovery?: (names: string[]) => void;
     beforeNativeSubmit?: import('./native-binding').NativeSubmissionGuard;
     beforeScopedTurn?: import('./native-binding').ScopedPreparationGuard;
     nativeRequestGate?: import('./request-gate-attestation').NativeRequestGateExpectation } = {}) {
@@ -61,6 +61,7 @@ export async function createHermesBridge(config: HermesBridgeConfiguration,
     collaborationToolNames: ['envoi_start_case', 'envoi_send_message', 'envoi_send_proposal', 'envoi_send_decision'],
     authorizeWrite: (name, args) => authorizedHermesWrite(active, name, args),
     onSuccessfulToolCall: options.onSuccessfulToolCall,
+    onToolDiscovery: options.onToolDiscovery,
     onSuccessfulWrite: async (name, args) => { const id = mcpReplyMessageId(name, args); if (id) await store.markMcpReplySent(id); }
   }) : null;
   return { connector, store, relayUrl: relay?.url, close: async () => { await relay?.close(); } };
