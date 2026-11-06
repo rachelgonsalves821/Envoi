@@ -11,6 +11,9 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
+import { appLocation, appPath, createAppNavigation } from './app-navigation';
+import { createWorkspaceSwitch } from './workspace-switch';
+import { INTERNAL_ROUTE_EVENT, internalRoute, navigateInternal } from './internal-navigation';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
@@ -122,12 +125,41 @@ previewView.caseQueue = previewView.cases.map(workCase => {
 return { ...workCase, inboxPreference, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
 });
 export default function App() {
-  return <CsrfReloadBoundary>{typeof window !== 'undefined' && window.location.pathname === '/connect' ? <ConnectPage /> : <WorkspaceApp />}</CsrfReloadBoundary>;
+  const [route, setRoute] = useState(() => `${window.location.pathname}${window.location.search}${window.location.hash}`);
+  const path = route.split(/[?#]/, 1)[0];
+  const [workspaceMounted, setWorkspaceMounted] = useState(() => window.location.pathname !== '/connect');
+  const [connectMounted, setConnectMounted] = useState(() => window.location.pathname === '/connect');
+  useEffect(() => {
+    const updatePath = () => {
+      setRoute(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+      if (window.location.pathname === '/connect') setConnectMounted(true);
+      else setWorkspaceMounted(true);
+    };
+    const followInternalLink = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      const anchor = (event.target as Element)?.closest?.('a[href]');
+      if (!anchor) return;
+      const route = internalRoute(anchor.getAttribute('href') || '', window.location.origin, anchor.getAttribute('target') || '', anchor.hasAttribute('download'), event.metaKey || event.ctrlKey || event.shiftKey || event.altKey, event.button);
+      if (!route) return;
+      event.preventDefault();
+      navigateInternal(route);
+    };
+    window.addEventListener('popstate', updatePath);
+    window.addEventListener(INTERNAL_ROUTE_EVENT, updatePath);
+    document.addEventListener('click', followInternalLink);
+    return () => {
+      window.removeEventListener('popstate', updatePath);
+      window.removeEventListener(INTERNAL_ROUTE_EVENT, updatePath);
+      document.removeEventListener('click', followInternalLink);
+    };
+  }, []);
+  return <CsrfReloadBoundary>{workspaceMounted && <div hidden={path === '/connect'} style={path === '/connect' ? { display: 'none' } : undefined}><WorkspaceApp route={route} /></div>}{connectMounted && <div hidden={path !== '/connect'} style={path !== '/connect' ? { display: 'none' } : undefined}><ConnectPage /></div>}</CsrfReloadBoundary>;
 }
 
-function WorkspaceApp() {
-  const isPreview = typeof window !== 'undefined' && previewRequested(window.location.search, import.meta.env.DEV);
-  const isLandingPreview = import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('landing-preview');
+function WorkspaceApp({ route }: { route: string }) {
+  const routePath = route.split(/[?#]/, 1)[0];
+  const [isPreview] = useState(() => previewRequested(window.location.search, import.meta.env.DEV));
+  const [isLandingPreview] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).has('landing-preview'));
   const [boot, setBoot] = useState<BootState>('loading');
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [human, setHuman] = useState<Human | null>(null);
@@ -167,6 +199,8 @@ function WorkspaceApp() {
   const loadRodeOutTabSwitch = useRef(false);
   const validation = useRef<AbortController | null>(null);
   const viewRequests = useRef(new AbortController());
+  const workspaceSwitch = useRef(createWorkspaceSwitch<HumanView>());
+  const workspaceSelection = useRef(0);
   const viewOrder = useRef(createViewResponseOrder());
   const eventCursors = useRef(createEventCursorStore());
   const quietReads = useRef<{ workspaceId: string; generation: number; coordinator: ReturnType<typeof createRefreshCoordinator<HumanView>> } | null>(null);
@@ -180,6 +214,8 @@ function WorkspaceApp() {
   }, []);
 
   const clearPrivateState = useCallback(() => {
+    workspaceSelection.current++;
+    workspaceSwitch.current.cancel();
     validation.current?.abort(new SessionRequestCancelled());
     validation.current = null;
     cancelWorkspaceReads();
@@ -326,7 +362,9 @@ function WorkspaceApp() {
       publishSessionIdentity(nextHuman.id);
       const nextWorkspaces = await loadWorkspaceDirectory();
       if (!isCurrentSession(generation)) return;
-      const savedId = localStorage.getItem(WORKSPACE_KEY);
+      const linkedInbox = window.location.pathname === '/app' ? new URLSearchParams(window.location.search).get('inbox') : null;
+      const savedId = linkedInbox || localStorage.getItem(WORKSPACE_KEY);
+      if (linkedInbox && !nextWorkspaces.some(item => item.id === linkedInbox)) throw new Error('This inbox is unavailable for your account.');
       const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
       if (!selected) {
         setWorkspace(null);
@@ -523,11 +561,22 @@ function WorkspaceApp() {
   }, [boot, config, expireSession, human?.id, quietRefresh, loadWorkspaceDirectory, sessionCheck, workspace]);
 
   async function selectWorkspace(next: Workspace) {
+    const selection = ++workspaceSelection.current;
+    if (next.id === workspace?.id) {
+      workspaceSwitch.current.cancel();
+      return;
+    }
+    const generation = sessionGeneration();
+    // Keep the current authorized workspace mounted while the next one loads.
+    // Commit its identity and view together only after the server authorizes it.
+    const nextView = await workspaceSwitch.current.load(next.id, (id, signal) => api.humanView(id, undefined, signal), checkViewIdentity);
+    if (!nextView || !isCurrentSession(generation) || selection !== workspaceSelection.current) throw new SessionRequestCancelled();
     cancelWorkspaceReads();
+    activeWorkspace.current = next.id;
     setHistoryBusy(false);
     setWorkspace(next);
+    setView(nextView);
     localStorage.setItem(WORKSPACE_KEY, next.id);
-    await loadView(next.id);
   }
 
   async function createWorkspace(name: string) {
@@ -559,10 +608,10 @@ function WorkspaceApp() {
   const renderedGeneration = sessionGeneration();
   const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
   if (isLandingPreview) return <LandingPage signInPath={`${import.meta.env.VITE_PUBLIC_URL || 'https://www.envoi-agents.com'}/api/auth/workos/sign-in`} />;
-  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
+  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} claimRoute={['/claim', '/authorize-agent'].includes(routePath)} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} onLogout={hadAuthenticatedSession.current && !signingOut.current ? () => { void logout(); } : undefined} />;
   if (boot === 'signedOut' && config) return config.provider === 'workos'
-    ? <LandingPage signInPath={window.location.pathname === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : window.location.pathname === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
+    ? <LandingPage signInPath={routePath === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : routePath === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
     : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
   if (boot === 'setup' && human) return <><SignOutControl onLogout={() => { void logout(); }} /><WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} /></>;
   if (boot === 'error') return <FailureScreen message={error} title={signingOut.current ? 'Sign out incomplete' : undefined} retryLabel={signingOut.current ? 'Retry sign out' : undefined} onRetry={signingOut.current ? logout : loadAccount} onLogout={signingOut.current || hadAuthenticatedSession.current ? () => { void logout(); } : undefined} />;
@@ -581,9 +630,10 @@ function WorkspaceApp() {
       syncNotice={syncNotice}
       onLoadOlder={async () => { checkRenderedSession(); await loadOlder(); }}
       historyBusy={historyBusy}
-      claimRoute={['/claim', '/authorize-agent'].includes(window.location.pathname)}
+      claimRoute={['/claim', '/authorize-agent'].includes(routePath)}
       initialSection={requestedSection}
-      onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); setRequestedSection(nextSection); await selectWorkspace(next); }}
+      onCancelNavigation={() => { workspaceSelection.current++; workspaceSwitch.current.cancel(); }}
+      onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); await selectWorkspace(next); setRequestedSection(nextSection); }}
       onPreferenceUpdated={(inboxId, caseId, preference) => {
         checkRenderedSession();
         if (activeWorkspace.current !== inboxId) return;
@@ -756,6 +806,7 @@ interface ShellProps {
   config: AuthConfig; human: Human; organizations: Organization[]; workspaces: Workspace[];
   workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace, section?: NavSection) => Promise<void>;
   initialSection?: NavSection;
+  onCancelNavigation?: () => void;
   claimRoute?: boolean;
   onPreferenceUpdated?: (inboxId: string, caseId: string, preference: InboxPreference) => void;
   onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>; syncNotice: string;
@@ -768,15 +819,20 @@ export function AppShell(props: ShellProps) {
   const { human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
   const canManageInbox = view.canManageInbox === true;
   const authorizationRoute = typeof window !== 'undefined' && window.location.pathname === '/authorize-agent';
-  const [section, setSection] = useState<NavSection>(props.initialSection || 'inbox');
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [initialLocation] = useState(() => {
+    const fallback = { inbox: workspace.id, section: props.initialSection || 'inbox', folder: null, case: null };
+    return typeof window === 'undefined' ? fallback : appLocation(window.location.search, fallback);
+  });
+  const [section, setSection] = useState<NavSection>(initialLocation.section);
+
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialLocation.case);
   const [railOpen, setRailOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<string[]>([]);
   const [toast, setToast] = useState('');
   const [childViews, setChildViews] = useState<Record<string, HumanView>>({});
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(initialLocation.folder);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [advancedConnectOpen, setAdvancedConnectOpen] = useState(false);
   const [connectResult, setConnectResult] = useState<EnrollmentResult | null>(null);
@@ -784,6 +840,44 @@ export function AppShell(props: ShellProps) {
   const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderError, setFolderError] = useState('');
+  const navigationProps = useRef(props);
+  navigationProps.current = props;
+  const ownHistoryWrite = useRef(false);
+  const navigation = useRef<ReturnType<typeof createAppNavigation> | null>(null);
+  if (!navigation.current) navigation.current = createAppNavigation(initialLocation, {
+    cancel: () => navigationProps.current.onCancelNavigation?.(),
+    select: async target => {
+      const next = navigationProps.current.workspaces.find(item => item.id === target.inbox);
+      if (!next) throw new Error('This inbox is unavailable for your account.');
+      await navigationProps.current.onSelectWorkspace(next, target.section);
+    },
+    commit: target => {
+      setSection(target.section); setSelectedFolderId(target.folder); setSelectedCaseId(target.case);
+      setFolderMenuId(null); setNavOpen(false);
+    },
+    write: (target, replace) => {
+      ownHistoryWrite.current = true;
+      try { navigateInternal(appPath(target, new URLSearchParams(window.location.search).has('preview')), replace); }
+      finally { ownHistoryWrite.current = false; }
+    },
+    error: caught => { if (!(caught instanceof SessionRequestCancelled)) setToast(errorMessage(caught)); }
+  });
+  useEffect(() => {
+    const restore = () => {
+      if (ownHistoryWrite.current) return;
+      if (window.location.pathname !== '/app') { navigation.current!.cancel(); return; }
+      const params = new URLSearchParams(window.location.search);
+      void navigation.current!.go(appLocation(window.location.search, navigation.current!.current()), params.has('inbox') && params.has('section') ? 'restore' : 'replace');
+    };
+    window.addEventListener('popstate', restore);
+    window.addEventListener(INTERNAL_ROUTE_EVENT, restore);
+    if (window.location.pathname === '/app') void navigation.current!.go(appLocation(window.location.search, navigation.current!.current()), 'replace');
+    return () => {
+      navigation.current!.cancel();
+      window.removeEventListener('popstate', restore);
+      window.removeEventListener(INTERNAL_ROUTE_EVENT, restore);
+    };
+  }, []);
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
   const agentInboxes = workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === rootWorkspace.id);
   const agentInboxKey = agentInboxes.map(item => item.id).sort().join(',');
@@ -862,13 +956,10 @@ export function AppShell(props: ShellProps) {
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
 
   function chooseSection(next: NavSection) {
-    setSelectedFolderId(null);
-    setFolderMenuId(null);
-    setSection(next); setSelectedCaseId(null); setNavOpen(false);
+    void navigation.current!.go({ inbox: workspace.id, section: next, folder: null, case: null });
   }
-  function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox') {
-    chooseSection(nextSection);
-    if (next.id !== workspace.id) void onSelectWorkspace(next, nextSection).catch(caught => setToast(errorMessage(caught)));
+  async function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox'): Promise<void> {
+    await navigation.current!.go({ inbox: next.id, section: nextSection, folder: null, case: null });
   }
   async function refreshSelectedCase() {
     if (selectedCaseView.inbox.id === workspace.id) { await onRefresh(); return; }
@@ -909,7 +1000,7 @@ export function AppShell(props: ShellProps) {
     try {
       if (workspace.id === previewWorkspace.id) throw new Error('Folder changes are unavailable in the design preview. Sign in to save changes.');
       await api.deleteInboxFolder(workspace.id, folderToDelete.id);
-      if (selectedFolderId === folderToDelete.id) setSelectedFolderId(null);
+      if (navigation.current!.current().folder === folderToDelete.id) await navigation.current!.go({ ...navigation.current!.current(), folder: null, case: null }, 'replace');
       setFolderToDelete(null);
       try { await refreshInboxPreferences(); setToast('Folder deleted'); }
       catch { setToast('Folder deleted. Refresh to update the list.'); }
@@ -919,7 +1010,7 @@ export function AppShell(props: ShellProps) {
   function openCase(item: WorkCase) {
     const source = caseSources.find(entry => entry.workCase === item);
     if (!source) return;
-    setSelectedCaseId(source.key);
+    void navigation.current!.go({ inbox: workspace.id, section, folder: selectedFolderId, case: source.key });
     const patch = readAcknowledgementForCase(item);
     if (patch && !item.inboxPreference?.read && source.sourceView.inbox.id !== previewWorkspace.id) {
       void api.updateInboxPreference(source.sourceView.inbox.id, item.id, patch)
@@ -934,8 +1025,7 @@ export function AppShell(props: ShellProps) {
     const source = caseSources.find(entry => entry.workCase.id === item.id && entry.sourceView.inbox.id === view.inbox.id)
       || caseSources.find(entry => entry.workCase.id === item.id);
     if (!source) { setToast('Load the conversation’s history before opening it.'); return; }
-    chooseSection(source.workCase.inboxPreference?.archived ? 'completed' : 'inbox');
-    openCase(source.workCase);
+    void navigation.current!.go({ inbox: workspace.id, section: source.workCase.inboxPreference?.archived ? 'completed' : 'inbox', folder: null, case: source.key });
   }
   function toggleAgent(agentId: string) {
     setExpandedAgents(current => current.includes(agentId) ? current.filter(id => id !== agentId) : [...current, agentId]);
@@ -966,7 +1056,7 @@ export function AppShell(props: ShellProps) {
           {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
           <div className="nav-section-heading"><span>Folders</span><button aria-label="Create folder" disabled={!view.folders} onClick={() => { setFolderError(''); setFolderDialogOpen(true); }}><Plus size={15} /></button></div>
           {view.folders?.map(folder => <div key={folder.id} className="folder-nav-row" onContextMenu={event => { event.preventDefault(); setFolderMenuId(folder.id); }}>
-            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>
+            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { void navigation.current!.go({ inbox: workspace.id, section: 'inbox', folder: folder.id, case: null }); }}><Folder size={16} /><span>{folder.name}</span></button>
             <button className="folder-menu-trigger icon-button" aria-label={`More options for ${folder.name}`} aria-haspopup="menu" aria-expanded={folderMenuId === folder.id} onClick={() => setFolderMenuId(current => current === folder.id ? null : folder.id)}><MoreHorizontal size={16} /></button>
             {folderMenuId === folder.id && <div className="folder-context-menu" role="menu" aria-label={`${folder.name} options`}><button role="menuitem" onClick={() => { setFolderMenuId(null); setFolderError(''); setFolderToDelete(folder); }}><Trash2 size={16} />Delete folder</button></div>}
           </div>)}
@@ -985,19 +1075,19 @@ export function AppShell(props: ShellProps) {
       <section className={`application ${utilitySection || props.claimRoute ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
         {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span></div>}
 
-        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
+        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await navigation.current!.go({ inbox: inbox.id, section: 'integrations', folder: null, case: null }); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
 {section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={() => chooseSection('integrations')} />}
             {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={() => chooseSection('integrations')} />}
-            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onAdvancedConnect={() => setAdvancedConnectOpen(true)} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
+            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onAdvancedConnect={() => setAdvancedConnectOpen(true)} onSelectWorkspace={next => chooseInbox(next)} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
           </main>
         ) : (
           <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}`}>
 {!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={() => chooseSection('integrations')} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
             {selectedCase && <main id="main-content" className="case-main">
-<CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
+<CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { void navigation.current!.go({ inbox: workspace.id, section, folder: selectedFolderId, case: null }); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); if (navigation.current!.current().case === selectedCaseEntry?.key) await navigation.current!.go({ ...navigation.current!.current(), case: null }, 'replace'); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
             </main>}
           </div>
         )}
@@ -1013,7 +1103,7 @@ export function AppShell(props: ShellProps) {
 
 function ClaimWorkspace({ humanId, workspaces, entries, onRefresh, onSelectAgent, authorizationSearch }: { authorizationSearch?: string; humanId: string; workspaces: Workspace[]; entries: AgentEntry[]; onRefresh: () => Promise<unknown>; onSelectAgent: (agentId: string, address?: string) => Promise<void> }) {
   const [revision, setRevision] = useState(0);
-  return <>{authorizationSearch !== undefined ? <AuthorizeAgentPage humanId={humanId} handle={authorizationHandle(authorizationSearch)} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent' && entry.view.canManageInbox).map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} /> : <ClaimPage humanId={humanId} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent').map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} onComplete={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={() => window.location.assign('/app')} />}<OwnerClaims key={`${humanId}:${revision}`} humanId={humanId} onSelectAgent={(agentId, address) => { void onSelectAgent(agentId, address); }} /></>;
+  return <>{authorizationSearch !== undefined ? <AuthorizeAgentPage humanId={humanId} handle={authorizationHandle(authorizationSearch)} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent' && entry.view.canManageInbox).map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} /> : <ClaimPage humanId={humanId} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent').map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} onComplete={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={() => navigateInternal('/app')} />}<OwnerClaims key={`${humanId}:${revision}`} humanId={humanId} onSelectAgent={(agentId, address) => { void onSelectAgent(agentId, address); }} /></>;
 }
 
 const AGENT_COLORS = ['var(--accent)', 'var(--agent-purple)', 'var(--green)', 'var(--orange)', 'var(--agent-teal)', 'var(--red)', 'var(--ink2)'];
