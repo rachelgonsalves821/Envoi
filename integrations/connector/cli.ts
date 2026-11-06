@@ -57,6 +57,10 @@ export async function connectorMain(args = process.argv.slice(2)) {
     const result = await setupConnection(input, adapterFor, { ...options, stateDir: values.get('--state-dir'),
       installService: flags.has('--install-service'), executableFile: fileURLToPath(import.meta.url), onProgress: text => process.stderr.write(`${text}…\n`) });
     process.stdout.write(`${JSON.stringify(result)}\n`);
+    if (result.alreadyRunning) {
+      process.stderr.write(`Setup checks: ${result.checks === 'passed' ? 'passed' : 'tool verification deferred while paused'}. Existing connector left running. Delete the temporary handoff.\n`);
+      return;
+    }
     process.stderr.write(`Setup checks: ${result.checks === 'passed' ? 'passed' : 'tool verification deferred while paused'}. Delete the temporary handoff.\nStart: ${startCommand(result.stateDir)}\n`);
     if (flags.has('--install-service')) {
       const name = await installConnectorService(result.stateDir, result.runtime);
