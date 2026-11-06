@@ -7,9 +7,9 @@ import { promisify as _ } from "node:util";
 import { createHash as v, createHmac as y, createPublicKey as b, randomBytes as x, randomUUID as S, timingSafeEqual as C, verify as w } from "node:crypto";
 import { setTimeout as T } from "node:timers/promises";
 import { createServer as E } from "node:http";
-import { connect as D, createServer as ee } from "node:net";
-import { realpathSync as O } from "node:fs";
-var te = Object.create, k = Object.defineProperty, A = Object.getOwnPropertyDescriptor, ne = Object.getOwnPropertyNames, re = Object.getPrototypeOf, j = Object.prototype.hasOwnProperty, ie = (e, t, n) => () => {
+import { connect as D, createServer as O } from "node:net";
+import { realpathSync as k } from "node:fs";
+var ee = Object.create, A = Object.defineProperty, j = Object.getOwnPropertyDescriptor, te = Object.getOwnPropertyNames, ne = Object.getPrototypeOf, re = Object.prototype.hasOwnProperty, ie = (e, t, n) => () => {
 	if (n) throw n[0];
 	try {
 		return e && (t = e(e = 0)), t;
@@ -18,21 +18,21 @@ var te = Object.create, k = Object.defineProperty, A = Object.getOwnPropertyDesc
 	}
 }, M = (e, t) => () => (t || (e((t = { exports: {} }).exports, t), e = null), t.exports), ae = (e, t) => {
 	let n = {};
-	for (var r in e) k(n, r, {
+	for (var r in e) A(n, r, {
 		get: e[r],
 		enumerable: !0
 	});
-	return t || k(n, Symbol.toStringTag, { value: "Module" }), n;
+	return t || A(n, Symbol.toStringTag, { value: "Module" }), n;
 }, oe = (e, t, n, r) => {
-	if (t && typeof t == "object" || typeof t == "function") for (var i = ne(t), a = 0, o = i.length, s; a < o; a++) s = i[a], !j.call(e, s) && s !== n && k(e, s, {
+	if (t && typeof t == "object" || typeof t == "function") for (var i = te(t), a = 0, o = i.length, s; a < o; a++) s = i[a], !re.call(e, s) && s !== n && A(e, s, {
 		get: ((e) => t[e]).bind(null, s),
-		enumerable: !(r = A(t, s)) || r.enumerable
+		enumerable: !(r = j(t, s)) || r.enumerable
 	});
 	return e;
-}, se = (e, t, n) => (n = e == null ? {} : te(re(e)), oe(t || !e || !e.__esModule || !j.call(e, "default") ? k(n, "default", {
+}, se = (e, t, n) => (n = e == null ? {} : ee(ne(e)), oe(t || !e || !e.__esModule || !re.call(e, "default") ? A(n, "default", {
 	value: e,
 	enumerable: !0
-}) : n, e)), ce = (e) => j.call(e, "module.exports") ? e["module.exports"] : oe(k({}, "__esModule", { value: !0 }), e), N = [
+}) : n, e)), ce = (e) => re.call(e, "module.exports") ? e["module.exports"] : oe(A({}, "__esModule", { value: !0 }), e), N = [
 	"openclaw",
 	"hermes",
 	"grok"
@@ -682,24 +682,24 @@ async function Fe(e = {}) {
 	let E = [...new Set(T)], D = e.agentId ?? t.OPENCLAW_AGENT_ID ?? l?.agentId;
 	if (!D && E.length > 1) throw new B(`Choose the agent to connect by setting OPENCLAW_AGENT_ID. Available agents: ${E.join(", ")}.`);
 	if (D ??= E[0] ?? "main", E.length && !E.includes(D)) throw new B(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${E.join(", ")}.`);
-	let ee = V(V(V(u.http).endpoints).chatCompletions).enabled === !0, O = V(V(V(u.http).endpoints).responses).enabled === !0, te, k = d[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
+	let O = V(V(V(u.http).endpoints).chatCompletions).enabled === !0, k = V(V(V(u.http).endpoints).responses).enabled === !0, ee, A = d[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
 	try {
-		te = Ne(y ?? k, t, y ? "token" : _);
+		ee = Ne(y ?? A, t, y ? "token" : _);
 	} catch (t) {
-		let n = V(k), r = typeof k == "string" ? k.includes("${") && !k.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && De.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
+		let n = V(A), r = typeof A == "string" ? A.includes("${") && !A.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && De.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
 		if (y || !r || !i || je(i.gatewayUrl) !== x) throw t;
-		te = i.gatewayToken;
+		ee = i.gatewayToken;
 	}
-	let A = {
+	let j = {
 		gatewayUrl: x,
-		gatewayToken: te,
+		gatewayToken: ee,
 		agentId: D,
 		configPath: s,
-		chatCompletionsEnabled: c && !v ? ee : void 0,
-		...c && !v && t.ENVOI_SCOPED_TOOLS === "true" ? { responsesEnabled: O } : {},
+		chatCompletionsEnabled: c && !v ? O : void 0,
+		...c && !v && t.ENVOI_SCOPED_TOOLS === "true" ? { responsesEnabled: k } : {},
 		...t.ENVOI_SCOPED_TOOLS === "true" ? { scopedTools: !0 } : {}
 	};
-	return Pe(A), A;
+	return Pe(j), j;
 }
 async function Ie(e, t = {}) {
 	Ce(t.env ?? process.env, e);
@@ -1498,7 +1498,7 @@ var tt = class {
 			return `${r} ${this.name}${i};` + t;
 		}
 		optimizeNames(e, t) {
-			if (e[this.name.str]) return this.rhs &&= O(this.rhs, e, t), this;
+			if (e[this.name.str]) return this.rhs &&= k(this.rhs, e, t), this;
 		}
 		get names() {
 			return this.rhs instanceof t._CodeOrName ? this.rhs.names : {};
@@ -1511,10 +1511,10 @@ var tt = class {
 			return `${this.lhs} = ${this.rhs};` + e;
 		}
 		optimizeNames(e, n) {
-			if (!(this.lhs instanceof t.Name && !e[this.lhs.str] && !this.sideEffects)) return this.rhs = O(this.rhs, e, n), this;
+			if (!(this.lhs instanceof t.Name && !e[this.lhs.str] && !this.sideEffects)) return this.rhs = k(this.rhs, e, n), this;
 		}
 		get names() {
-			return ee(this.lhs instanceof t.Name ? {} : { ...this.lhs.names }, this.rhs);
+			return O(this.lhs instanceof t.Name ? {} : { ...this.lhs.names }, this.rhs);
 		}
 	}, c = class extends s {
 		constructor(e, t, n, r) {
@@ -1558,7 +1558,7 @@ var tt = class {
 			return `${this.code}` ? this : void 0;
 		}
 		optimizeNames(e, t) {
-			return this.code = O(this.code, e, t), this;
+			return this.code = k(this.code, e, t), this;
 		}
 		get names() {
 			return this.code instanceof t._CodeOrName ? this.code.names : {};
@@ -1582,7 +1582,7 @@ var tt = class {
 			let { nodes: n } = this, r = n.length;
 			for (; r--;) {
 				let i = n[r];
-				i.optimizeNames(e, t) || (te(e, i.names), n.splice(r, 1));
+				i.optimizeNames(e, t) || (ee(e, i.names), n.splice(r, 1));
 			}
 			return n.length > 0 ? this : void 0;
 		}
@@ -1612,15 +1612,15 @@ var tt = class {
 				let e = n.optimizeNodes();
 				n = this.else = Array.isArray(e) ? new g(e) : e;
 			}
-			if (n) return t === !1 ? n instanceof e ? n : n.nodes : this.nodes.length ? this : new e(k(t), n instanceof e ? [n] : n.nodes);
+			if (n) return t === !1 ? n instanceof e ? n : n.nodes : this.nodes.length ? this : new e(A(t), n instanceof e ? [n] : n.nodes);
 			if (t !== !1 && this.nodes.length) return this;
 		}
 		optimizeNames(e, t) {
-			if (this.else = this.else?.optimizeNames(e, t), super.optimizeNames(e, t) || this.else) return this.condition = O(this.condition, e, t), this;
+			if (this.else = this.else?.optimizeNames(e, t), super.optimizeNames(e, t) || this.else) return this.condition = k(this.condition, e, t), this;
 		}
 		get names() {
 			let e = super.names;
-			return ee(e, this.condition), this.else && D(e, this.else.names), e;
+			return O(e, this.condition), this.else && D(e, this.else.names), e;
 		}
 	};
 	_.kind = "if";
@@ -1634,7 +1634,7 @@ var tt = class {
 			return `for(${this.iteration})` + super.render(e);
 		}
 		optimizeNames(e, t) {
-			if (super.optimizeNames(e, t)) return this.iteration = O(this.iteration, e, t), this;
+			if (super.optimizeNames(e, t)) return this.iteration = k(this.iteration, e, t), this;
 		}
 		get names() {
 			return D(super.names, this.iteration.names);
@@ -1648,7 +1648,7 @@ var tt = class {
 			return `for(${t} ${r}=${i}; ${r}<${a}; ${r}++)` + super.render(e);
 		}
 		get names() {
-			return ee(ee(super.names, this.from), this.to);
+			return O(O(super.names, this.from), this.to);
 		}
 	}, x = class extends v {
 		constructor(e, t, n, r) {
@@ -1658,7 +1658,7 @@ var tt = class {
 			return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(e);
 		}
 		optimizeNames(e, t) {
-			if (super.optimizeNames(e, t)) return this.iterable = O(this.iterable, e, t), this;
+			if (super.optimizeNames(e, t)) return this.iterable = k(this.iterable, e, t), this;
 		}
 		get names() {
 			return D(super.names, this.iterable.names);
@@ -1882,10 +1882,10 @@ var tt = class {
 		for (let n in t) e[n] = (e[n] || 0) + (t[n] || 0);
 		return e;
 	}
-	function ee(e, n) {
+	function O(e, n) {
 		return n instanceof t._CodeOrName ? D(e, n.names) : e;
 	}
-	function O(e, n, r) {
+	function k(e, n, r) {
 		return e instanceof t.Name ? i(e) : a(e) ? new t._Code(e._items.reduce((e, n) => (n instanceof t.Name && (n = i(n)), n instanceof t._Code ? e.push(...n._items) : e.push(n), e), [])) : e;
 		function i(e) {
 			let t = r[e.str];
@@ -1895,23 +1895,23 @@ var tt = class {
 			return e instanceof t._Code && e._items.some((e) => e instanceof t.Name && n[e.str] === 1 && r[e.str] !== void 0);
 		}
 	}
-	function te(e, t) {
+	function ee(e, t) {
 		for (let n in t) e[n] = (e[n] || 0) - (t[n] || 0);
 	}
-	function k(e) {
+	function A(e) {
 		return typeof e == "boolean" || typeof e == "number" || e === null ? !e : (0, t._)`!${M(e)}`;
 	}
-	e.not = k;
-	var A = ie(e.operators.AND);
-	function ne(...e) {
-		return e.reduce(A);
+	e.not = A;
+	var j = ie(e.operators.AND);
+	function te(...e) {
+		return e.reduce(j);
 	}
-	e.and = ne;
-	var re = ie(e.operators.OR);
-	function j(...e) {
-		return e.reduce(re);
+	e.and = te;
+	var ne = ie(e.operators.OR);
+	function re(...e) {
+		return e.reduce(ne);
 	}
-	e.or = j;
+	e.or = re;
 	function ie(e) {
 		return (n, r) => n === t.nil ? r : r === t.nil ? n : (0, t._)`${M(n)} ${e} ${M(r)}`;
 	}
@@ -2818,7 +2818,7 @@ var tt = class {
 	function _(e) {
 		let { schema: t, opts: n, gen: r } = e;
 		m(e, () => {
-			n.$comment && t.$comment && te(e), D(e), r.let(l.default.vErrors, null), r.let(l.default.errors, 0), n.unevaluated && v(e), T(e), k(e);
+			n.$comment && t.$comment && ee(e), D(e), r.let(l.default.vErrors, null), r.let(l.default.errors, 0), n.unevaluated && v(e), T(e), A(e);
 		});
 	}
 	function v(e) {
@@ -2846,7 +2846,7 @@ var tt = class {
 	}
 	function C(e, t) {
 		let { schema: n, gen: r, opts: i } = e;
-		i.$comment && n.$comment && te(e), ee(e), O(e);
+		i.$comment && n.$comment && ee(e), O(e), k(e);
 		let a = r.const("_errs", l.default.errors);
 		T(e, a), r.var(t, (0, c._)`${a} === ${l.default.errors}`);
 	}
@@ -2854,9 +2854,9 @@ var tt = class {
 		(0, d.checkUnknownRules)(e), E(e);
 	}
 	function T(e, t) {
-		if (e.opts.jtd) return ne(e, [], !1, t);
+		if (e.opts.jtd) return te(e, [], !1, t);
 		let r = (0, n.getSchemaTypes)(e.schema);
-		ne(e, r, !(0, n.coerceAndCheckDataType)(e, r), t);
+		te(e, r, !(0, n.coerceAndCheckDataType)(e, r), t);
 	}
 	function E(e) {
 		let { schema: t, errSchemaPath: n, opts: r, self: i } = e;
@@ -2866,14 +2866,14 @@ var tt = class {
 		let { schema: t, opts: n } = e;
 		t.default !== void 0 && n.useDefaults && n.strictSchema && (0, d.checkStrictMode)(e, "default is ignored in the schema root");
 	}
-	function ee(e) {
+	function O(e) {
 		let t = e.schema[e.opts.schemaId];
 		t && (e.baseId = (0, u.resolveUrl)(e.opts.uriResolver, e.baseId, t));
 	}
-	function O(e) {
+	function k(e) {
 		if (e.schema.$async && !e.schemaEnv.$async) throw Error("async schema in sync schema");
 	}
-	function te({ gen: e, schemaEnv: t, schema: n, errSchemaPath: r, opts: i }) {
+	function ee({ gen: e, schemaEnv: t, schema: n, errSchemaPath: r, opts: i }) {
 		let a = n.$comment;
 		if (i.$comment === !0) e.code((0, c._)`${l.default.self}.logger.log(${a})`);
 		else if (typeof i.$comment == "function") {
@@ -2881,34 +2881,34 @@ var tt = class {
 			e.code((0, c._)`${l.default.self}.opts.$comment(${a}, ${n}, ${i}.schema)`);
 		}
 	}
-	function k(e) {
+	function A(e) {
 		let { gen: t, schemaEnv: n, validateName: r, ValidationError: i, opts: a } = e;
-		n.$async ? t.if((0, c._)`${l.default.errors} === 0`, () => t.return(l.default.data), () => t.throw((0, c._)`new ${i}(${l.default.vErrors})`)) : (t.assign((0, c._)`${r}.errors`, l.default.vErrors), a.unevaluated && A(e), t.return((0, c._)`${l.default.errors} === 0`));
+		n.$async ? t.if((0, c._)`${l.default.errors} === 0`, () => t.return(l.default.data), () => t.throw((0, c._)`new ${i}(${l.default.vErrors})`)) : (t.assign((0, c._)`${r}.errors`, l.default.vErrors), a.unevaluated && j(e), t.return((0, c._)`${l.default.errors} === 0`));
 	}
-	function A({ gen: e, evaluated: t, props: n, items: r }) {
+	function j({ gen: e, evaluated: t, props: n, items: r }) {
 		n instanceof c.Name && e.assign((0, c._)`${t}.props`, n), r instanceof c.Name && e.assign((0, c._)`${t}.items`, r);
 	}
-	function ne(e, t, n, a) {
+	function te(e, t, n, a) {
 		let { gen: o, schema: s, data: u, allErrors: f, opts: p, self: m } = e, { RULES: h } = m;
 		if (s.$ref && (p.ignoreKeywordsWithRef || !(0, d.schemaHasRulesButRef)(s, h))) {
 			o.block(() => le(e, "$ref", h.all.$ref.definition));
 			return;
 		}
-		p.jtd || j(e, t), o.block(() => {
+		p.jtd || re(e, t), o.block(() => {
 			for (let e of h.rules) g(e);
 			g(h.post);
 		});
 		function g(d) {
-			(0, r.shouldUseGroup)(s, d) && (d.type ? (o.if((0, i.checkDataType)(d.type, u, p.strictNumbers)), re(e, d), t.length === 1 && t[0] === d.type && n && (o.else(), (0, i.reportTypeError)(e)), o.endIf()) : re(e, d), f || o.if((0, c._)`${l.default.errors} === ${a || 0}`));
+			(0, r.shouldUseGroup)(s, d) && (d.type ? (o.if((0, i.checkDataType)(d.type, u, p.strictNumbers)), ne(e, d), t.length === 1 && t[0] === d.type && n && (o.else(), (0, i.reportTypeError)(e)), o.endIf()) : ne(e, d), f || o.if((0, c._)`${l.default.errors} === ${a || 0}`));
 		}
 	}
-	function re(e, t) {
+	function ne(e, t) {
 		let { gen: n, schema: i, opts: { useDefaults: o } } = e;
 		o && (0, a.assignDefaults)(e, t.type), n.block(() => {
 			for (let n of t.rules) (0, r.shouldUseRule)(i, n) && le(e, n.keyword, n.definition, t.type);
 		});
 	}
-	function j(e, t) {
+	function re(e, t) {
 		!e.schemaEnv.meta && e.opts.strictTypes && (ie(e, t), e.opts.allowUnionTypes || M(e, t), ae(e, e.dataTypes));
 	}
 	function ie(e, t) {
@@ -3461,7 +3461,7 @@ var tt = class {
 		let n = t ? E : T;
 		return n.lastIndex = 0, e.replace(n, (e) => w[e]);
 	}
-	function ee(e, t = !1) {
+	function O(e, t = !1) {
 		if (e.indexOf("%") === -1) return e;
 		let n = "";
 		for (let r = 0; r < e.length; r++) {
@@ -3477,7 +3477,7 @@ var tt = class {
 		}
 		return n;
 	}
-	function O(e) {
+	function k(e) {
 		let t = "";
 		for (let n = 0; n < e.length; n++) {
 			let r = e[n];
@@ -3492,7 +3492,7 @@ var tt = class {
 			if (s(r)) t += r;
 			else {
 				let i = e.charCodeAt(n);
-				if (i < 128) t += j(i) ? r : u[i];
+				if (i < 128) t += re(i) ? r : u[i];
 				else if (i < 55296 || i > 57343) t += d(i);
 				else if (i <= 56319 && n + 1 < e.length) {
 					let r = e.charCodeAt(n + 1);
@@ -3502,7 +3502,7 @@ var tt = class {
 		}
 		return t;
 	}
-	function te(e, t = !1) {
+	function ee(e, t = !1) {
 		let n = "", r = t && e[0] !== "/";
 		for (let t = 0; t < e.length; t++) {
 			let i = e[t];
@@ -3526,7 +3526,7 @@ var tt = class {
 		}
 		return n;
 	}
-	function k(e, t) {
+	function A(e, t) {
 		let n = "";
 		for (let r = 0; r < e.length; r++) {
 			let i = e[r];
@@ -3550,16 +3550,16 @@ var tt = class {
 		}
 		return n;
 	}
-	function A(e) {
-		return k(e, l);
+	function j(e) {
+		return A(e, l);
+	}
+	function te(e) {
+		return A(e, c);
 	}
 	function ne(e) {
-		return k(e, c);
+		return A(e, c);
 	}
 	function re(e) {
-		return k(e, c);
-	}
-	function j(e) {
 		return e >= 48 && e <= 57 || e >= 65 && e <= 90 || e >= 97 && e <= 122 || e === 42 || e === 43 || e === 45 || e === 46 || e === 47 || e === 64 || e === 95;
 	}
 	function ie(e) {
@@ -3577,7 +3577,7 @@ var tt = class {
 			if (c(r)) t += r;
 			else {
 				let i = e.charCodeAt(n);
-				if (i < 128) t += j(i) ? r : u[i];
+				if (i < 128) t += re(i) ? r : u[i];
 				else if (i < 55296 || i > 57343) t += d(i);
 				else if (i <= 56319 && n + 1 < e.length) {
 					let r = e.charCodeAt(n + 1);
@@ -3603,11 +3603,11 @@ var tt = class {
 	}
 	function ae(e) {
 		let t = [];
-		if (e.userinfo !== void 0 && (t.push(A(e.userinfo)), t.push("@")), e.host !== void 0) {
+		if (e.userinfo !== void 0 && (t.push(j(e.userinfo)), t.push("@")), e.host !== void 0) {
 			let n = e.host;
 			if (!r(n)) {
 				let e = b(n);
-				e.isIPV6 !== !0 && e.isIPVFuture !== !0 && (n = ee(n, !0), e = b(n)), n = e.isIPV6 === !0 || e.isIPVFuture === !0 ? `[${e.escapedHost}]` : D(n, !1);
+				e.isIPV6 !== !0 && e.isIPVFuture !== !0 && (n = O(n, !0), e = b(n)), n = e.isIPV6 === !0 || e.isIPVFuture === !0 ? `[${e.escapedHost}]` : D(n, !1);
 			}
 			t.push(n);
 		}
@@ -3622,13 +3622,13 @@ var tt = class {
 		nonSimpleDomain: g,
 		recomposeAuthority: ae,
 		reescapeHostDelimiters: D,
-		normalizePercentEncoding: ee,
-		normalizePathEncoding: O,
-		serializePathEncoding: te,
+		normalizePercentEncoding: O,
+		normalizePathEncoding: k,
+		serializePathEncoding: ee,
 		normalizeQueryFragmentEncoding: ie,
-		encodeUserinfo: A,
-		encodeQuery: ne,
-		encodeFragment: re,
+		encodeUserinfo: j,
+		encodeQuery: te,
+		encodeFragment: ne,
 		escapePreservingEscapes: M,
 		removeDotSegments: S,
 		removeDotSegmentsRelative: C,
@@ -3757,8 +3757,8 @@ var tt = class {
 		let i = r ? Object.assign({ scheme: "null" }, r) : { scheme: "null" }, { parsed: a, malformedAuthorityOrPort: o, malformedPercentEncoding: s, malformedSchemeSpecific: c, malformedHost: l, malformedScheme: u } = M(e, i), { parsed: d, malformedAuthorityOrPort: f, malformedPercentEncoding: m, malformedSchemeSpecific: h, malformedHost: _, malformedScheme: v } = M(t, i);
 		if (o || f || s || m || c || h || l || _ || u || v) throw Error(a.error || d.error || "URI is malformed.");
 		let b = w(a, d, i, !0), x = g(r && r.scheme || b.scheme), S = b.host, C = S !== void 0 && S !== "" && (p(S) || n(S).isIPV6);
-		if (j(b, r || {}, x, C)) throw Error(y);
-		re(b, r || {}, x, C);
+		if (re(b, r || {}, x, C)) throw Error(y);
+		ne(b, r || {}, x, C);
 		let T = S && S.indexOf("%") !== -1 && !/\P{ASCII}/u.test(S);
 		if (b.error && !T) throw Error(b.error);
 		return i.skipEscape = !0, E(b, i);
@@ -3817,12 +3817,12 @@ var tt = class {
 		}
 		return n.query !== void 0 && l.push("?", u(n.query)), n.fragment !== void 0 && l.push("#", d(n.fragment)), l.join("");
 	}
-	var D = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u, ee = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/, O = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
-	function te(e, t) {
+	var D = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u, O = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/, k = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
+	function ee(e, t) {
 		if (t[2] !== void 0 && e.path && e.path[0] !== "/") return "URI path must start with \"/\" when authority is present.";
 		if (typeof e.port == "number" && (e.port < 0 || e.port > 65535)) return "URI port is malformed.";
 	}
-	function k(e) {
+	function A(e) {
 		if (e === void 0) return !1;
 		let t = e.indexOf("%");
 		for (; t !== -1;) {
@@ -3831,16 +3831,16 @@ var tt = class {
 		}
 		return !1;
 	}
-	function A(e) {
+	function j(e) {
 		return e[0] === "[" && e[e.length - 1] === "]";
 	}
-	function ne(e) {
+	function te(e) {
 		let t = e[4];
-		return k(e[3]) || t !== void 0 && !A(t) && k(t) || k(e[6]) || k(e[7]) || k(e[8]);
+		return A(e[3]) || t !== void 0 && !j(t) && A(t) || A(e[6]) || A(e[7]) || A(e[8]);
 	}
-	function re(e, t, n, r) {
-		if (j(e, t, n, r)) return e.error = e.error || y, !0;
-		if (!t.unicodeSupport && (!n || !n.unicodeSupport) && e.host && !A(e.host) && (t.domainHost || n && n.domainHost) && r === !1 && m(e.host)) {
+	function ne(e, t, n, r) {
+		if (re(e, t, n, r)) return e.error = e.error || y, !0;
+		if (!t.unicodeSupport && (!n || !n.unicodeSupport) && e.host && !j(e.host) && (t.domainHost || n && n.domainHost) && r === !1 && m(e.host)) {
 			let t;
 			try {
 				t = new URL("http://" + e.host);
@@ -3852,8 +3852,8 @@ var tt = class {
 		}
 		return !1;
 	}
-	function j(e, t, n, r) {
-		return !!(e.host && r === !1 && !A(e.host) && (t.domainHost || n && n.domainHost) && b.test(e.host));
+	function re(e, t, n, r) {
+		return !!(e.host && r === !1 && !j(e.host) && (t.domainHost || n && n.domainHost) && b.test(e.host));
 	}
 	function ie(e) {
 		return e.username === "" && e.password === "" && e.port === "" && e.pathname === "/" && e.search === "" && e.hash === "" && e.hostname !== "";
@@ -3869,26 +3869,26 @@ var tt = class {
 			fragment: void 0
 		}, a = !1, c = !1, u = !1, d = !1, m = !1, b = !1, x = !1;
 		r.reference === "suffix" && (e = r.scheme ? r.scheme + ":" + e : "//" + e);
-		let S = e.match(ee);
+		let S = e.match(O);
 		S !== null && S[1].indexOf("\\") !== -1 && (i.error = "URI authority must not contain a literal backslash.", a = !0);
-		let C = e.match(O);
+		let C = e.match(k);
 		if (C !== null) {
 			let e = C[1], t = e.replace(/[\t\n\r]/g, "");
 			t.length >= 2 && (t.slice(0, 2) === "//" ? e.length !== t.length && (i.error = i.error || "URI authority introducer must not contain whitespace.", a = !0) : (i.error = i.error || "URI authority must not contain a literal backslash.", a = !0));
 		}
 		let w = e.match(D);
 		if (w) {
-			i.scheme = w[1], i.userinfo = w[3], i.host = w[4], i.port = parseInt(w[5], 10), i.path = w[6] || "", i.query = w[7], i.fragment = w[8], i.scheme !== void 0 && (_.test(i.scheme) ? i.scheme = i.scheme.toLowerCase() : (i.error = i.error || v, b = !0)), c = ne(w), c && (i.error = i.error || "URI contains malformed percent-encoding."), isNaN(i.port) && (i.port = w[5]);
-			let t = te(i, w);
+			i.scheme = w[1], i.userinfo = w[3], i.host = w[4], i.port = parseInt(w[5], 10), i.path = w[6] || "", i.query = w[7], i.fragment = w[8], i.scheme !== void 0 && (_.test(i.scheme) ? i.scheme = i.scheme.toLowerCase() : (i.error = i.error || v, b = !0)), c = te(w), c && (i.error = i.error || "URI contains malformed percent-encoding."), isNaN(i.port) && (i.port = w[5]);
+			let t = ee(i, w);
 			if (t !== void 0 && (i.error = i.error || t, a = !0), i.host) {
 				if (p(i.host) === !1) {
-					let e = A(i.host), t = i.host.indexOf("[") !== -1 || i.host.indexOf("]") !== -1, r = n(i.host);
+					let e = j(i.host), t = i.host.indexOf("[") !== -1 || i.host.indexOf("]") !== -1, r = n(i.host);
 					x = r.isIPV6 || r.isIPVFuture === !0, m = t && (!e || r.error === !0), i.host = x ? r.host : r.host.toLowerCase(), m && (i.error = i.error || y, a = !0);
 				} else x = !0;
 			}
 			i.reference = i.scheme === void 0 && i.userinfo === void 0 && i.host === void 0 && i.port === void 0 && i.query === void 0 && !i.path ? "same-document" : i.scheme === void 0 ? "relative" : i.fragment === void 0 ? "absolute" : "uri", r.reference && r.reference !== "suffix" && r.reference !== i.reference && (i.error = i.error || "URI is not a " + r.reference + " reference.");
 			let S = g(r.scheme || i.scheme);
-			if (m || (d = re(i, r, S, x)), e.indexOf("%") !== -1 && i.host !== void 0 && !m) {
+			if (m || (d = ne(i, r, S, x)), e.indexOf("%") !== -1 && i.host !== void 0 && !m) {
 				let e = x ? i.host : o(i.host, !0);
 				x || (e = o(e.toLowerCase())), i.host = x || r.scheme !== "null" ? f(e, x) : e;
 			}
@@ -4069,7 +4069,7 @@ var tt = class {
 				prefixes: h,
 				es5: t,
 				lines: n
-			}), this.logger = ee(e.logger);
+			}), this.logger = O(e.logger);
 			let r = e.validateFormats;
 			e.validateFormats = !1, this.RULES = (0, a.getRules)(), x.call(this, g, e, "NOT SUPPORTED"), x.call(this, _, e, "DEPRECATED", "warn"), this._metaOpts = E.call(this), e.formats && w.call(this), this._addVocabularies(), this._addDefaultMetaSchema(), e.keywords && T.call(this, e.keywords), typeof e.meta == "object" && this.addMetaSchema(e.meta), C.call(this), e.validateFormats = r;
 		}
@@ -4201,14 +4201,14 @@ var tt = class {
 			else if (typeof e == "object" && t === void 0) {
 				if (t = e, n = t.keyword, Array.isArray(n) && !n.length) throw Error("addKeywords: keyword must be string or non-empty array");
 			} else throw Error("invalid addKeywords parameters");
-			if (te.call(this, n, t), !t) return (0, u.eachItem)(n, (e) => k.call(this, e)), this;
-			ne.call(this, t);
+			if (ee.call(this, n, t), !t) return (0, u.eachItem)(n, (e) => A.call(this, e)), this;
+			te.call(this, t);
 			let r = {
 				...t,
 				type: (0, l.getJSONTypes)(t.type),
 				schemaType: (0, l.getJSONTypes)(t.schemaType)
 			};
-			return (0, u.eachItem)(n, r.type.length === 0 ? (e) => k.call(this, e, r) : (e) => r.type.forEach((t) => k.call(this, e, r, t))), this;
+			return (0, u.eachItem)(n, r.type.length === 0 ? (e) => A.call(this, e, r) : (e) => r.type.forEach((t) => A.call(this, e, r, t))), this;
 		}
 		getKeyword(e) {
 			let t = this.RULES.all[e];
@@ -4239,7 +4239,7 @@ var tt = class {
 					let t = n[e];
 					if (typeof t != "object") continue;
 					let { $data: r } = t.definition, a = i[e];
-					r && a && (i[e] = j(a));
+					r && a && (i[e] = re(a));
 				}
 			}
 			return e;
@@ -4329,21 +4329,21 @@ var tt = class {
 		warn() {},
 		error() {}
 	};
-	function ee(e) {
+	function O(e) {
 		if (e === !1) return D;
 		if (e === void 0) return console;
 		if (e.log && e.warn && e.error) return e;
 		throw Error("logger must implement log, warn and error methods");
 	}
-	var O = /^[a-z_$][a-z0-9_$:-]*$/i;
-	function te(e, t) {
+	var k = /^[a-z_$][a-z0-9_$:-]*$/i;
+	function ee(e, t) {
 		let { RULES: n } = this;
 		if ((0, u.eachItem)(e, (e) => {
 			if (n.keywords[e]) throw Error(`Keyword ${e} is already defined`);
-			if (!O.test(e)) throw Error(`Keyword ${e} has invalid name`);
+			if (!k.test(e)) throw Error(`Keyword ${e} has invalid name`);
 		}), t && t.$data && !("code" in t || "validate" in t)) throw Error("$data keyword must have \"code\" or \"validate\" function");
 	}
-	function k(e, t, n) {
+	function A(e, t, n) {
 		var r;
 		let i = t?.post;
 		if (n && i) throw Error("keyword with \"post\" flag cannot have \"type\"");
@@ -4360,19 +4360,19 @@ var tt = class {
 				schemaType: (0, l.getJSONTypes)(t.schemaType)
 			}
 		};
-		t.before ? A.call(this, o, s, t.before) : o.rules.push(s), a.all[e] = s, (r = t.implements) == null || r.forEach((e) => this.addKeyword(e));
+		t.before ? j.call(this, o, s, t.before) : o.rules.push(s), a.all[e] = s, (r = t.implements) == null || r.forEach((e) => this.addKeyword(e));
 	}
-	function A(e, t, n) {
+	function j(e, t, n) {
 		let r = e.rules.findIndex((e) => e.keyword === n);
 		r >= 0 ? e.rules.splice(r, 0, t) : (e.rules.push(t), this.logger.warn(`rule ${n} is not defined`));
 	}
-	function ne(e) {
+	function te(e) {
 		let { metaSchema: t } = e;
-		t !== void 0 && (e.$data && this.opts.$data && (t = j(t)), e.validateSchema = this.compile(t, !0));
+		t !== void 0 && (e.$data && this.opts.$data && (t = re(t)), e.validateSchema = this.compile(t, !0));
 	}
-	var re = { $ref: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#" };
-	function j(e) {
-		return { anyOf: [e, re] };
+	var ne = { $ref: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#" };
+	function re(e) {
+		return { anyOf: [e, ne] };
 	}
 })), Nt = /* @__PURE__ */ M(((e) => {
 	Object.defineProperty(e, "__esModule", { value: !0 }), e.default = {
@@ -10629,7 +10629,7 @@ async function da(e, t = {}) {
 	};
 }
 async function fa() {
-	let e = ee();
+	let e = O();
 	await new Promise((t, n) => {
 		e.once("error", n), e.listen(0, "127.0.0.1", t);
 	});
@@ -11929,8 +11929,48 @@ async function ho(e, t = Se) {
 		await r();
 	}
 }
-var go = _(g), _o = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), vo = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, yo = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`, bo = (/* @__PURE__ */ new Date(Math.ceil((Date.now() + 6e4) / 6e4) * 6e4)).toISOString();
-function xo(e, t = {}) {
+var go = _(g), _o = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), vo = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, yo = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`, bo = (e) => `'${e.replaceAll("'", "''")}'`, xo = (/* @__PURE__ */ new Date(Math.ceil((Date.now() + 6e4) / 6e4) * 6e4)).toISOString();
+function So(e, t, n, r) {
+	let i = d.join(e, "connector.stdout.log"), a = d.join(e, "connector.stderr.log"), o = d.join(e, "connector-supervisor.log"), s = [
+		"$ErrorActionPreference = 'Stop'",
+		`$envoiNode = ${bo(t)}`,
+		`$envoiDirectory = ${bo(e)}`,
+		`$envoiArguments = ${bo(n.map(yo).join(" "))}`,
+		`$envoiStdout = ${bo(i)}`,
+		`$envoiStderr = ${bo(a)}`,
+		`$envoiHistory = ${bo(o)}`,
+		"try {",
+		"  foreach ($envoiLog in @($envoiStdout, $envoiStderr)) {",
+		"    if (Test-Path -LiteralPath $envoiLog -PathType Leaf) { Move-Item -LiteralPath $envoiLog -Destination ($envoiLog + '.previous') -Force }",
+		"  }",
+		"  if ((Test-Path -LiteralPath $envoiHistory -PathType Leaf) -and (Get-Item -LiteralPath $envoiHistory).Length -gt 1048576) {",
+		"    Move-Item -LiteralPath $envoiHistory -Destination ($envoiHistory + '.previous') -Force",
+		"  }",
+		"  $envoiChild = Start-Process -FilePath $envoiNode -ArgumentList $envoiArguments -WorkingDirectory $envoiDirectory -WindowStyle Hidden -RedirectStandardOutput $envoiStdout -RedirectStandardError $envoiStderr -PassThru",
+		"  $null = $envoiChild.Handle",
+		"  Add-Content -LiteralPath $envoiHistory -Encoding UTF8 -Value \"$([DateTime]::UtcNow.ToString('o')) started pid=$($envoiChild.Id)\" -ErrorAction SilentlyContinue",
+		"  $envoiChild.WaitForExit()",
+		"  $envoiExit = $envoiChild.ExitCode",
+		"  Add-Content -LiteralPath $envoiHistory -Encoding UTF8 -Value \"$([DateTime]::UtcNow.ToString('o')) exit=$envoiExit hex=$('0x{0:X8}' -f [int]$envoiExit)\" -ErrorAction SilentlyContinue",
+		"  exit $envoiExit",
+		"} catch {",
+		"  Add-Content -LiteralPath $envoiHistory -Encoding UTF8 -Value \"$([DateTime]::UtcNow.ToString('o')) launch failed; inspect the private task and executable paths\" -ErrorAction SilentlyContinue",
+		"  exit 1",
+		"}"
+	].join("\n");
+	return {
+		executable: ye("powershell.exe", r),
+		args: [
+			"-NoProfile",
+			"-NonInteractive",
+			"-WindowStyle",
+			"Hidden",
+			"-EncodedCommand",
+			Buffer.from(s, "utf16le").toString("base64")
+		]
+	};
+}
+function Co(e, t = {}) {
 	if (t.runtime && !N.includes(t.runtime)) throw new L("Unsupported startup runtime");
 	let n = t.platform ?? process.platform, r = t.home ?? h(), i = t.node ?? process.execPath;
 	if ([
@@ -11980,11 +12020,12 @@ function xo(e, t = {}) {
 	}
 	if (n === "win32") {
 		if (!t.user) throw new L("Windows startup requires the current account SID");
-		let n = d.join(e, "startup-task.xml"), r = t.now ? new Date(t.now.getTime() + 6e4).toISOString() : bo;
+		let n = d.join(e, "startup-task.xml"), r = t.now ? new Date(t.now.getTime() + 6e4).toISOString() : xo, a = So(e, i, s, t.env);
 		return {
 			name: o,
 			filename: n,
-			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${_o(t.user)}</UserId></LogonTrigger><TimeTrigger><Enabled>true</Enabled><StartBoundary>${r}</StartBoundary><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></TimeTrigger></Triggers><Principals><Principal id="Author"><UserId>${_o(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${_o(i)}</Command><Arguments>${_o(s.map(yo).join(" "))}</Arguments><WorkingDirectory>${_o(e)}</WorkingDirectory></Exec></Actions></Task>`,
+			windowsAction: a,
+			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${_o(t.user)}</UserId></LogonTrigger><TimeTrigger><Enabled>true</Enabled><StartBoundary>${r}</StartBoundary><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></TimeTrigger></Triggers><Principals><Principal id="Author"><UserId>${_o(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${_o(a.executable)}</Command><Arguments>${_o(a.args.map(yo).join(" "))}</Arguments><WorkingDirectory>${_o(e)}</WorkingDirectory></Exec></Actions></Task>`,
 			commands: [{
 				executable: ye("schtasks.exe", t.env),
 				args: [
@@ -12007,8 +12048,8 @@ function xo(e, t = {}) {
 	}
 	throw new L("Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor");
 }
-async function So(e, t, r = {}) {
-	let i = r.platform ?? process.platform, a = xo(d.resolve(e), {
+async function wo(e, t, r = {}) {
+	let i = r.platform ?? process.platform, a = Co(d.resolve(e), {
 		platform: i,
 		home: r.home,
 		env: r.env,
@@ -12052,7 +12093,7 @@ async function So(e, t, r = {}) {
 			"-NoProfile",
 			"-NonInteractive",
 			"-Command",
-			`$task = Get-ScheduledTask -TaskName '${a.name}' -TaskPath '\\' -ErrorAction Stop; $logon = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' -and $_.Enabled }).Count -gt 0; $periodic = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskTimeTrigger' -and $_.Enabled -and $_.StartBoundary -and [string]$_.Repetition.Interval -eq 'PT1M' -and -not $_.Repetition.Duration }).Count -gt 0; Write-Output "$($task.State)|$($logon -and $periodic)"`
+			`$task = Get-ScheduledTask -TaskName '${a.name}' -TaskPath '\\' -ErrorAction Stop; $logon = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' -and $_.Enabled }).Count -gt 0; $periodic = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskTimeTrigger' -and $_.Enabled -and $_.StartBoundary -and [string]$_.Repetition.Interval -eq 'PT1M' -and -not $_.Repetition.Duration }).Count -gt 0; $launch = @($task.Actions).Count -eq 1 -and $task.Actions[0].Execute -ieq ${bo(a.windowsAction?.executable ?? "")} -and $task.Actions[0].Arguments -ceq ${bo((a.windowsAction?.args ?? []).map(yo).join(" "))} -and $task.Actions[0].WorkingDirectory -ieq ${bo(e)}; Write-Output "$($task.State)|$($logon -and $periodic -and $launch)"`
 		]
 	};
 	try {
@@ -12123,7 +12164,7 @@ async function So(e, t, r = {}) {
 		};
 	}
 }
-async function Co() {
+async function To() {
 	try {
 		if (process.platform === "linux") await go("systemctl", ["--user", "show-environment"], { timeout: 1e4 });
 		else if (process.platform === "darwin") await go("launchctl", ["list"], { timeout: 1e4 });
@@ -12141,11 +12182,11 @@ async function Co() {
 		throw new L("A user startup service is unavailable. Run setup without --install-service and use your host process supervisor to run the printed start command");
 	}
 }
-async function wo(e, t = "openclaw") {
-	await Co(), await po(e);
+async function Eo(e, t = "openclaw") {
+	await To(), await po(e);
 	let n;
 	process.platform === "win32" && (n = await be());
-	let i = xo(e, {
+	let i = Co(e, {
 		user: n,
 		runtime: t
 	});
@@ -12163,10 +12204,10 @@ async function wo(e, t = "openclaw") {
 	}
 	return i.name;
 }
-async function To(e, t) {
+async function Do(e, t) {
 	let r;
 	process.platform === "win32" && (r = await be());
-	let i = xo(d.resolve(e), {
+	let i = Co(d.resolve(e), {
 		user: r,
 		runtime: t
 	});
@@ -12205,43 +12246,43 @@ var $ = class extends Error {
 	constructor(e) {
 		super(e), this.code = e, this.name = "HostTaskError";
 	}
-}, Eo = (e) => typeof e == "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(e);
-function Do(e) {
+}, Oo = (e) => typeof e == "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(e);
+function ko(e) {
 	if (!e || typeof e != "object" || Array.isArray(e)) throw new $("TASK_INVALID");
 	let t = e;
 	if (Object.keys(t).some((e) => ![
 		"requestId",
 		"recipientAddress",
 		"text"
-	].includes(e)) || !Eo(t.requestId) || typeof t.recipientAddress != "string" || t.recipientAddress.length > 254 || !/^[a-z0-9][a-z0-9._+-]*@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(t.recipientAddress) || typeof t.text != "string" || !t.text.trim() || Buffer.byteLength(t.text, "utf8") > 15e3 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(t.text)) throw new $("TASK_INVALID");
+	].includes(e)) || !Oo(t.requestId) || typeof t.recipientAddress != "string" || t.recipientAddress.length > 254 || !/^[a-z0-9][a-z0-9._+-]*@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(t.recipientAddress) || typeof t.text != "string" || !t.text.trim() || Buffer.byteLength(t.text, "utf8") > 15e3 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(t.text)) throw new $("TASK_INVALID");
 	return {
 		requestId: t.requestId,
 		recipientAddress: t.recipientAddress,
 		text: t.text
 	};
 }
-var Oo = (e, t) => e?.apiUrl === t.apiUrl && e?.runtime === t.runtime && e?.address === t.address, ko = (e, t) => d.join(e, `host-task-${t}.json`), Ao = (e, t) => `case_${v("sha256").update(JSON.stringify([
+var Ao = (e, t) => e?.apiUrl === t.apiUrl && e?.runtime === t.runtime && e?.address === t.address, jo = (e, t) => d.join(e, `host-task-${t}.json`), Mo = (e, t) => `case_${v("sha256").update(JSON.stringify([
 	e.apiUrl,
 	e.address,
 	t
 ])).digest("hex").slice(0, 32)}`;
-async function jo(e, t, r) {
-	if (!Eo(r)) throw new $("TASK_INVALID");
-	let i = ko(e, r), o = await n(i).catch((e) => {
+async function No(e, t, r) {
+	if (!Oo(r)) throw new $("TASK_INVALID");
+	let i = jo(e, r), o = await n(i).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
 	});
 	if (!o) return null;
 	if (!o.isFile() || o.isSymbolicLink() || o.size > 1e5) throw new $("TASK_STATE_INVALID");
 	try {
-		let e = JSON.parse(await a(i, "utf8")), n = Do(e.request);
-		if (e.version !== 1 || !Oo(e.identity, t) || n.requestId !== r || e.caseId !== Ao(t, r) || !["prepared", "accepted"].includes(e.state) || e.state === "accepted" && (typeof e.messageId != "string" || !/^msg_[a-zA-Z0-9_-]{1,128}$/.test(e.messageId))) throw Error();
+		let e = JSON.parse(await a(i, "utf8")), n = ko(e.request);
+		if (e.version !== 1 || !Ao(e.identity, t) || n.requestId !== r || e.caseId !== Mo(t, r) || !["prepared", "accepted"].includes(e.state) || e.state === "accepted" && (typeof e.messageId != "string" || !/^msg_[a-zA-Z0-9_-]{1,128}$/.test(e.messageId))) throw Error();
 		return e;
 	} catch {
 		throw new $("TASK_STATE_INVALID");
 	}
 }
-function Mo(e, t, n, r = R) {
+function Po(e, t, n, r = R) {
 	t = {
 		apiUrl: t.apiUrl,
 		runtime: t.runtime,
@@ -12255,7 +12296,7 @@ function Mo(e, t, n, r = R) {
 		replayed: n
 	});
 	return async (o) => {
-		let s = Do(o);
+		let s = ko(o);
 		if (s.recipientAddress === t.address) throw new $("TASK_SELF_RECIPIENT");
 		let c = JSON.stringify(s), l = i.get(s.requestId);
 		if (l) {
@@ -12263,7 +12304,7 @@ function Mo(e, t, n, r = R) {
 			return l.promise;
 		}
 		let u = (async () => {
-			let i = await jo(e, t, s.requestId);
+			let i = await No(e, t, s.requestId);
 			if (i && JSON.stringify(i.request) !== c) throw new $("TASK_IDEMPOTENCY_CONFLICT");
 			if (i?.state === "accepted") return a(i, !0);
 			let o = n();
@@ -12271,9 +12312,9 @@ function Mo(e, t, n, r = R) {
 				version: 1,
 				identity: { ...t },
 				request: s,
-				caseId: Ao(t, s.requestId),
+				caseId: Mo(t, s.requestId),
 				state: "prepared"
-			}, await r(ko(e, s.requestId), i));
+			}, await r(jo(e, s.requestId), i));
 			let l = await o.startCase(`host-task:${s.requestId}`, {
 				caseId: i.caseId,
 				recipientEmail: s.recipientAddress,
@@ -12287,7 +12328,7 @@ function Mo(e, t, n, r = R) {
 				...i,
 				state: "accepted",
 				messageId: u.id
-			}, await r(ko(e, s.requestId), i), a(i, !1);
+			}, await r(jo(e, s.requestId), i), a(i, !1);
 		})();
 		i.set(s.requestId, {
 			fingerprint: c,
@@ -12300,7 +12341,7 @@ function Mo(e, t, n, r = R) {
 		}
 	};
 }
-async function No(e, t, n, r = () => ({ status: "running" }), i) {
+async function Fo(e, t, n, r = () => ({ status: "running" }), i) {
 	let o = x(32).toString("base64url"), s = (/* @__PURE__ */ new Date()).toISOString(), c = d.join(e, "control.json"), u = E(async (e, a) => {
 		let c = u.address(), l = c && typeof c == "object" ? `127.0.0.1:${c.port}` : "", d = Buffer.from(e.headers.authorization || ""), f = Buffer.from(`Bearer ${o}`);
 		if (e.headers.host !== l || e.headers.origin || d.length !== f.length || !C(d, f)) {
@@ -12341,7 +12382,7 @@ async function No(e, t, n, r = () => ({ status: "running" }), i) {
 				} catch {
 					throw new $("TASK_INVALID");
 				}
-				let o = await i(Do(r));
+				let o = await i(ko(r));
 				a.writeHead(200), a.end(JSON.stringify(o));
 			} catch (e) {
 				let t = e instanceof $ ? e.code : "TASK_SEND_UNCERTAIN";
@@ -12369,7 +12410,7 @@ async function No(e, t, n, r = () => ({ status: "running" }), i) {
 		u.closeAllConnections(), await new Promise((e) => u.close(() => e())), (await a(c, "utf8").then((e) => JSON.parse(e)).catch(() => null))?.secret === o && await l(c, { force: !0 });
 	} };
 }
-async function Po(e) {
+async function Io(e) {
 	let t = d.join(e, "control.json"), r = await n(t);
 	if (!r.isFile() || r.isSymbolicLink() || r.size > 2048) throw new F("CONTROL_INVALID", "Invalid connector control file");
 	let i;
@@ -12381,8 +12422,8 @@ async function Po(e) {
 	if (!i || typeof i != "object" || Array.isArray(i) || i.version !== 1 || !Number.isInteger(i.port) || i.port < 1 || i.port > 65535 || typeof i.secret != "string" || !/^[A-Za-z0-9_-]{43}$/.test(i.secret)) throw new F("CONTROL_INVALID", "Invalid connector control file");
 	return i;
 }
-async function Fo(e, t) {
-	let n = await Po(e), r = await fetch(`http://127.0.0.1:${n.port}/${t}`, {
+async function Lo(e, t) {
+	let n = await Io(e), r = await fetch(`http://127.0.0.1:${n.port}/${t}`, {
 		method: t === "stop" ? "POST" : "GET",
 		redirect: "error",
 		headers: { authorization: `Bearer ${n.secret}` },
@@ -12391,15 +12432,15 @@ async function Fo(e, t) {
 	if (!r.ok) throw new F("CONNECTOR_UNREACHABLE", "The connector is not responding to local management");
 	return await r.json();
 }
-function Io(e, t) {
+function Ro(e, t) {
 	return !!e && typeof e == "object" && !Array.isArray(e) && e.runtime === t.runtime && e.address === t.address && e.apiUrl === t.apiUrl;
 }
-async function Lo(e, t, n) {
-	let r = await Fo(e, "status");
-	if (!Io(r, n)) throw new F("CONTROL_INVALID", "Local connector identity does not match this installation");
-	return t === "status" ? r : Fo(e, "stop");
+async function zo(e, t, n) {
+	let r = await Lo(e, "status");
+	if (!Ro(r, n)) throw new F("CONTROL_INVALID", "Local connector identity does not match this installation");
+	return t === "status" ? r : Lo(e, "stop");
 }
-var Ro = [
+var Bo = [
 	"ENROLLMENT_HTTP_ERROR",
 	"ENROLLMENT_TOKEN_REJECTED",
 	"ENROLLMENT_RUNTIME_MISMATCH",
@@ -12412,7 +12453,7 @@ var Ro = [
 	"ENROLLMENT_RESPONSE_INVALID",
 	"ENROLLMENT_PERSISTENCE_FAILED",
 	"ENROLLMENT_UNCERTAIN"
-], zo = {
+], Vo = {
 	ENROLLMENT_TOKEN_REJECTED: "The token was rejected as invalid, expired, or already used.",
 	ENROLLMENT_RUNTIME_MISMATCH: "The selected runtime does not match the enrollment token.",
 	ENROLLMENT_OWNER_INVALID: "The issuing workspace owner could not be authorized. Check workspace membership.",
@@ -12424,21 +12465,21 @@ var Ro = [
 	ENROLLMENT_RESPONSE_INVALID: "Envoi responded without a valid credential session.",
 	ENROLLMENT_PERSISTENCE_FAILED: "Envoi returned credentials, but saving them locally failed. Check storage permissions and capacity."
 };
-async function Bo(e, t) {
-	let n = e instanceof er || e instanceof $n, r = e instanceof $n ? "ENROLLMENT_PERSISTENCE_FAILED" : e instanceof er && Ro.includes(e.code) ? e.code : "ENROLLMENT_UNCERTAIN", i = {
+async function Ho(e, t) {
+	let n = e instanceof er || e instanceof $n, r = e instanceof $n ? "ENROLLMENT_PERSISTENCE_FAILED" : e instanceof er && Bo.includes(e.code) ? e.code : "ENROLLMENT_UNCERTAIN", i = {
 		code: r,
 		checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
 		...n && e.status !== void 0 ? { httpStatus: e.status } : {},
 		...n && e.requestId ? { requestId: e.requestId } : {}
 	};
-	return await R(d.join(t, "enrollment-error.json"), i).catch(() => {}), new F(r, `${zo[r] ?? "Enrollment did not finish."}${i.httpStatus ? ` HTTP ${i.httpStatus}.` : ""}${i.requestId ? ` Request ID: ${i.requestId}.` : ""} State directory: ${t}. Preserve it and check Agent connections before creating another token; it may have been consumed. Use Reconnect runtime for an existing identity if credentials were lost.`);
+	return await R(d.join(t, "enrollment-error.json"), i).catch(() => {}), new F(r, `${Vo[r] ?? "Enrollment did not finish."}${i.httpStatus ? ` HTTP ${i.httpStatus}.` : ""}${i.requestId ? ` Request ID: ${i.requestId}.` : ""} State directory: ${t}. Preserve it and check Agent connections before creating another token; it may have been consumed. Use Reconnect runtime for an existing identity if credentials were lost.`);
 }
-async function Vo(e) {
+async function Uo(e) {
 	try {
 		let t = d.join(e, "enrollment-error.json"), r = await n(t);
 		if (!r.isFile() || r.isSymbolicLink() || r.size > 16384) return;
 		let i = JSON.parse(await a(t, "utf8"));
-		return !i || !Ro.includes(i.code) || typeof i.checkedAt != "string" || !Number.isFinite(Date.parse(i.checkedAt)) ? void 0 : {
+		return !i || !Bo.includes(i.code) || typeof i.checkedAt != "string" || !Number.isFinite(Date.parse(i.checkedAt)) ? void 0 : {
 			code: i.code,
 			checkedAt: new Date(i.checkedAt).toISOString(),
 			...Number.isInteger(i.httpStatus) && i.httpStatus >= 100 && i.httpStatus <= 599 ? { httpStatus: i.httpStatus } : {},
@@ -12448,15 +12489,15 @@ async function Vo(e) {
 		return;
 	}
 }
-var Ho = (e) => n(e).catch((e) => {
+var Wo = (e) => n(e).catch((e) => {
 	if (e.code === "ENOENT") return null;
 	throw e;
 });
-async function Uo(e) {
+async function Go(e) {
 	let t = d.resolve(await s(e));
 	if ((process.platform === "win32" ? t.toLowerCase() !== e.toLowerCase() : t !== e) || !(await n(e)).isDirectory()) throw new F("STATE_INVALID", "State migration requires an owned directory without symbolic links");
 }
-async function Wo(e) {
+async function Ko(e) {
 	try {
 		let t = JSON.parse(await a(e, "utf8"));
 		if (!t || typeof t != "object" || Array.isArray(t)) throw Error();
@@ -12465,16 +12506,16 @@ async function Wo(e) {
 		throw new F("STATE_INVALID", "Saved migration state is unreadable; preserve the private directory for recovery");
 	}
 }
-async function Go(e) {
-	let t = d.join(e, "hermes-relay.json"), n = await Ho(t);
+async function qo(e) {
+	let t = d.join(e, "hermes-relay.json"), n = await Wo(t);
 	if (!n) return;
 	if (!n.isFile() || n.isSymbolicLink() || n.size > 128e3) throw new F("STATE_INVALID", "Hermes relay state must be a regular private file");
-	let r = await Wo(t);
+	let r = await Ko(t);
 	if (typeof r.serverName != "string" || !/^sinaloa_[a-f0-9]{16}$/.test(r.serverName)) return;
 	if (r.version !== 1 || !Number.isSafeInteger(r.port) || r.port < 1 || r.port > 65535 || !/^[a-f0-9]{64}$/.test(r.token)) throw new F("STATE_INVALID", "The prior Hermes relay state is invalid");
-	let i = d.join(e, "connection.json"), a = await Ho(i);
+	let i = d.join(e, "connection.json"), a = await Wo(i);
 	if (!a?.isFile() || a.isSymbolicLink() || a.size > 128e3) throw new F("STATE_INVALID", "The migrated connection needs its saved Hermes profile");
-	let o = await Wo(i), s = o.configuration;
+	let o = await Ko(i), s = o.configuration;
 	if (o.runtime !== "hermes" || typeof s?.home != "string" || !d.isAbsolute(s.home) || typeof s.configPath != "string" || !d.isAbsolute(s.configPath)) throw new F("STATE_INVALID", "The migrated Hermes profile paths are invalid");
 	let c = r.serverName.slice(8), l = `envoi_${c}`, u = `SINALOA_MCP_${c.toUpperCase()}`, f = `ENVOI_MCP_${c.toUpperCase()}`, p = await X(s.configPath);
 	if (p !== null) {
@@ -12494,28 +12535,28 @@ async function Go(e) {
 		serverName: l
 	});
 }
-async function Ko(e, t = Se) {
+async function Jo(e, t = Se) {
 	let n = d.resolve(e), r = d.dirname(n), i = d.dirname(r), a = d.basename(i), o = d.basename(r), s = d.basename(n);
 	if (!["envoi", "sinaloa"].includes(a) || !N.includes(o) || !/^[a-f0-9]{24}$/.test(s)) return n;
 	let l = d.dirname(i), u = d.join(l, "envoi", o, s), f = d.join(l, "sinaloa", o, s);
-	if (!await Ho(f)) {
-		if (o === "hermes" && await Ho(u)) {
-			await Uo(u);
+	if (!await Wo(f)) {
+		if (o === "hermes" && await Wo(u)) {
+			await Go(u);
 			let e = await z(u);
 			try {
-				await Go(u);
+				await qo(u);
 			} finally {
 				await e();
 			}
 		}
 		return u;
 	}
-	await Uo(f), await t(d.dirname(u));
+	await Go(f), await t(d.dirname(u));
 	let p = await z(d.dirname(u)), m = !1, h;
 	try {
-		if (!await Ho(f)) return u;
-		if (await Ho(u)) throw new F("STATE_MIGRATION_CONFLICT", "Both prior and current state directories exist. Preserve both and resolve their identity before starting");
-		return h = await z(f, () => m ? u : f), await c(f, u), m = !0, o === "hermes" && await Go(u), u;
+		if (!await Wo(f)) return u;
+		if (await Wo(u)) throw new F("STATE_MIGRATION_CONFLICT", "Both prior and current state directories exist. Preserve both and resolve their identity before starting");
+		return h = await z(f, () => m ? u : f), await c(f, u), m = !0, o === "hermes" && await qo(u), u;
 	} finally {
 		try {
 			await h?.();
@@ -12524,7 +12565,7 @@ async function Ko(e, t = Se) {
 		}
 	}
 }
-function qo(e, t) {
+function Yo(e, t) {
 	return new Promise((n) => {
 		if (t.aborted) {
 			n();
@@ -12536,7 +12577,7 @@ function qo(e, t) {
 		t.addEventListener("abort", r, { once: !0 });
 	});
 }
-async function Jo(e, t, n = {}) {
+async function Xo(e, t, n = {}) {
 	if (!e.verify) return;
 	let r = AbortSignal.timeout(n.timeoutMs ?? 36e4), i = AbortSignal.any([t, r]);
 	for (; !i.aborted;) try {
@@ -12547,11 +12588,11 @@ async function Jo(e, t, n = {}) {
 		if (t.aborted) throw new F("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.");
 		if (r.aborted) break;
 		if (!(e instanceof F) || e.code !== "TOOLS_NOT_READY") throw e;
-		n.onWaiting?.(e.code), await qo(n.retryMs ?? 15e3, i);
+		n.onWaiting?.(e.code), await Yo(n.retryMs ?? 15e3, i);
 	}
 	throw t.aborted ? new F("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new F("TOOLS_NOT_READY", "Runtime tools did not recover within six minutes. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
 }
-var Yo = /* @__PURE__ */ new Set([
+var Zo = /* @__PURE__ */ new Set([
 	"starting",
 	"service_check",
 	"runtime_check",
@@ -12560,15 +12601,15 @@ var Yo = /* @__PURE__ */ new Set([
 	"retry_wait",
 	"stopped",
 	"failed"
-]), Xo = /* @__PURE__ */ new Set([
+]), Qo = /* @__PURE__ */ new Set([
 	"pending",
 	"passed",
 	"deferred_while_paused"
-]), Zo = (e) => typeof e == "string" && Number.isFinite(Date.parse(e));
-async function Qo(e, t) {
+]), $o = (e) => typeof e == "string" && Number.isFinite(Date.parse(e));
+async function es(e, t) {
 	await R(d.join(e, "runtime-diagnostic.json"), t);
 }
-async function $o(e) {
+async function ts(e) {
 	let t = d.join(e, "runtime-diagnostic.json"), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
@@ -12576,7 +12617,7 @@ async function $o(e) {
 	if (!r || !r.isFile() || r.isSymbolicLink() || r.size > 2048) return null;
 	try {
 		let e = JSON.parse(await a(t, "utf8"));
-		return !e || e.version !== 1 || !Yo.has(e.phase) || !Xo.has(e.runtimeChecks) || !Zo(e.startedAt) || !Zo(e.updatedAt) || e.errorCode !== void 0 && !/^[A-Z][A-Z0-9_]{0,119}$/.test(e.errorCode) || e.retryAt !== void 0 && !Zo(e.retryAt) || Object.keys(e).some((e) => ![
+		return !e || e.version !== 1 || !Zo.has(e.phase) || !Qo.has(e.runtimeChecks) || !$o(e.startedAt) || !$o(e.updatedAt) || e.errorCode !== void 0 && !/^[A-Z][A-Z0-9_]{0,119}$/.test(e.errorCode) || e.retryAt !== void 0 && !$o(e.retryAt) || Object.keys(e).some((e) => ![
 			"version",
 			"phase",
 			"startedAt",
@@ -12589,11 +12630,11 @@ async function $o(e) {
 		return null;
 	}
 }
-function es(e, t, n, r = {}) {
+function ns(e, t, n, r = {}) {
 	let i = r.env ?? process.env, a = r.homeDir ?? h(), o = r.platform ?? process.platform, s = v("sha256").update(`${le(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), c = o === "win32" ? i.LOCALAPPDATA || d.join(a, "AppData", "Local") : o === "darwin" ? d.join(a, "Library", "Application Support") : i.XDG_STATE_HOME && d.isAbsolute(i.XDG_STATE_HOME) ? i.XDG_STATE_HOME : d.join(a, ".local", "state");
 	return d.join(c, "envoi", n, s);
 }
-function ts(e, t = process.platform) {
+function rs(e, t = process.platform) {
 	let n = [
 		process.execPath,
 		d.join(e, "connector.mjs"),
@@ -12603,11 +12644,11 @@ function ts(e, t = process.platform) {
 	];
 	return t === "win32" ? `& ${n.map((e) => `'${e.replaceAll("'", "''")}'`).join(" ")}` : n.map((e) => `'${e.replaceAll("'", "'\"'\"'")}'`).join(" ");
 }
-var ns = (e = fetch) => (t, n) => e(t, {
+var is = (e = fetch) => (t, n) => e(t, {
 	...n,
 	redirect: "error"
 });
-async function rs(n, r) {
+async function as(n, r) {
 	if (!r || d.resolve(r) === d.join(n, "connector.mjs")) return;
 	let i = d.join(n, `.connector-${S()}.tmp`);
 	try {
@@ -12616,7 +12657,7 @@ async function rs(n, r) {
 		await l(i, { force: !0 });
 	}
 }
-async function is(e) {
+async function os(e) {
 	let t = d.join(e, "session.json"), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
@@ -12638,7 +12679,7 @@ async function is(e) {
 	].some((e) => typeof i[e] != "string" || !i[e]) || !Number.isFinite(Date.parse(i.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(i.agentRefreshTokenExpiresAt))) throw new F("STATE_INVALID", "Saved credentials are invalid; preserve the connection directory for recovery");
 	return i;
 }
-async function as(e) {
+async function ss(e) {
 	let t = d.join(e, "connection.json"), r = await n(t);
 	if (!r.isFile() || r.isSymbolicLink() || r.size > 128e3) throw new F("STATE_INVALID", "Choose a regular private saved connection");
 	let i;
@@ -12650,10 +12691,10 @@ async function as(e) {
 	if (!i || typeof i != "object" || Array.isArray(i) || (i.runtime === "openclaw" && !i.configuration && i.openclaw && (i.configuration = i.openclaw), i.version !== 1 || !N.includes(i.runtime) || !i.configuration || typeof i.configuration != "object" || Array.isArray(i.configuration) || typeof i.address != "string" || typeof i.agentName != "string")) throw new F("STATE_INVALID", "The saved connection is invalid");
 	return i.apiUrl = le(i.apiUrl), i;
 }
-async function os(r, i) {
+async function cs(r, i) {
 	let o = await z(r);
 	try {
-		let o = await as(r), s = await is(r);
+		let o = await ss(r), s = await os(r);
 		if (!s || s.address !== o.address || o.activationSetup?.agentId && s.agentId !== o.activationSetup.agentId || o.activationSetup?.inboxId && s.inboxId !== o.activationSetup.inboxId) throw new F("STATE_MISMATCH", "The saved connector identity does not match this installation; preserve the profile and inspect it before updating");
 		let u = await n(i);
 		if (!u.isFile() || u.isSymbolicLink()) throw new F("STATE_INVALID", "Choose a regular candidate connector bundle");
@@ -12676,7 +12717,7 @@ async function os(r, i) {
 				await l(i, { force: !0 });
 			}
 		}
-		return await rs(r, i), {
+		return await as(r, i), {
 			candidateHash: m,
 			previousHash: h,
 			changed: !0
@@ -12685,7 +12726,7 @@ async function os(r, i) {
 		await o();
 	}
 }
-async function ss(e, t) {
+async function ls(e, t) {
 	let n;
 	try {
 		n = await t(`${le(e)}/health`, { signal: AbortSignal.timeout(1e4) });
@@ -12698,7 +12739,7 @@ async function ss(e, t) {
 		throw new F("ENVOI_UNREACHABLE", "The selected URL did not return Envoi health. Check the deployment origin before enrolling");
 	}
 }
-async function cs(e, t, n, r, i) {
+async function us(e, t, n, r, i) {
 	await t.reportConnectionStatus({
 		version: 1,
 		runtime: e.runtime,
@@ -12707,9 +12748,9 @@ async function cs(e, t, n, r, i) {
 		...i ? { errorCode: i } : {}
 	});
 }
-async function ls(e, t, n, r = {}) {
-	let i = ns(r.fetch);
-	await ss(t, i);
+async function ds(e, t, n, r = {}) {
+	let i = is(r.fetch);
+	await ls(t, i);
 	let a = n(e), o = await a.discover({
 		...r,
 		fetch: i
@@ -12725,18 +12766,18 @@ async function ls(e, t, n, r = {}) {
 		note: "Preparation did not enroll an agent or prove unattended receiving"
 	};
 }
-async function us(e, t, n = {}) {
-	let r = ue(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? Se)(await Ko(n.stateDir ?? es(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a = await z(i), o = ns(n.fetch), s, c, u;
+async function fs(e, t, n = {}) {
+	let r = ue(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? Se)(await Jo(n.stateDir ?? ns(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a = await z(i), o = is(n.fetch), s, c, u;
 	try {
 		let a = new Tr(i);
 		await a.init();
-		let f = await is(i), p = await as(i).catch((e) => {
+		let f = await os(i), p = await ss(i).catch((e) => {
 			if (e.code !== "ENOENT") throw e;
 		});
 		if (p && (p.apiUrl !== r.apiUrl || p.address !== r.address || p.runtime !== r.runtime) || f && f.address !== r.address) throw new F("STATE_MISMATCH", "This directory belongs to another connection. Use a separate agent-specific directory");
 		if (f && !p) throw new F("STATE_INVALID", "Saved credentials have no connection configuration; preserve this directory and inspect it");
 		let m = r.operation === "reconnect" ? v("sha256").update(r.enrollmentToken).digest("hex") : void 0, h = f?.setupRedemptionId, g = !f || !!m && h !== m && p?.lastReconnectId !== m;
-		g && ue(e), n.installService && await Co(), n.onProgress?.("Checking Envoi reachability"), await ss(r.apiUrl, o);
+		g && ue(e), n.installService && await To(), n.onProgress?.("Checking Envoi reachability"), await ls(r.apiUrl, o);
 		let _ = t(r.runtime), y = {
 			...n,
 			apiUrl: r.apiUrl,
@@ -12753,7 +12794,7 @@ async function us(e, t, n = {}) {
 			agentName: r.agentName,
 			configuration: b,
 			...p?.lastReconnectId ? { lastReconnectId: p.lastReconnectId } : {}
-		}, await R(d.join(i, "connection.json"), c), await rs(i, n.executableFile), g) {
+		}, await R(d.join(i, "connection.json"), c), await as(i, n.executableFile), g) {
 			n.onProgress?.(r.operation === "reconnect" ? "Reconnecting the existing agent" : "Enrolling the agent");
 			let e = {
 				load: () => a.load(),
@@ -12769,14 +12810,14 @@ async function us(e, t, n = {}) {
 					fetch: o
 				});
 			} catch (e) {
-				throw await Bo(e, i);
+				throw await Ho(e, i);
 			}
 			m && (c.lastReconnectId = m, await R(d.join(i, "connection.json"), c));
 		}
 		if (!f || f.address !== r.address) throw new F("STATE_MISMATCH", "The enrolled address differs from this handoff. Inspect Agent connections before starting");
 		await l(d.join(i, "enrollment-error.json"), { force: !0 }), u = new lr(c.apiUrl, a, { fetch: o }), await _.configure?.(b, y), await R(d.join(i, "connection.json"), c), n.onProgress?.("Verifying runtime tools and Envoi access"), s = await _.createBridge(b, y), await s.connector.start(), await s.connector.checkStatus();
 		let x = (await s.connector.lifecycle()).paused;
-		x || (await s.verify?.(), await cs(c, s.connector, "ready", o));
+		x || (await s.verify?.(), await us(c, s.connector, "ready", o));
 		let S = x ? "deferred_while_paused" : "passed";
 		return await R(d.join(i, "setup-check.json"), {
 			runtime: c.runtime,
@@ -12790,7 +12831,7 @@ async function us(e, t, n = {}) {
 			checks: S
 		};
 	} catch (e) {
-		throw c && (s || u) && await cs(c, s?.connector ?? u, "error", o, e instanceof F ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
+		throw c && (s || u) && await us(c, s?.connector ?? u, "error", o, e instanceof F ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
 	} finally {
 		try {
 			await s?.close();
@@ -12799,9 +12840,9 @@ async function us(e, t, n = {}) {
 		}
 	}
 }
-async function ds(e, t, n, r = {}) {
+async function ps(e, t, n, r = {}) {
 	oo(r.env ?? process.env);
-	let i = await (r.secureDirectory ?? Se)(await Ko(e, r.secureDirectory)), a = await z(i), o = ns(r.fetch), s = new AbortController(), c = () => s.abort();
+	let i = await (r.secureDirectory ?? Se)(await Jo(e, r.secureDirectory)), a = await z(i), o = is(r.fetch), s = new AbortController(), c = () => s.abort();
 	t.addEventListener("abort", c, { once: !0 }), t.aborted && s.abort();
 	let l, u, f, p = {
 		status: "starting",
@@ -12823,12 +12864,12 @@ async function ds(e, t, n, r = {}) {
 			runtimeChecks: t,
 			errorCode: s,
 			retryAt: r
-		}, await Qo(i, c).catch(() => {});
+		}, await es(i, c).catch(() => {});
 	};
 	try {
 		await g("starting");
 		let e = await fo(i, r.env ?? process.env);
-		if (f = await as(i), !await is(i)) throw new F("STATE_INVALID", "Saved credentials are missing; reconnect through Envoi before starting");
+		if (f = await ss(i), !await os(i)) throw new F("STATE_INVALID", "Saved credentials are missing; reconnect through Envoi before starting");
 		let t = new lr(f.apiUrl, new Tr(i), { fetch: o });
 		await t.start();
 		let a = n(f.runtime), m = {
@@ -12838,14 +12879,14 @@ async function ds(e, t, n, r = {}) {
 			stateDir: i,
 			fetch: o
 		};
-		r.control !== !1 && (u = await No(i, {
+		r.control !== !1 && (u = await Fo(i, {
 			runtime: f.runtime,
 			address: f.address,
 			apiUrl: f.apiUrl
 		}, c, () => ({
 			...p,
 			...l ? { wake: l.connector.wakeDiagnostics() } : {}
-		}), Mo(i, f, () => {
+		}), Po(i, f, () => {
 			if (!l || p.runtimeChecks !== "passed" || s.signal.aborted) throw new $("CONNECTOR_NOT_READY");
 			return l.connector;
 		})));
@@ -12853,7 +12894,7 @@ async function ds(e, t, n, r = {}) {
 		for (h.retryAt && await T(Math.max(0, Date.parse(h.retryAt) - Date.now()), void 0, { signal: s.signal }).catch((e) => {
 			if (!s.signal.aborted) throw e;
 		}); !s.signal.aborted;) try {
-			await g("service_check"), await ss(f.apiUrl, o), await g("runtime_check");
+			await g("service_check"), await ls(f.apiUrl, o), await g("runtime_check");
 			let t = await a.discover(m, f.configuration);
 			await (a.startupCheck ?? a.preflight)(t, m), await a.configure?.(t, m), f.configuration = t, await R(d.join(i, "connection.json"), f), l = await a.createBridge(t, m), e && l.connector.scopedWakeWorkDriver(), l.connector.onState((e) => {
 				p = {
@@ -12862,7 +12903,7 @@ async function ds(e, t, n, r = {}) {
 					lifecycle: e,
 					guidance: e.guidance
 				};
-			}), await l.connector.start(), await l.connector.checkStatus(), (await l.connector.lifecycle()).paused || (await g("tool_verification"), f.runtime === "hermes" ? await Jo(l, s.signal, {
+			}), await l.connector.start(), await l.connector.checkStatus(), (await l.connector.lifecycle()).paused || (await g("tool_verification"), f.runtime === "hermes" ? await Xo(l, s.signal, {
 				timeoutMs: r.toolRecoveryTimeoutMs,
 				retryMs: r.toolRecoveryRetryMs,
 				onWaiting(e) {
@@ -12873,7 +12914,7 @@ async function ds(e, t, n, r = {}) {
 						guidance: "Waiting for the selected Gateway to rediscover Envoi tools. Saved enrollment is unchanged."
 					}, r.onWaiting?.(e);
 				}
-			}) : await l.verify?.(), (await l.connector.lifecycle()).paused || await cs(f, l.connector, "ready", o));
+			}) : await l.verify?.(), (await l.connector.lifecycle()).paused || await us(f, l.connector, "ready", o));
 			let n = await l.connector.lifecycle();
 			p = {
 				status: n.state.toLowerCase(),
@@ -12918,7 +12959,7 @@ async function ds(e, t, n, r = {}) {
 			});
 		} else r.onReady?.(), await l.connector.run(s.signal);
 	} catch (e) {
-		if (s.signal.aborted || (h = !0, await g("failed", "pending", e instanceof F || e instanceof I ? e.code : "CONNECTOR_START_FAILED")), f && l && !s.signal.aborted && await cs(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
+		if (s.signal.aborted || (h = !0, await g("failed", "pending", e instanceof F || e instanceof I ? e.code : "CONNECTOR_START_FAILED")), f && l && !s.signal.aborted && await us(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
 	} finally {
 		t.removeEventListener("abort", c);
 		try {
@@ -12928,19 +12969,19 @@ async function ds(e, t, n, r = {}) {
 		}
 	}
 }
-async function fs(e) {
-	let t = d.resolve(e), n = await as(t), r = await is(t), i = null, o = "absent";
+async function ms(e) {
+	let t = d.resolve(e), n = await ss(t), r = await os(t), i = null, o = "absent";
 	try {
-		let e = await Fo(t, "status");
-		!Io(e, n) || typeof e.status != "string" ? o = "identity_mismatch" : (i = e, o = "responding");
+		let e = await Lo(t, "status");
+		!Ro(e, n) || typeof e.status != "string" ? o = "identity_mismatch" : (i = e, o = "responding");
 	} catch (e) {
 		o = e instanceof F && e.code === "CONTROL_INVALID" ? "invalid" : e?.code === "ENOENT" ? "absent" : "unreachable";
 	}
-	let s = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), c = await Vo(t), l = await $o(t), u = n.configuration, f = n.runtime === "hermes" && u.scopedTools === !0, p = f && typeof u.home == "string" && typeof u.daemonOrigin == "string" && typeof u.scopedCwd == "string" ? {
+	let s = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), c = await Uo(t), l = await ts(t), u = n.configuration, f = n.runtime === "hermes" && u.scopedTools === !0, p = f && typeof u.home == "string" && typeof u.daemonOrigin == "string" && typeof u.scopedCwd == "string" ? {
 		home: u.home,
 		origin: u.daemonOrigin,
 		cwd: u.scopedCwd
-	} : null, [m, h] = await Promise.all([So(t, n.runtime).catch(() => ({ registration: "unverified" })), p ? Hi(p).catch(() => ({
+	} : null, [m, h] = await Promise.all([wo(t, n.runtime).catch(() => ({ registration: "unverified" })), p ? Hi(p).catch(() => ({
 		connection: "unverified",
 		supervisor: "unknown",
 		originMatches: null
@@ -12981,15 +13022,15 @@ async function fs(e) {
 		note: "A running connector is not proof of successful message delivery. Verify a real agent exchange"
 	};
 }
-async function ps(e, t, n = {}) {
-	let r = d.resolve(e), i = await fs(r);
+async function hs(e, t, n = {}) {
+	let r = d.resolve(e), i = await ms(r);
 	if (i.status === "unverified") return {
 		...i,
 		runtimeChecks: "unverified",
 		note: "The local connector identity or process is unverified; inspect the saved control channel before running offline preflight"
 	};
-	let a = i.controlChannel === "responding" ? await Fo(r, "doctor").catch(() => null) : null;
-	if (Io(a, i)) return {
+	let a = i.controlChannel === "responding" ? await Lo(r, "doctor").catch(() => null) : null;
+	if (Ro(a, i)) return {
 		...i,
 		...a,
 		note: "Checks are from the running connector; verify a real message exchange"
@@ -13003,8 +13044,8 @@ async function ps(e, t, n = {}) {
 	};
 	let o = await z(r);
 	try {
-		let e = await as(r), i = t(e.runtime), a = ns(n.fetch);
-		await ss(e.apiUrl, a);
+		let e = await ss(r), i = t(e.runtime), a = is(n.fetch);
+		await ls(e.apiUrl, a);
 		let o = {
 			...n,
 			apiUrl: e.apiUrl,
@@ -13014,7 +13055,7 @@ async function ps(e, t, n = {}) {
 		await (i.startupCheck ?? i.preflight)(s, o);
 		let c = new Tr(r);
 		return await new lr(e.apiUrl, c, { fetch: a }).checkStatus(), {
-			...await fs(r),
+			...await ms(r),
 			runtimeChecks: "preflight_only",
 			note: "No connector is running. Preflight cannot prove MCP tool discovery, inbox wake, or agent processing",
 			...i.describe(s)
@@ -13023,7 +13064,7 @@ async function ps(e, t, n = {}) {
 		await o();
 	}
 }
-async function ms(e) {
+async function gs(e) {
 	let t = d.resolve(e), n, r = Date.now() + 15e3;
 	for (; !n;) try {
 		n = await z(t);
@@ -13037,7 +13078,22 @@ async function ms(e) {
 		await n();
 	}
 }
-var hs = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|configure-wake|clear-wake|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", gs = [
+async function _s(e, t = {}) {
+	let n = t.source ?? process, r = [
+		"SIGINT",
+		"SIGTERM",
+		"SIGHUP"
+	];
+	(t.platform ?? process.platform) === "win32" && r.push("SIGBREAK");
+	let i = new AbortController(), a = () => i.abort();
+	for (let e of r) n.once(e, a);
+	try {
+		return await e(i.signal);
+	} finally {
+		for (let e of r) n.removeListener(e, a);
+	}
+}
+var vs = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|configure-wake|clear-wake|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", ys = [
 	"--handoff",
 	"--state-dir",
 	"--runtime",
@@ -13046,26 +13102,26 @@ var hs = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --
 	"--profile",
 	"--agent",
 	"--gateway-url"
-], _s = [
+], bs = [
 	"--handoff-stdin",
 	"--install-service",
 	"--prepare-runtime"
 ];
-async function vs(e = process.argv.slice(2)) {
+async function xs(e = process.argv.slice(2)) {
 	if (!e.length || e.length === 1 && e[0] === "--help") {
-		process.stdout.write(hs);
+		process.stdout.write(vs);
 		return;
 	}
 	if (Number(process.versions.node.split(".")[0]) < 22) throw new F("NODE_UNSUPPORTED", "Install Node.js 22 or newer before connecting");
 	let [t, ...r] = e, i = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Set();
 	for (let e = 0; e < r.length; e++) {
 		let t = r[e];
-		if (_s.includes(t)) {
+		if (bs.includes(t)) {
 			if (o.has(t)) throw new F("ARGUMENT_INVALID", "Duplicate option");
 			o.add(t);
 			continue;
 		}
-		if (!gs.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new F("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
+		if (!ys.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new F("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
 		i.set(t, r[++e]);
 	}
 	let s = {
@@ -13077,7 +13133,7 @@ async function vs(e = process.argv.slice(2)) {
 	};
 	if (t === "prepare") {
 		if (!N.includes(i.get("--runtime")) || !i.get("--api-url") || o.has("--install-service") || o.has("--handoff-stdin") || i.has("--handoff") || i.has("--state-dir")) throw new F("ARGUMENT_INVALID", "Supply --runtime and --api-url for prepare. Run --help");
-		let e = await ls(i.get("--runtime"), i.get("--api-url"), Oa, s);
+		let e = await ds(i.get("--runtime"), i.get("--api-url"), Oa, s);
 		process.stdout.write(`${JSON.stringify(e)}\n`);
 		return;
 	}
@@ -13103,15 +13159,15 @@ async function vs(e = process.argv.slice(2)) {
 		} catch {
 			throw new F("HANDOFF_INVALID", "Download a valid Envoi setup file");
 		}
-		let r = await us(t, Oa, {
+		let r = await fs(t, Oa, {
 			...s,
 			stateDir: i.get("--state-dir"),
 			installService: o.has("--install-service"),
 			executableFile: m(import.meta.url),
 			onProgress: (e) => process.stderr.write(`${e}…\n`)
 		});
-		if (process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${ts(r.stateDir)}\n`), o.has("--install-service")) {
-			let e = await wo(r.stateDir, r.runtime);
+		if (process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${rs(r.stateDir)}\n`), o.has("--install-service")) {
+			let e = await Eo(r.stateDir, r.runtime);
 			process.stdout.write(`${JSON.stringify({
 				startupService: e,
 				startsAt: "user login",
@@ -13132,24 +13188,24 @@ async function vs(e = process.argv.slice(2)) {
 	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new F("ARGUMENT_INVALID", "Supply a supported command and --state-dir. Run --help");
 	let c = d.resolve(i.get("--state-dir"));
 	if (t === "configure-wake" || t === "clear-wake") {
-		await as(c), t === "configure-wake" ? await mo(c) : await ho(c), process.stdout.write(`${JSON.stringify({
+		await ss(c), t === "configure-wake" ? await mo(c) : await ho(c), process.stdout.write(`${JSON.stringify({
 			hostedWake: t === "configure-wake" ? "configured" : "disabled",
 			note: "Restart the connector service to apply this change"
 		})}\n`);
 		return;
 	}
 	if (t === "status") {
-		process.stdout.write(`${JSON.stringify(await fs(c))}\n`);
+		process.stdout.write(`${JSON.stringify(await ms(c))}\n`);
 		return;
 	}
 	if (t === "doctor") {
-		process.stdout.write(`${JSON.stringify(await ps(c, Oa))}\n`);
+		process.stdout.write(`${JSON.stringify(await hs(c, Oa))}\n`);
 		return;
 	}
 	if (t === "install-service") {
-		let e = await as(c);
-		await Co();
-		let t = await os(c, m(import.meta.url)), n = await wo(c, e.runtime);
+		let e = await ss(c);
+		await To();
+		let t = await cs(c, m(import.meta.url)), n = await Eo(c, e.runtime);
 		process.stdout.write(`${JSON.stringify({
 			startupService: n,
 			startsAt: "user login",
@@ -13158,7 +13214,7 @@ async function vs(e = process.argv.slice(2)) {
 		return;
 	}
 	if (t === "stop") {
-		await Lo(c, "stop", await as(c)).catch((e) => {
+		await zo(c, "stop", await ss(c)).catch((e) => {
 			throw e instanceof F && e.code === "CONTROL_INVALID" ? e : new F("CONNECTOR_UNREACHABLE", "No responding connector. Use status or stop the installed service through its supervisor");
 		}), process.stdout.write(`${JSON.stringify({
 			status: "stop requested",
@@ -13167,32 +13223,26 @@ async function vs(e = process.argv.slice(2)) {
 		return;
 	}
 	if (t === "uninstall") {
-		let e = await as(c), t = !1;
+		let e = await ss(c), t = !1;
 		try {
-			await Lo(c, "status", e), t = !0;
+			await zo(c, "status", e), t = !0;
 		} catch (e) {
 			if (e instanceof F && e.code === "CONTROL_INVALID") throw e;
 		}
-		await To(c, e.runtime), t && await Lo(c, "stop", e).catch((e) => {
+		await Do(c, e.runtime), t && await zo(c, "stop", e).catch((e) => {
 			if (e instanceof F && e.code === "CONTROL_INVALID") throw e;
-		}), await ms(c), process.stdout.write(`${JSON.stringify({
+		}), await gs(c), process.stdout.write(`${JSON.stringify({
 			status: "startup removed",
 			note: "Credentials and work history are preserved. Revoke access in Envoi to invalidate credentials"
 		})}\n`);
 		return;
 	}
-	let l = new AbortController(), u = () => l.abort();
-	process.once("SIGINT", u), process.once("SIGTERM", u);
-	try {
-		await ds(c, l.signal, Oa, {
-			onReady: () => process.stdout.write("Envoi connector started. Waiting for incoming work.\n"),
-			onWaiting: (e) => process.stderr.write(`Connection temporarily unavailable (${e}); retrying automatically.\n`)
-		});
-	} finally {
-		process.removeListener("SIGINT", u), process.removeListener("SIGTERM", u);
-	}
+	await _s((e) => ps(c, e, Oa, {
+		onReady: () => process.stdout.write("Envoi connector started. Waiting for incoming work.\n"),
+		onWaiting: (e) => process.stderr.write(`Connection temporarily unavailable (${e}); retrying automatically.\n`)
+	}));
 }
-function ys(e) {
+function Ss(e) {
 	if (e instanceof F) return `${e.code}: ${e.message}`;
 	if (e instanceof L || e instanceof P) return e.message;
 	if (e instanceof I) {
@@ -13201,16 +13251,16 @@ function ys(e) {
 	}
 	return "Connector failed. Check local configuration and connectivity with doctor; preserve the saved connection for recovery";
 }
-function bs() {
+function Cs() {
 	if (!process.argv[1]) return !1;
 	try {
-		let e = O(process.argv[1]), t = O(m(import.meta.url));
+		let e = k(process.argv[1]), t = k(m(import.meta.url));
 		return process.platform === "win32" ? e.toLowerCase() === t.toLowerCase() : e === t;
 	} catch {
 		return !1;
 	}
 }
-bs() && vs().catch((e) => {
-	process.stderr.write(`${ys(e)}\n`), process.exitCode = 1;
+Cs() && xs().catch((e) => {
+	process.stderr.write(`${Ss(e)}\n`), process.exitCode = 1;
 });
 export { lr as EnvoiConnector, I as EnvoiError, Ya as FileWakeStore, Ga as HttpWakeReceiver, io as createScopedWakeHost, ao as createWakeHttpHandler };

@@ -1,5 +1,8 @@
 # Hermes Agent bridge
 
+For saved-connection errors, process evidence and owner-controlled migration, see
+[Hermes connection recovery](TROUBLESHOOTING.md). Check status before repeating setup.
+
 ## Opt-in case-scoped daemon host
 
 The production adapter supports the trusted owner-operated Phase C beta boundary.
@@ -70,6 +73,25 @@ Setup saves enrollment before MCP preparation, so retries use the same private s
 On a saved-connection restart, a parked Hermes MCP connection may take up to its five-minute self-probe interval to rediscover Envoi. The connector keeps the same relay and state alive while retrying actual tool verification for up to six minutes. During this bounded recovery, status reports waiting with runtime checks pending; no work is claimed and no ready setup report is sent. Cancellation, expired/revoked credentials and authentication failures do not bypass verification. A timeout retains the enrollment and reports TOOLS_NOT_READY instead of silently re-enrolling or restarting the Gateway. Initial installation still requires the Gateway to load its MCP settings.
 
 The connector user service and the Hermes Gateway require their own supervisors. User-login startup is not a guarantee of operation after logout or host sleep. Validate idle incoming work, restart and a real exchange before treating unattended delivery as verified. Automated fixture tests are not proof of real installed Hermes compatibility.
+
+### Optional Windows startup task and private logs
+
+When an owner explicitly installs the connector service on Windows, its scheduled
+task launches PowerShell and Node with hidden windows. The existing logon trigger
+and one-minute recovery trigger remain; the task waits for its child and preserves
+the exit code. It keeps `connector.stdout.log`, `connector.stderr.log` and UTC
+exit/start history in `connector-supervisor.log` inside the private state directory.
+The next launch retains the preceding stdout/stderr as `.previous`; supervisor
+history rolls over at the next launch after exceeding 1 MiB. Treat these as private
+diagnostic files and sanitize them before sharing.
+
+Read-only `status` identifies an older direct-Node launch or missing recovery
+trigger as an outdated service definition. Reinstalling remains an explicit owner
+action, never an automatic repair. Console-close and break signals request orderly
+cancellation, but forced termination, logout, shutdown and sleep still require
+real-host acceptance; cleanup has a limited window. Installing a user task is a
+separate availability choice. This change does not install a task, keep a closed
+Hermes host online, or implement automatic session-bound startup.
 
 ## Legacy manual setup
 
