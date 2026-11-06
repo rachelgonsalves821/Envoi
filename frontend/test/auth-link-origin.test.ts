@@ -23,6 +23,14 @@ it('the build guard accepts both same-origin authentication actions', () => {
   expect(() => assertSameOriginAuthLinks(signIn + signUp, '/')).not.toThrow();
 });
 
+it('the build guard preserves the local account introduction without allowing cross-origin signup', () => {
+  const entry = '<a href="/create-account/" data-analytics-auth="sign-up">Start now</a>';
+  expect(() => assertSameOriginAuthLinks(signIn + signUp + entry, '/')).not.toThrow();
+  const external = entry.replace('/create-account/', 'https://www.envoi-agents.com/create-account/');
+  expect(() => assertSameOriginAuthLinks(signIn + signUp + external, '/')).toThrow();
+  expect(() => assertSameOriginAuthLinks(signIn + entry, '/')).toThrow();
+});
+
 for (const [label, href] of [
   ['absolute production', 'https://www.envoi-agents.com/api/auth/workos/sign-in?returnTo=%2Fapp'],
   ['absolute staging', 'https://sinaloa-staging.rachelgonsalves821.workers.dev/api/auth/workos/sign-in?returnTo=%2Fapp'],

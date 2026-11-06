@@ -9,6 +9,11 @@ export function assertSameOriginAuthLinks(html, page) {
     const href = anchor.match(/\bhref\s*=\s*["']([^"']*)["']/i)?.[1];
     const marked = anchor.match(/\bdata-analytics-auth\s*=\s*["']([^"']*)["']/i)?.[1];
     const url = new URL(href || '', 'https://staging.example.test');
+    // Existing signup CTAs may visit the local account introduction first.
+    if (marked === 'sign-up' && url.pathname === '/create-account/') {
+      assert.equal(href, '/create-account/', `${page}: account entry must stay on the serving origin`);
+      continue;
+    }
     const route = url.pathname.match(/^\/api\/auth\/workos\/(sign-in|sign-up)$/)?.[1];
     if (!route && !marked) continue;
     assert.ok(route && routes.has(route), `${page}: unknown auth route: ${href}`);
