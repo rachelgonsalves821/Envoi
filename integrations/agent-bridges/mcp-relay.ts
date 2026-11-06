@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomUUID } from 'node:crypto';
 import type { EnvoiConnector } from '../../sdk/typescript/src/connector';
+import { EnvoiError } from '../../sdk/typescript/src/index';
 
 const readTools = new Set([
   'envoi_agent_info', 'envoi_list_cases', 'envoi_read_case',
@@ -51,9 +52,33 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
   if (collaborationToolNames?.some(name => !collaborationTools.has(name))) throw new TypeError('Invalid collaboration tool allowlist');
   const allowedWrites = allowCollaborationWrites ? new Set(collaborationToolNames ?? collaborationTools) : new Set<string>();
   const allowedTools = new Set([...readTools, ...allowedWrites]);
-  const server = createServer((req, res) => { void handle(req, res).catch(() => {
+  let contextKey: string | undefined;
+  let initialization: { requestedVersion: string; result: Record<string, unknown> } | undefined;
+  let catalog: Record<string, unknown> | undefined;
+  let catalogRetryAt = 0;
+  const invalidate = () => { initialization = undefined; catalog = undefined; catalogRetryAt = 0; };
+  const context = async () => {
+    const key = JSON.stringify(await connector.mcpRelayContext());
+    if (key !== contextKey) { invalidate(); contextKey = key; }
+    return key;
+  };
+  const toolUnavailable = (res: ServerResponse, id: unknown) => send(res, 200, { jsonrpc: '2.0', id,
+    result: { isError: true, content: [{ type: 'text', text: 'Envoi is temporarily unavailable. No execution success is confirmed. For a write, preserve its idempotencyKey and check its outcome before retrying.' }] } });
+  const sendFailure = (res: ServerResponse, error: unknown) => {
+    if (!(error instanceof EnvoiError)) return send(res, 502, { error: 'Envoi MCP relay request failed' });
+    if (!['NETWORK_ERROR', 'TIMEOUT', 'REQUEST_CANCELLED'].includes(error.code ?? '')) invalidate();
+    const code = error.code ?? 'AUTH_UNAVAILABLE';
+    const status = error.status ?? (code === 'AGENT_PAUSED' || code === 'CONNECTOR_STOPPED' || code === 'REQUEST_CANCELLED' ? 409
+      : ['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED', 'ROTATION_ID_REQUIRED', 'REFRESH_TOKEN_INVALID', 'REFRESH_REPLAY', 'REFRESH_RECOVERY_EXPIRED', 'ACCESS_TOKEN_EXPIRED', 'AUTHENTICATION_REQUIRED'].includes(code) ? 401
+      : code === 'LEGACY_MODEL_ACCESS_DISABLED' ? 403 : 503);
+    if (error.retryAfterSeconds) res.setHeader('retry-after', String(error.retryAfterSeconds));
+    return send(res, status, { code, error: code, message: 'Envoi MCP is unavailable; preserve the saved connection and follow its status guidance.',
+      requestId: error.requestId ?? randomUUID(), ...(error.reason ? { reason: error.reason } : {}),
+      ...(error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : {}) });
+  };
+  const server = createServer((req, res) => { void handle(req, res).catch(error => {
     if (res.headersSent) res.destroy();
-    else send(res, 502, { error: 'Envoi MCP relay request failed' });
+    else sendFailure(res, error);
   }); });
 
   async function handle(req: IncomingMessage, res: ServerResponse) {
@@ -103,7 +128,50 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
     }
 
     const protocolVersion = typeof req.headers['mcp-protocol-version'] === 'string' ? req.headers['mcp-protocol-version'] : undefined;
-    const upstream = await connector.forwardMcpRequest(body, { protocolVersion });
+    if (protocolVersion && !/^\d{4}-\d{2}-\d{2}$/.test(protocolVersion)) return send(res, 400, { error: 'Invalid MCP protocol version' });
+    let key: string | undefined;
+    let upstream: Response;
+    const params = request.params && typeof request.params === 'object' && !Array.isArray(request.params)
+      ? request.params as Record<string, unknown> : {};
+    const hasId = typeof request.id === 'string' || typeof request.id === 'number' && Number.isSafeInteger(request.id);
+    const validParams = request.params === undefined || request.params !== null && typeof request.params === 'object' && !Array.isArray(request.params);
+    const cachedCatalogAvailable = () => request.jsonrpc === '2.0' && request.method === 'tools/list' && hasId
+      && validParams && initialization && catalog && Object.keys(params).length === 0
+      && (!protocolVersion || protocolVersion === initialization.result.protocolVersion);
+    try {
+      key = await context();
+      const compatible = initialization && (!protocolVersion || protocolVersion === initialization.result.protocolVersion);
+      if (request.jsonrpc === '2.0' && validParams && compatible) {
+        if (request.method === 'initialize' && hasId && params.protocolVersion === initialization!.requestedVersion)
+          return send(res, 200, { jsonrpc: '2.0', id: request.id, result: initialization!.result });
+        if (request.method === 'ping' && hasId) return send(res, 200, { jsonrpc: '2.0', id: request.id, result: {} });
+        if (request.method === 'notifications/initialized' && !('id' in request)) { res.writeHead(202, { 'cache-control': 'no-store' }); return res.end(); }
+        if (cachedCatalogAvailable() && Date.now() < catalogRetryAt)
+          return send(res, 200, { jsonrpc: '2.0', id: request.id, result: catalog });
+      }
+      upstream = await connector.forwardMcpRequest(body, { protocolVersion, preserveErrorResponse: true,
+        ...(cachedCatalogAvailable() ? { signal: AbortSignal.timeout(5_000) } : {}) });
+    } catch (error) {
+      if (!(error instanceof EnvoiError)) throw error;
+      if (['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? '')) await context();
+      if (['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? '') && cachedCatalogAvailable() && await context() === key) {
+        catalogRetryAt = Date.now() + 60_000;
+        return send(res, 200, { jsonrpc: '2.0', id: request.id, result: catalog });
+      }
+      if (request.method === 'tools/call' && hasId && ['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? ''))
+        return toolUnavailable(res, request.id);
+      return sendFailure(res, error);
+    }
+    if (!upstream.ok) {
+      if ([401, 403, 409].includes(upstream.status)) invalidate();
+      if (upstream.status >= 500 && cachedCatalogAvailable() && await context() === key) {
+        catalogRetryAt = Date.now() + 60_000;
+        return send(res, 200, { jsonrpc: '2.0', id: request.id, result: catalog });
+      }
+      if (upstream.status >= 500 && request.method === 'tools/call' && hasId) return toolUnavailable(res, request.id);
+      const retryAfter = upstream.headers.get('retry-after');
+      if (retryAfter) res.setHeader('retry-after', retryAfter);
+    }
     if (upstream.status === 202 || upstream.status === 204) {
       res.writeHead(upstream.status, { 'cache-control': 'no-store' });
       return res.end();
@@ -111,6 +179,18 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
     const bytes = Buffer.from(await upstream.arrayBuffer());
     if (bytes.length > maxResponseBytes) return send(res, 502, { error: 'Envoi MCP response is too large' });
     let output: Buffer = bytes;
+    if (upstream.ok && request.method === 'initialize' && request.jsonrpc === '2.0' && hasId) {
+      invalidate();
+      try {
+        const payload = JSON.parse(bytes.toString('utf8'));
+        const result = payload?.result;
+        if (!payload.error && payload.jsonrpc === '2.0' && payload.id === request.id && result
+          && typeof params.protocolVersion === 'string' && typeof result.protocolVersion === 'string'
+          && /^\d{4}-\d{2}-\d{2}$/.test(result.protocolVersion) && result.capabilities && typeof result.capabilities === 'object' && !Array.isArray(result.capabilities)
+          && result.serverInfo && typeof result.serverInfo.name === 'string' && typeof result.serverInfo.version === 'string'
+          && await context() === key) initialization = { requestedVersion: params.protocolVersion, result };
+      } catch { /* An unproven handshake is never cached. Preserve the upstream response. */ }
+    }
     if (upstream.ok && request.method === 'tools/list') {
       let payload: Record<string, unknown>;
       try {
@@ -122,6 +202,11 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
         output = Buffer.from(JSON.stringify({ ...payload, result: { ...result, tools: result.tools.filter(
           tool => tool && typeof tool === 'object' && allowedTools.has((tool as Record<string, unknown>).name as string)
         ) } }));
+        if (initialization && payload.jsonrpc === '2.0' && payload.id === request.id && !payload.error
+          && Object.keys(params).length === 0 && !result.nextCursor
+          && (!protocolVersion || protocolVersion === initialization.result.protocolVersion) && await context() === key)
+          { catalog = (JSON.parse(output.toString('utf8')) as { result: Record<string, unknown> }).result;
+            catalogRetryAt = Date.now() + 60_000; }
       } catch { return send(res, 502, { error: 'Envoi MCP tool catalog is invalid' }); }
     }
     if (upstream.ok && request.method === 'tools/call' && (onSuccessfulToolCall || onSuccessfulWrite)) {
