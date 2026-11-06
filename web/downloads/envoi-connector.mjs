@@ -7264,13 +7264,20 @@ var lr = class {
 			} catch {
 				throw new L(c.aborted ? "Envoi MCP request timed out or canceled" : "Envoi MCP could not be reached", void 0, o?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
 			}
-			if (!l.ok) try {
-				await fe(l.clone(), "Envoi MCP request failed");
-			} catch (e) {
-				throw r && e instanceof L && (i = {
-					response: l,
-					code: e.code
-				}), e;
+			if (!l.ok) {
+				let e = r ? new Response(await l.arrayBuffer(), {
+					status: l.status,
+					statusText: l.statusText,
+					headers: l.headers
+				}) : l;
+				try {
+					await fe(e.clone(), "Envoi MCP request failed");
+				} catch (t) {
+					throw r && t instanceof L && (i = {
+						response: e,
+						code: t.code
+					}), t;
+				}
 			}
 			return l;
 		}, !0);
@@ -8326,17 +8333,26 @@ function jr(e, t) {
 	let r = Buffer.from(n.slice(7));
 	return r.length === t.length && C(r, t);
 }
-async function Mr({ connector: e, bearerToken: t, port: n = 8788, allowCollaborationWrites: r = !1, collaborationToolNames: i, authorizeWrite: a, onSuccessfulToolCall: o, onSuccessfulWrite: s }) {
+async function Mr({ connector: e, bearerToken: t, port: n = 8788, allowCollaborationWrites: r = !1, collaborationToolNames: i, authorizeWrite: a, onSuccessfulToolCall: o, onSuccessfulWrite: s, onToolDiscovery: c }) {
 	if (typeof t != "string" || t.length < 32 || /[\r\n]/.test(t)) throw TypeError("A private MCP relay bearer token of at least 32 characters is required");
 	if (!Number.isSafeInteger(n) || n < 0 || n > 65535) throw RangeError("Invalid MCP relay port");
-	let c = Buffer.from(t);
+	let l = Buffer.from(t);
 	if (i?.some((e) => !Dr.has(e))) throw TypeError("Invalid collaboration tool allowlist");
-	let l = r ? new Set(i ?? Dr) : /* @__PURE__ */ new Set(), u = /* @__PURE__ */ new Set([...Er, ...l]), d, f, p, m = 0, h = () => {
-		f = void 0, p = void 0, m = 0;
-	}, g = async () => {
+	let u = r ? new Set(i ?? Dr) : /* @__PURE__ */ new Set(), d = /* @__PURE__ */ new Set([...Er, ...u]), f, p, m, h = 0, g = () => {
+		p = void 0, m = void 0, h = 0;
+	}, _ = (e) => {
+		let t = Array.isArray(e.tools) ? e.tools.map((e) => e.name) : [];
+		try {
+			c?.(t);
+		} catch {}
+	}, v = (e, t, n) => (_(n), J(e, 200, {
+		jsonrpc: "2.0",
+		id: t,
+		result: n
+	})), y = async () => {
 		let t = JSON.stringify(await e.mcpRelayContext());
-		return t !== d && (h(), d = t), t;
-	}, _ = (e, t) => J(e, 200, {
+		return t !== f && (g(), f = t), t;
+	}, b = (e, t) => J(e, 200, {
 		jsonrpc: "2.0",
 		id: t,
 		result: {
@@ -8346,13 +8362,13 @@ async function Mr({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 				text: "Envoi is temporarily unavailable. No execution success is confirmed. For a write, preserve its idempotencyKey and check its outcome before retrying."
 			}]
 		}
-	}), v = (e, t) => {
+	}), x = (e, t) => {
 		if (!(t instanceof L)) return J(e, 502, { error: "Envoi MCP relay request failed" });
 		[
 			"NETWORK_ERROR",
 			"TIMEOUT",
 			"REQUEST_CANCELLED"
-		].includes(t.code ?? "") || h();
+		].includes(t.code ?? "") || g();
 		let n = t.code ?? "AUTH_UNAVAILABLE", r = t.status ?? (n === "AGENT_PAUSED" || n === "CONNECTOR_STOPPED" || n === "REQUEST_CANCELLED" ? 409 : [
 			"CREDENTIAL_REVOKED",
 			"CREDENTIAL_EXPIRED",
@@ -8371,133 +8387,121 @@ async function Mr({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 			...t.reason ? { reason: t.reason } : {},
 			...t.retryAfterSeconds ? { retryAfterSeconds: t.retryAfterSeconds } : {}
 		});
-	}, y = E((e, t) => {
-		b(e, t).catch((e) => {
-			t.headersSent ? t.destroy() : v(t, e);
+	}, C = E((e, t) => {
+		w(e, t).catch((e) => {
+			t.headersSent ? t.destroy() : x(t, e);
 		});
 	});
-	async function b(t, n) {
-		let r = y.address(), i = r && typeof r == "object" ? `127.0.0.1:${r.port}` : "";
+	async function w(t, n) {
+		let r = C.address(), i = r && typeof r == "object" ? `127.0.0.1:${r.port}` : "";
 		if (t.headers.host !== i || t.headers.origin) return J(n, 403, { error: "MCP relay origin is unavailable" });
 		if (t.url !== "/mcp") return J(n, 404, { error: "Not found" });
-		if (!jr(t, c)) return n.setHeader("www-authenticate", "Bearer realm=\"Envoi local MCP relay\""), J(n, 401, { error: "MCP relay credential required" });
+		if (!jr(t, l)) return n.setHeader("www-authenticate", "Bearer realm=\"Envoi local MCP relay\""), J(n, 401, { error: "MCP relay credential required" });
 		if (t.method !== "POST") return J(n, 405, { error: "Only POST is supported" });
 		if (!String(t.headers["content-type"] || "").startsWith("application/json")) return J(n, 415, { error: "JSON is required" });
-		let l = [], d = 0;
+		let c = [], u = 0;
 		for await (let e of t) {
-			if (d += e.length, d > kr) return J(n, 413, { error: "MCP request is too large" });
-			l.push(e);
+			if (u += e.length, u > kr) return J(n, 413, { error: "MCP request is too large" });
+			c.push(e);
 		}
-		let b = Buffer.concat(l).toString("utf8"), x;
+		let f = Buffer.concat(c).toString("utf8"), S;
 		try {
-			let e = JSON.parse(b);
+			let e = JSON.parse(f);
 			if (!e || typeof e != "object" || Array.isArray(e)) throw Error();
-			x = e;
+			S = e;
 		} catch {
 			return J(n, 400, { error: "Invalid MCP JSON-RPC request" });
 		}
-		if (typeof x.method != "string" || !Or.has(x.method)) return J(n, 403, { error: "MCP method is not available" });
-		if (x.method === "tools/call") {
-			let e = x.params && typeof x.params == "object" && !Array.isArray(x.params) ? x.params : null;
-			if (!e || typeof e.name != "string" || !u.has(e.name)) return J(n, 403, { error: "MCP tool is not available through this relay" });
+		if (typeof S.method != "string" || !Or.has(S.method)) return J(n, 403, { error: "MCP method is not available" });
+		if (S.method === "tools/call") {
+			let e = S.params && typeof S.params == "object" && !Array.isArray(S.params) ? S.params : null;
+			if (!e || typeof e.name != "string" || !d.has(e.name)) return J(n, 403, { error: "MCP tool is not available through this relay" });
 			if (Dr.has(e.name)) {
 				let t = e.arguments && typeof e.arguments == "object" && !Array.isArray(e.arguments) ? e.arguments : null, r = t?.idempotencyKey;
 				if (!t || typeof r != "string" || r.length < 1 || r.length > 200 || /[\x00-\x1f\x7f]/.test(r)) return J(n, 400, { error: "A stable idempotencyKey is required for collaboration writes" });
 				if (a && !await a(e.name, t)) return J(n, 403, { error: "MCP write is unavailable outside active work" });
 			}
 		}
-		let S = typeof t.headers["mcp-protocol-version"] == "string" ? t.headers["mcp-protocol-version"] : void 0;
-		if (S && !/^\d{4}-\d{2}-\d{2}$/.test(S)) return J(n, 400, { error: "Invalid MCP protocol version" });
-		let C, w, T = x.params && typeof x.params == "object" && !Array.isArray(x.params) ? x.params : {}, E = typeof x.id == "string" || typeof x.id == "number" && Number.isSafeInteger(x.id), D = x.params === void 0 || x.params !== null && typeof x.params == "object" && !Array.isArray(x.params), O = () => x.jsonrpc === "2.0" && x.method === "tools/list" && E && D && f && p && Object.keys(T).length === 0 && (!S || S === f.result.protocolVersion);
+		let w = typeof t.headers["mcp-protocol-version"] == "string" ? t.headers["mcp-protocol-version"] : void 0;
+		if (w && !/^\d{4}-\d{2}-\d{2}$/.test(w)) return J(n, 400, { error: "Invalid MCP protocol version" });
+		let T, E, D = S.params && typeof S.params == "object" && !Array.isArray(S.params) ? S.params : {}, O = typeof S.id == "string" || typeof S.id == "number" && Number.isSafeInteger(S.id), k = S.params === void 0 || S.params !== null && typeof S.params == "object" && !Array.isArray(S.params), A = () => S.jsonrpc === "2.0" && S.method === "tools/list" && O && k && p && m && Object.keys(D).length === 0 && (!w || w === p.result.protocolVersion);
 		try {
-			C = await g();
-			let t = f && (!S || S === f.result.protocolVersion);
-			if (x.jsonrpc === "2.0" && D && t) {
-				if (x.method === "initialize" && E && T.protocolVersion === f.requestedVersion) return J(n, 200, {
+			T = await y();
+			let t = p && (!w || w === p.result.protocolVersion);
+			if (S.jsonrpc === "2.0" && k && t) {
+				if (S.method === "initialize" && O && D.protocolVersion === p.requestedVersion) return J(n, 200, {
 					jsonrpc: "2.0",
-					id: x.id,
-					result: f.result
+					id: S.id,
+					result: p.result
 				});
-				if (x.method === "ping" && E) return J(n, 200, {
+				if (S.method === "ping" && O) return J(n, 200, {
 					jsonrpc: "2.0",
-					id: x.id,
+					id: S.id,
 					result: {}
 				});
-				if (x.method === "notifications/initialized" && !("id" in x)) return n.writeHead(202, { "cache-control": "no-store" }), n.end();
-				if (O() && Date.now() < m) return J(n, 200, {
-					jsonrpc: "2.0",
-					id: x.id,
-					result: p
-				});
+				if (S.method === "notifications/initialized" && !("id" in S)) return n.writeHead(202, { "cache-control": "no-store" }), n.end();
+				if (A() && Date.now() < h) return v(n, S.id, m);
 			}
-			w = await e.forwardMcpRequest(b, {
-				protocolVersion: S,
+			E = await e.forwardMcpRequest(f, {
+				protocolVersion: w,
 				preserveErrorResponse: !0,
-				...O() ? { signal: AbortSignal.timeout(5e3) } : {}
+				...A() ? { signal: AbortSignal.timeout(5e3) } : {}
 			});
 		} catch (e) {
 			if (!(e instanceof L)) throw e;
-			return ["NETWORK_ERROR", "TIMEOUT"].includes(e.code ?? "") && await g(), ["NETWORK_ERROR", "TIMEOUT"].includes(e.code ?? "") && O() && await g() === C ? (m = Date.now() + 6e4, J(n, 200, {
-				jsonrpc: "2.0",
-				id: x.id,
-				result: p
-			})) : x.method === "tools/call" && E && ["NETWORK_ERROR", "TIMEOUT"].includes(e.code ?? "") ? _(n, x.id) : v(n, e);
+			return ["NETWORK_ERROR", "TIMEOUT"].includes(e.code ?? "") && await y(), ["NETWORK_ERROR", "TIMEOUT"].includes(e.code ?? "") && A() && await y() === T ? (h = Date.now() + 6e4, v(n, S.id, m)) : S.method === "tools/call" && O && ["NETWORK_ERROR", "TIMEOUT"].includes(e.code ?? "") ? b(n, S.id) : x(n, e);
 		}
-		if (!w.ok) {
+		if (!E.ok) {
 			if ([
 				401,
 				403,
 				409
-			].includes(w.status) && h(), w.status >= 500 && O() && await g() === C) return m = Date.now() + 6e4, J(n, 200, {
-				jsonrpc: "2.0",
-				id: x.id,
-				result: p
-			});
-			if (w.status >= 500 && x.method === "tools/call" && E) return _(n, x.id);
-			let e = w.headers.get("retry-after");
+			].includes(E.status) && g(), E.status >= 500 && A() && await y() === T) return h = Date.now() + 6e4, v(n, S.id, m);
+			if (E.status >= 500 && S.method === "tools/call" && O) return b(n, S.id);
+			let e = E.headers.get("retry-after");
 			e && n.setHeader("retry-after", e);
 		}
-		if (w.status === 202 || w.status === 204) return n.writeHead(w.status, { "cache-control": "no-store" }), n.end();
-		let k = Buffer.from(await w.arrayBuffer());
-		if (k.length > Ar) return J(n, 502, { error: "Envoi MCP response is too large" });
-		let A = k;
-		if (w.ok && x.method === "initialize" && x.jsonrpc === "2.0" && E) {
-			h();
+		if (E.status === 202 || E.status === 204) return n.writeHead(E.status, { "cache-control": "no-store" }), n.end();
+		let j = Buffer.from(await E.arrayBuffer());
+		if (j.length > Ar) return J(n, 502, { error: "Envoi MCP response is too large" });
+		let M = j;
+		if (E.ok && S.method === "initialize" && S.jsonrpc === "2.0" && O) {
+			g();
 			try {
-				let e = JSON.parse(k.toString("utf8")), t = e?.result;
-				!e.error && e.jsonrpc === "2.0" && e.id === x.id && t && typeof T.protocolVersion == "string" && typeof t.protocolVersion == "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.protocolVersion) && t.capabilities && typeof t.capabilities == "object" && !Array.isArray(t.capabilities) && t.serverInfo && typeof t.serverInfo.name == "string" && typeof t.serverInfo.version == "string" && await g() === C && (f = {
-					requestedVersion: T.protocolVersion,
+				let e = JSON.parse(j.toString("utf8")), t = e?.result;
+				!e.error && e.jsonrpc === "2.0" && e.id === S.id && t && typeof D.protocolVersion == "string" && typeof t.protocolVersion == "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.protocolVersion) && t.capabilities && typeof t.capabilities == "object" && !Array.isArray(t.capabilities) && t.serverInfo && typeof t.serverInfo.name == "string" && typeof t.serverInfo.version == "string" && await y() === T && (p = {
+					requestedVersion: D.protocolVersion,
 					result: t
 				});
 			} catch {}
 		}
-		if (w.ok && x.method === "tools/list") {
+		if (E.ok && S.method === "tools/list") {
 			let e;
 			try {
-				let t = JSON.parse(k.toString("utf8"));
+				let t = JSON.parse(j.toString("utf8"));
 				if (!t || typeof t != "object" || Array.isArray(t)) throw Error();
 				e = t;
 				let n = e.result;
 				if (!Array.isArray(n?.tools)) throw Error();
-				A = Buffer.from(JSON.stringify({
+				M = Buffer.from(JSON.stringify({
 					...e,
 					result: {
 						...n,
-						tools: n.tools.filter((e) => e && typeof e == "object" && u.has(e.name))
+						tools: n.tools.filter((e) => e && typeof e == "object" && d.has(e.name))
 					}
-				})), f && e.jsonrpc === "2.0" && e.id === x.id && !e.error && Object.keys(T).length === 0 && !n.nextCursor && (!S || S === f.result.protocolVersion) && await g() === C && (p = JSON.parse(A.toString("utf8")).result, m = Date.now() + 6e4);
+				})), e.jsonrpc === "2.0" && e.id === S.id && !e.error && _(JSON.parse(M.toString("utf8")).result), p && e.jsonrpc === "2.0" && e.id === S.id && !e.error && Object.keys(D).length === 0 && !n.nextCursor && (!w || w === p.result.protocolVersion) && await y() === T && (m = JSON.parse(M.toString("utf8")).result, h = Date.now() + 6e4);
 			} catch {
 				return J(n, 502, { error: "Envoi MCP tool catalog is invalid" });
 			}
 		}
-		if (w.ok && x.method === "tools/call" && (o || s)) {
+		if (E.ok && S.method === "tools/call" && (o || s)) {
 			let e = null;
 			try {
-				e = JSON.parse(k.toString("utf8"));
+				e = JSON.parse(j.toString("utf8"));
 			} catch {}
 			let t = e?.result;
 			if (e && !e.error && t?.isError !== !0 && Array.isArray(t?.content) && t.content.length > 0) {
-				let e = x.params, r = e.name;
+				let e = S.params, r = e.name;
 				if (Dr.has(r) && s) try {
 					let n = t.content[0], i = typeof n?.text == "string" ? JSON.parse(n.text) : null;
 					typeof i?.status == "number" && i.status >= 200 && i.status < 300 && await s(r, e.arguments);
@@ -8509,21 +8513,21 @@ async function Mr({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 				} catch {}
 			}
 		}
-		n.writeHead(w.status, {
-			"content-type": w.headers.get("content-type") || "application/json",
+		n.writeHead(E.status, {
+			"content-type": E.headers.get("content-type") || "application/json",
 			"cache-control": "no-store"
-		}), n.end(A);
+		}), n.end(M);
 	}
 	await new Promise((e, t) => {
-		y.once("error", t), y.listen(n, "127.0.0.1", () => {
-			y.off("error", t), e();
+		C.once("error", t), C.listen(n, "127.0.0.1", () => {
+			C.off("error", t), e();
 		});
 	});
-	let x = y.address();
-	if (!x || typeof x == "string") throw Error("MCP relay did not bind to loopback");
+	let T = C.address();
+	if (!T || typeof T == "string") throw Error("MCP relay did not bind to loopback");
 	return {
-		url: `http://127.0.0.1:${x.port}/mcp`,
-		close: () => new Promise((e, t) => y.close((n) => n ? t(n) : e()))
+		url: `http://127.0.0.1:${T.port}/mcp`,
+		close: () => new Promise((e, t) => C.close((n) => n ? t(n) : e()))
 	};
 }
 function Nr(e) {
@@ -10739,6 +10743,7 @@ async function da(e, t = {}) {
 		],
 		authorizeWrite: (e, t) => Ti(s, e, t),
 		onSuccessfulToolCall: t.onSuccessfulToolCall,
+		onToolDiscovery: t.onToolDiscovery,
 		onSuccessfulWrite: async (e, t) => {
 			let n = fr(e, t);
 			n && await i.markMcpReplySent(n);
@@ -10837,9 +10842,9 @@ var ha = {
 			hermesKey: "",
 			runtime: n
 		}, t);
-		let r = await pa(t), i = 0, a;
+		let r = await pa(t), i = 0, a = 0, o = -1, s;
 		try {
-			a = await da({
+			s = await da({
 				apiUrl: t.apiUrl,
 				stateDir: t.stateDir,
 				hermesUrl: e.apiUrl,
@@ -10856,6 +10861,9 @@ var ha = {
 				pollIntervalMs: t.pollIntervalMs,
 				onSuccessfulToolCall(e) {
 					e === "envoi_agent_info" && i++;
+				},
+				onToolDiscovery(e) {
+					e.includes("envoi_agent_info") && a++;
 				}
 			});
 		} catch (e) {
@@ -10864,17 +10872,18 @@ var ha = {
 		try {
 			await ma(e, t);
 		} catch (e) {
-			throw await a.close(), e;
+			throw await s.close(), e;
 		}
 		return {
-			connector: a.connector,
-			close: a.close,
+			connector: s.connector,
+			close: s.close,
+			readyToVerify: () => a > o,
 			async verify(n) {
-				let a = i;
-				if (await hi(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${r.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
+				let s = i;
+				if (o = a, await hi(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${r.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
 					...t,
 					...n ? { signal: n } : {}
-				}), i <= a) throw new I("TOOLS_NOT_READY", "Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.");
+				}), i <= s) throw new I("TOOLS_NOT_READY", "Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.");
 			}
 		};
 	},
@@ -12663,18 +12672,29 @@ function qo(e, t) {
 }
 async function Jo(e, t, n = {}) {
 	if (!e.verify) return;
-	let r = AbortSignal.timeout(n.timeoutMs ?? 36e4), i = AbortSignal.any([t, r]);
+	let r = n.timeoutMs === null ? void 0 : AbortSignal.timeout(n.timeoutMs ?? 36e4), i = r ? AbortSignal.any([t, r]) : t, a = !1, o = 0;
 	for (; !i.aborted;) try {
 		if (await e.connector.checkStatus(), (await e.connector.lifecycle()).paused) return;
-		await e.verify(i), i.throwIfAborted();
+		if (a && e.readyToVerify && !e.readyToVerify()) {
+			n.onWaiting?.("TOOLS_NOT_READY"), await qo(n.retryMs ?? 15e3, i);
+			continue;
+		}
+		a = !1, await e.verify(i), i.throwIfAborted();
 		return;
 	} catch (e) {
 		if (t.aborted) throw new I("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.");
-		if (r.aborted) break;
-		if (!(e instanceof I) || e.code !== "TOOLS_NOT_READY") throw e;
-		n.onWaiting?.(e.code), await qo(n.retryMs ?? 15e3, i);
+		if (r?.aborted) break;
+		if (!(e instanceof I && [
+			"TOOLS_NOT_READY",
+			"GATEWAY_UNREACHABLE",
+			"PROVIDER_UNREACHABLE",
+			"ENVOI_UNREACHABLE"
+		].includes(e.code) || e instanceof L && Re(e).lifecycle === "DEGRADED")) throw e;
+		e instanceof I && e.code === "TOOLS_NOT_READY" && (a = !0), n.onWaiting?.(e instanceof I || e instanceof L ? e.code ?? "CONNECTION_TEMPORARILY_UNAVAILABLE" : "CONNECTION_TEMPORARILY_UNAVAILABLE");
+		let s = e instanceof L ? e.retryAfterSeconds ?? 0 : 0, c = e instanceof I && e.code === "TOOLS_NOT_READY" ? n.retryMs ?? 15e3 : n.retryMs ?? ze(++o, Math.random(), s);
+		await qo(Math.max(c, s * 1e3), i);
 	}
-	throw t.aborted ? new I("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new I("TOOLS_NOT_READY", "Runtime tools did not recover within six minutes. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
+	throw t.aborted ? new I("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new I("TOOLS_NOT_READY", "Runtime tools did not recover within the setup check deadline. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
 }
 var Yo = /* @__PURE__ */ new Set([
 	"starting",
@@ -12988,7 +13008,7 @@ async function ds(e, t, n, r = {}) {
 					guidance: e.guidance
 				};
 			}), await l.connector.start(), await l.connector.checkStatus(), (await l.connector.lifecycle()).paused || (await g("tool_verification"), f.runtime === "hermes" ? await Jo(l, s.signal, {
-				timeoutMs: r.toolRecoveryTimeoutMs,
+				timeoutMs: r.toolRecoveryTimeoutMs ?? null,
 				retryMs: r.toolRecoveryRetryMs,
 				onWaiting(e) {
 					p = {

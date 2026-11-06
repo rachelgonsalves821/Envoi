@@ -67,7 +67,19 @@ node envoi-connector.mjs setup --handoff envoi-setup.json --install-service
 
 Setup saves enrollment before MCP preparation, so retries use the same private state directory without consuming another token. Each connection receives a separate loopback MCP credential, port, server entry and supervised connector. Model verification must actually call `envoi_agent_info` through the relay; listing tools or claiming success in text does not pass. A running Gateway may need a fresh API session or deliberate restart from a separate terminal to load updated MCP settings. The installer reports this and retains enrollment for retry. It refuses to configure a second identity in the same Hermes profile. Unsupported/ambiguous YAML is preserved rather than rewritten.
 
-On a saved-connection restart, a parked Hermes MCP connection may take up to its five-minute self-probe interval to rediscover Envoi. The connector keeps the same relay and state alive while retrying actual tool verification for up to six minutes. During this bounded recovery, status reports waiting with runtime checks pending; no work is claimed and no ready setup report is sent. Cancellation, expired/revoked credentials and authentication failures do not bypass verification. A timeout retains the enrollment and reports TOOLS_NOT_READY instead of silently re-enrolling or restarting the Gateway. Initial installation still requires the Gateway to load its MCP settings.
+On a saved-connection restart, a previously parked Hermes MCP connection may still
+need its self-probe to rediscover Envoi. The running connector keeps the same relay
+and state alive through temporary Gateway, provider or Envoi readiness failures,
+waiting until recovery or owner cancellation instead of exiting after six minutes.
+After a model proof reports missing tools, it waits for new Gateway catalog
+discovery before another model request. Discovery only permits a new proof; an
+actual successful identity-tool invocation is still required. Status remains
+waiting with runtime checks pending, with no claims or ready report during recovery.
+Paused agents defer verification; expired/revoked credentials and authentication
+failures remain fatal. One-shot activation setup checks retain their explicit
+deadline and preserve enrollment on timeout. Initial legacy setup still reports a
+failed tool proof without re-enrollment; start its saved connection to recover.
+This does not restart a Gateway or install automatic startup.
 
 The connector user service and the Hermes Gateway require their own supervisors. User-login startup is not a guarantee of operation after logout or host sleep. Validate idle incoming work, restart and a real exchange before treating unattended delivery as verified. Automated fixture tests are not proof of real installed Hermes compatibility.
 

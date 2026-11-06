@@ -427,7 +427,7 @@ describe('authenticated local management', () => {
       expect(f.counts().enrollmentCount).toBe(1);
     } finally { stop.abort(); await started; }
   });
-  it('keeps the same runtime bridge alive while parked Hermes tools recover before claiming work', async () => {
+  it.each(['TOOLS_NOT_READY', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE'])('keeps the same bridge alive during %s recovery before claiming work', async code => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
     const original = f.adapter.createBridge;
     const stop = new AbortController();
@@ -439,7 +439,7 @@ describe('authenticated local management', () => {
       const bridge = await original(config, context);
       bridge.verify = async () => {
         verifications++;
-        if (!recovering) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Tools parked');
+        if (!recovering) throw new ConnectorSetupError(code, 'Runtime temporarily unavailable');
       };
       bridge.connector.run = async () => { stop.abort(); };
       return bridge;
@@ -447,7 +447,7 @@ describe('authenticated local management', () => {
     await startConnection(f.options.stateDir, stop.signal, f.resolver, {
       ...f.options, toolRecoveryRetryMs: 1,
       onWaiting(code) {
-        expect(code).toBe('TOOLS_NOT_READY');
+        expect(['TOOLS_NOT_READY', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE']).toContain(code);
         expect(f.counts().closes).toBe(1);
         expect(f.requests.some(request => request.url.endsWith('/work/claim'))).toBe(false);
         recovering = true;

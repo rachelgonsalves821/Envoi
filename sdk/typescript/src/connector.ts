@@ -872,9 +872,14 @@ export class EnvoiConnector {
         throw new EnvoiError(requestSignal.aborted ? 'Envoi MCP request timed out or canceled' : 'Envoi MCP could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR');
       }
       if (!response.ok) {
-        try { await responsePayload(response.clone(), 'Envoi MCP request failed'); }
+        // Pause/revocation handling aborts active requests. Detach the received
+        // denial body first so it remains readable after that cancellation.
+        const received = preserveErrorResponse ? new Response(await response.arrayBuffer(), {
+          status: response.status, statusText: response.statusText, headers: response.headers
+        }) : response;
+        try { await responsePayload(received.clone(), 'Envoi MCP request failed'); }
         catch (error) {
-          if (preserveErrorResponse && error instanceof EnvoiError) denial = { response, code: error.code };
+          if (preserveErrorResponse && error instanceof EnvoiError) denial = { response: received, code: error.code };
           throw error;
         }
       }
