@@ -1,0 +1,87 @@
+{
+  "normalization": "CRLF to LF only",
+  "files": [
+    {
+      "path": "src/server.js",
+      "source": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+      "sha256": "de3768f406aed0667800cb996434a85e4cdfaa1ca997e236a89e9524652cef62",
+      "compatibleSources": [
+        {
+          "source": "d38469b62fd0e7da6cda12a9dbb75813a07b9b8c",
+          "sha256": "130864c73893ba831411299700879400af4ba1ddf5c45f524cbc7f97a43b46cb",
+          "review": "Only deployment-identity import and staging agent-slot configuration differ; case handlers are unchanged. Both selected and current source are tested."
+        }
+      ]
+    },
+    {
+      "path": "src/case-sessions.js",
+      "source": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+      "sha256": "145e392d8d25ac01004ce139f213e78e8560de060c13cfb5e160672a80bed024"
+    },
+    {
+      "path": "src/case-tools.js",
+      "source": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+      "sha256": "1cc57411d38af8289def42649a88ee5a03db79a619fc71a5e347a72bdd5d7a88"
+    },
+    {
+      "path": "src/case-session-mcp.js",
+      "source": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+      "sha256": "e4d94b6f60100e929723357f43f6e1f1fc3fb1fb6847d0d4d9d805d8e8d3c241"
+    },
+    {
+      "path": "src/case-tools-projection.js",
+      "source": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+      "sha256": "0a25c07a0a0a6937c07946382351ac77fee00e62fed258afe491884eaddb3093"
+    },
+    {
+      "path": "src/policy-engine.js",
+      "source": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+      "sha256": "fc64fa8807330b2475d3a7db1b59c874350fb307c129aa9831bf4ff4f05f9572"
+    },
+    {
+      "path": "src/storage.js",
+      "source": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+      "sha256": "dd92b30fa109b7d318329f8bbe8085e3aa382944295efe7be0dee7faa83dc71a"
+    },
+    {
+      "path": "sdk/typescript/src/connector.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "ac85e336965b0a22bbaf7515b6962c4f08d4e7ffaa873016c56e368d8e512fce"
+    },
+    {
+      "path": "sdk/typescript/src/case-session.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "22d5a3b0c249e5d4fca01c16fda5639acfff9b06ff238a703cb4381d7ee1e308"
+    },
+    {
+      "path": "sdk/typescript/src/case-tools.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "51998c13c52ff69d0bda8c38ec78b8bac091edf754d401fbdaaf00851000664e"
+    },
+    {
+      "path": "integrations/hermes/scoped-host.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "4e770ca33f687a03804073dae8091c0128270a8fbd18bb60d30c8fa3f9976351"
+    },
+    {
+      "path": "integrations/hermes/scoped-runtime.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "5c4ad1fe0182637fc9cc234a4ba374cb1b5a397d71590584f6dbd248b32ddeed"
+    },
+    {
+      "path": "integrations/hermes/reselect.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "e570e4ffb5d3aab19de5c075b87fb031a3fd698e24b3be99b0c42b7e3a394e23"
+    },
+    {
+      "path": "integrations/hermes/continuation-receiver.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "831d840f060bf631f94486084a15296062319b8eda83dd4f9254816beb7d03fd"
+    },
+    {
+      "path": "integrations/hermes/continuation-plan.ts",
+      "source": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+      "sha256": "e5055a52e54d28b81f21d237612d0433cc32c5eb398cedc22ab3d432de9bbfc3"
+    }
+  ]
+}

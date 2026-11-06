@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "codeFiles": 44,
+  "tests": [
+    "phase-c-readiness-nov2/approved-continuation-v4/asset-fixtures.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/control-adapters.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/finalization.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/hermes-bootstrap.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/hermes-host-identity.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/native-owner-intake.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/native-program.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/openclaw-targets.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/owner-controls.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/root-session-runner.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/session-launcher.test.mjs",
+    "phase-c-readiness-nov2/approved-continuation-v4/v4-fifo-helpers.test.mjs"
+  ],
+  "files": [
+    {
+      "path": "minimal-staging-release-2ae7334/phase-c-274-human-refresh.mjs",
+      "sha256": "8f9c5120a1bf78b686322ecd5b862bf114d2e8a6c782ddcc59712d6753d794aa"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/actual-controls.mjs",
+      "sha256": "3159e2cb4fcc4ec214ce73b304c6e06c72c5a50c547b1e143cb2448cd25342ce"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/asset-fixtures.mjs",
+      "sha256": "720881c53079cd460db8b202084c647cc93f710a7b3f58f74d8e8560fcc7f69b"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/asset-fixtures.test.mjs",
+      "sha256": "5f4696d72354c6f7d9de1d1b5267edbc9d69aa5ddd3efa27358ce511d1245e23"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/client/continuation-operator.mjs",
+      "sha256": "a9784135e825265cf94d675aef2dcf5b3e97cb0e721e589649e8e05a940966ec"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/control-adapters.mjs",
+      "sha256": "ea5d4d71f7ff671a5eaebe01b833f842e79e731ab701af4522a773a985ce846a"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/control-adapters.test.mjs",
+      "sha256": "e445582ff7225687d23196decd90d3f9ecddf5ada30e8af364f346c3ff2a52ff"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/finalization.mjs",
+      "sha256": "c60dcf6ba3141a3a95fef168ee097febafc9e0255ad22bc601c2ff691114758c"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/finalization.test.mjs",
+      "sha256": "c6b3c892ae8f26bc5ae2382adbedf08267a80f7d05365b170273d64764503d37"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/hermes-bootstrap.mjs",
+      "sha256": "4388cd4c1154c8e9624dc38debb09e50679d7c5fd7f7b023573ba8ec9665415f"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/hermes-bootstrap.test.mjs",
+      "sha256": "c2fa37b9fd2af77118d821d3919d502d2e808d7dfa622be6fdfd99fed0c0961a"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/hermes-host-identity.test.mjs",
+      "sha256": "75aed7fa98abe1dc1663a4826898aa98ca980a3f68cee9661727b975165ecc14"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/inventory-sql.mjs",
+      "sha256": "6c11bbb300553ba5746bd1c212e1d08875d72c8167cdf3954b1c5be44f71d148"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/native-case-probes.mjs",
+      "sha256": "55948b20c660f922b5e37e03b798ab5deca039b97f4c81ebe4d3a6f923367b90"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/native-completion-evidence.mjs",
+      "sha256": "14e3147395af20665d903cb48f92190c06c505bd34f0babe1e0da01e4405db38"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/native-flow-conductor.mjs",
+      "sha256": "bd2c0f95c09df85eaccb5bfdc08e72a4eb338f49417521299b7f69fa70cf86b5"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/native-owner-intake.mjs",
+      "sha256": "246fe1f6f5178411b21735ab3f8eeac5475c906714621cf11d5cf2599c4e610e"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/native-owner-intake.test.mjs",
+      "sha256": "f7f269827f30288be76b59e4c293593afde27a8aec6767b1df44a29c574204a8"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/native-program.test.mjs",
+      "sha256": "f17168eaaa6db3556e0f2047dac3f353062bb8228f963dcaf0f59deb3d680d3b"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/native-task-records.mjs",
+      "sha256": "6c4426af0c00d0f35bbccb8758e66cd63a7bee2950b1bd96be4071efa9c32db3"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/openclaw-targets.mjs",
+      "sha256": "0c68ce418c2150d05a2457ef2387e03c42962dc2760e7d89117bbd87f6868de9"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/openclaw-targets.test.mjs",
+      "sha256": "379bcd5c1e6e2de882bfb45417eecdd7d8bf87536bcfd58b21400d22101a0308"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/owner-controls.mjs",
+      "sha256": "101b0d9e4746c2669e0e890679af6ca2c99b942f474c18072120792ba61dfe2e"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/owner-controls.test.mjs",
+      "sha256": "2c0eb4eb78148158e5eb4d4261bd3ece1227f4f1f25307bc9fc5759281bc6bda"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/poll-gap.mjs",
+      "sha256": "0d34da83b0b661f4a1feed291851316882ea0caecc72171678397251d433b4dd"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/program-52.mjs",
+      "sha256": "7d29a8656a22e16471ffd924b098d90b44113884aceebb661e506a02679dcd51"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/receiver-composition.mjs",
+      "sha256": "9416287d8e007688c532cfdb30c74b96a11d665fba6de891d607058d1ac8c4d8"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/Review-New-Task.mjs",
+      "sha256": "feba1150caef3e0e5f941c58f59cd3a4ca83913ef7965069a1c05a7b782bfbf7"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/root-session-runner.mjs",
+      "sha256": "cc9c260b8bc85bb683bbd33fd76a485de9ffaf0527a9e0f31cd140dd2c8c31c8"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/root-session-runner.test.mjs",
+      "sha256": "a98b212bc5730480302a469f9f81ebc7fc19eaf8ea8d8b73f871952af066a9a1"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/session-launcher.mjs",
+      "sha256": "c153762f67489b7b35ea21b4b630b4e3f1b799370a5e63551cc295c4574d5b0f"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/session-launcher.test.mjs",
+      "sha256": "945adf031f1143255a46b8b851ac13bdb29a2df70883ce9510c0667dff054472"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/v4-fifo-helpers.test.mjs",
+      "sha256": "750159d38a46658a21a2d0d7e0696391509ad8822e5f88b936e73063c3d240f2"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-fixture-preparation/c08-conditional-machine.mjs",
+      "sha256": "347eb7f5413b6d3492edbf1e518a63914b31c2516752c85bd15344cd77c60edf"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-fixture-preparation/final-owner-intake.mjs",
+      "sha256": "bfa07e22f05a7f8e4a8b6d66ab1b23f526c968941520c8e67281992d90ba6421"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-fixture-preparation/final-owner-query.mjs",
+      "sha256": "23c48d797369a276e1af56bb0a0ce79c9ce48815250492debaddd430066c6908"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-fixture-preparation/fixture-operator-adapter.mjs",
+      "sha256": "dfdef09516194076b2e3abb858480d8fe4631cb402bad81bffad6bced2cc1047"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-fixture-preparation/receiver-fixture-hooks.mjs",
+      "sha256": "dd915570b285859471588d41547a74548de14bb6d22b217f0d2c2a3620190529"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-policy-continuation/openclaw-native/lib/per-work-native.mjs",
+      "sha256": "07ab9942998d19f06bf10ff334096cb2d3b150c12920ccff669b21dab5761652"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-policy-continuation/openclaw-native/Prepare-OpenClaw-Factory.mjs",
+      "sha256": "e99b9a28e414b8e2a14828fb43a043037a6f10d7878cd709ffdf99c6dd54bdad"
+    },
+    {
+      "path": "phase-c-readiness-nov2/review-only-corrected-operator/vendor/continuation-action-ledger.mjs",
+      "sha256": "83eee4fd773a3af9f313ac790e144b5825e58c4d7c554ffc597dc23d7e90e4d7"
+    },
+    {
+      "path": "phase-c-retained-scope-source/src/object-scan-lifecycle.js",
+      "sha256": "f6e44097875ce22235ecf08b10d574b9aa2a44468f613b72d035f2ce20c6508a"
+    },
+    {
+      "path": "phase-c-retained-scope-source/src/object-storage.js",
+      "sha256": "8d4f2c027c7d7af8827b49990a6d24118021e9a24049dca88c2e821943e31e8b"
+    },
+    {
+      "path": "phase-c-readiness-nov2/approved-continuation-v4/Restore-Owned-Configuration.ps1",
+      "sha256": "9f6a446782e4308c0347ebb4c7b7d759c9459637c8dd9e04ab4e064f0e8c4299"
+    }
+  ],
+  "privateInputs": [
+    {
+      "kind": "terminalBudget",
+      "sha256": "6e7e0e942f8cfcbda23aa17d612468dc071b85b10710c4e0f80f924a6b9a4792"
+    },
+    {
+      "kind": "inventorySql",
+      "sha256": "2fb3f6e401dcb0a3abe867c4fd45432f0a96789ae7f11432514c2fc89a538915"
+    },
+    {
+      "kind": "humanRefreshProof",
+      "sha256": "31fba816fc1087d893e94ec484d0ea7d452682d7663b049e156dc08cbd1d656d"
+    }
+  ]
+}
