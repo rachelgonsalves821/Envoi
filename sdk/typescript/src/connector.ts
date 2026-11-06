@@ -409,6 +409,17 @@ export class EnvoiConnector {
   /** Check saved terminal state before allocating a runtime or contacting a service. */
   async assertActive() { await this.guard(); }
 
+  /** Trusted loopback relay only: identity/authorization generation, never credentials. */
+  async mcpRelayContext() {
+    if (this.options.caseSessionHandler) throw new EnvoiError('Scoped runtimes cannot use privileged legacy MCP', undefined, 'LEGACY_MODEL_ACCESS_DISABLED');
+    await this.guard(true);
+    const session = validSession(await this.store.load());
+    const marked = session as ConnectorSession & { _onboarding?: { installation?: { id?: unknown } }; setupRedemptionId?: string };
+    return { agentId: session.agentId, inboxId: session.inboxId, address: session.address,
+      installationId: typeof marked._onboarding?.installation?.id === 'string' ? marked._onboarding.installation.id : null,
+      reconnectId: marked.setupRedemptionId ?? null, authorizationEpoch: this.actionEpoch };
+  }
+
   async start(): Promise<void> {
     await this.guard();
     const state = await this.lifecycle();
@@ -837,10 +848,13 @@ export class EnvoiConnector {
   }
 
   /** Trusted host only: forwards MCP JSON-RPC without exposing the rotating refresh token. */
-  forwardMcpRequest(body: string, { protocolVersion, signal }: { protocolVersion?: string; signal?: AbortSignal } = {}): Promise<Response> {
+  forwardMcpRequest(body: string, { protocolVersion, signal, preserveErrorResponse = false }: {
+    protocolVersion?: string; signal?: AbortSignal; preserveErrorResponse?: boolean
+  } = {}): Promise<Response> {
     if (this.options.caseSessionHandler) throw new EnvoiError('Scoped runtimes cannot use privileged legacy MCP', undefined, 'LEGACY_MODEL_ACCESS_DISABLED');
     if (protocolVersion && !/^\d{4}-\d{2}-\d{2}$/.test(protocolVersion)) throw new TypeError('Invalid MCP protocol version');
-    return this.withFreshSession(async (session, actionSignal) => {
+    let denial: { response: Response; code?: string } | undefined;
+    const forwarded = this.withFreshSession(async (session, actionSignal) => {
       const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
       const requestSignal = AbortSignal.any([timeout, actionSignal!, ...(signal ? [signal] : [])]);
       let response: Response;
@@ -857,9 +871,22 @@ export class EnvoiConnector {
       } catch {
         throw new EnvoiError(requestSignal.aborted ? 'Envoi MCP request timed out or canceled' : 'Envoi MCP could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR');
       }
-      if (!response.ok) await responsePayload(response.clone(), 'Envoi MCP request failed');
+      if (!response.ok) {
+        try { await responsePayload(response.clone(), 'Envoi MCP request failed'); }
+        catch (error) {
+          if (preserveErrorResponse && error instanceof EnvoiError) denial = { response, code: error.code };
+          throw error;
+        }
+      }
       return response;
     }, true);
+    if (!preserveErrorResponse) return forwarded;
+    // Preserve the actual received denial only after normal refresh/lifecycle handling.
+    // A refresh failure or local cancellation must not reuse an earlier expired response.
+    return forwarded.catch(error => {
+      if (denial && error instanceof EnvoiError && error.code === denial.code) return denial.response;
+      throw error;
+    });
   }
 
   /** Status reporting remains available while paused and observes the same credential codes. */

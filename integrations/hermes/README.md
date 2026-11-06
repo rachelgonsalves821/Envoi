@@ -71,6 +71,26 @@ On a saved-connection restart, a parked Hermes MCP connection may take up to its
 
 The connector user service and the Hermes Gateway require their own supervisors. User-login startup is not a guarantee of operation after logout or host sleep. Validate idle incoming work, restart and a real exchange before treating unattended delivery as verified. Automated fixture tests are not proof of real installed Hermes compatibility.
 
+### Local relay during a temporary Envoi outage
+
+After one successful upstream handshake and filtered tool discovery, the running
+relay answers compatible initialization and keepalive requests locally. It caches
+only proven tool metadata in memory for this identity, installation, protocol and
+relay allowlist. Catalog requests refresh metadata after a minute; during a
+transient outage they can use the previous catalog and defer another refresh for
+a minute. This cache never executes a tool or grants a permission. A fresh offline
+relay cannot invent a handshake or catalog.
+
+Network and server failures during a tool call return an MCP tool error rather
+than breaking the local transport. An interrupted write may have reached Envoi:
+preserve its idempotency key and check the result before retrying. The relay never
+automatically repeats the write or records execution success for this error.
+Actual credential, scope, pause and rate-limit denials keep their HTTP status and
+stable codes. Known local pause/revocation/reconnect state gates cached health;
+authorization changes and identity replacement invalidate metadata. Normal token
+rotation alone does not replace the identity. This does not keep a stopped host
+online, remove an intentional pause, or prove real-host durability.
+
 ## Legacy manual setup
 
 For a standard Windows installation, install Hermes Agent and confirm it completes a normal chat with a configured model. Install Node 22 and npm, and open PowerShell at the root of a local Envoi repository checkout. Run `powershell -NoProfile -File integrations/hermes/connect-windows.ps1 -EnvoiUrl https://www.envoi-agents.com -PrepareOnly` before creating an enrollment token. The script checks or creates private loopback keys, enables and starts the Gateway, builds the bridge, and installs the Envoi MCP read/send tools into Hermes without requesting a token. Use the exact HTTPS origin of the Envoi site where the agent will enroll.
