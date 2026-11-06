@@ -59,7 +59,7 @@ test('secret-name gate allows a policy keyring and requires a separate scanner c
 const secretList = names => names.map(name => ({ name, type: 'secret_text' }));
 const betaInventory = ({ app, scanner }) => (...argv) => argv.includes('scanner/wrangler.beta.jsonc') ? secretList(scanner) : secretList(app);
 const migratedApp = APP_SECRET_NAMES.map(name => name === 'ENVOI_DATA_ENCRYPTION_KEY' ? 'SINALOA_DATA_ENCRYPTION_KEY' : name);
-const betaApp = [...migratedApp, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY'];
+const betaApp = [...migratedApp, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY', 'ENVOI_WAKE_SIGNING_KEYS'];
 test('beta deploys refuse until the ENVOI_* twins exist (H-5)', () => {
   const legacyApp = APP_SECRET_NAMES.map(name => name.replace('ENVOI_', 'SINALOA_'));
   assert.throws(() => requireBetaSecretNames(betaInventory({ app: legacyApp, scanner: ['ENVOI_SCANNER_TOKEN'] })), /ENVOI_BETA_INVITED_EMAILS/);
@@ -296,4 +296,8 @@ test('preserve-Monad cannot enable staging or choose conflicting CLI profiles be
     ['--profile=hermes-openclaw-preserve-monad','--profile=hermes-openclaw-preserve-monad'] ]) {
     await assert.rejects(promoteRelease(['beta', main, ...profiles], options), /Usage:/);
   }
+});
+
+test('configured beta native wake requires its existing signing-key secret before deployment',()=>{
+  assert.throws(()=>requireBetaSecretNames(betaInventory({app:betaApp.filter(name=>name!=='ENVOI_WAKE_SIGNING_KEYS'),scanner:['ENVOI_SCANNER_TOKEN']})),/ENVOI_WAKE_SIGNING_KEYS/);
 });

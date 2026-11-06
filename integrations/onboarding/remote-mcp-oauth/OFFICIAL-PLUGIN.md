@@ -1,0 +1,52 @@
+# One official Envoi plugin
+
+The owner decision is one official plugin for Je, Rachel and customers. Do not ask customers to create custom MCP plugins, install a different demo package, or change publisher code. Each owner installs the available official plugin and approves their own Envoi OAuth connection.
+
+## Publisher responsibilities
+
+Keep the existing official plugin and App identity through its supported authoring/release process. The current personal `Envoi production` plugin is `plugin_asdk_app_6ae4b1eeb69481918c65e9c8d90f3928`, bound to `asdk_app_6ae4b1eeb69481918c65e9c8d90f3928`. Its observed audience is USER/PRIVATE; it is not evidence of a public listing or Rachel's access. Correct shared/workspace or public availability separately, then verify that a second owner can install that exact official plugin. Use the resulting verified installation link in customer onboarding when available; do not invent a listing URL.
+
+The official connection needs production `https://www.envoi-agents.com/mcp`, OAuth and explicit `baseScopes: ["envoi.agent", "envoi.send"]` for two-way agent messaging. `chatgpt-mcp.example.json` contains the portable configuration reference. This is publisher configuration, not a customer setting. Preserve existing client registration unless a supported migration is reviewed. The server already advertises both scopes; do not broaden its defaults to bypass an explicitly narrow client request. Confirm the actual request and owner approval offer both message permissions.
+
+The available App-backed archive editor can update skills and onboarding selection but must preserve App-owned connection configuration, title, presentation and audience. Adding `mcp.json` to that archive is not a supported repair of its existing connection. Locate the original owning editor or release source. If it cannot update OAuth configuration in place, record the platform limitation and resolve the supported migration with the publisher/platform before promising this same identity is repaired. Do not create a private workaround.
+
+Use `plugin/skills/envoi-dots-setup/SKILL.md` as the official onboarding skill. It checks an existing connection first, keeps the same identity, distinguishes missing scope from action approval, and requires actual send and work receipts. Installing the skill does not change OAuth scopes or distribution.
+
+For a Developer Portal-managed submission, [OpenAI's submission documentation](https://developers.openai.com/plugins/deploy/submission#configure-authentication-for-submission) places advanced OAuth configuration in the package's `mcp.json`; use Upload new version and inspect the saved MCP settings. That guidance does not establish that the current personal App-backed plugin has a Portal-managed source or supports conversion in place. Public review and publication remain publisher actions.
+
+## Owner responsibilities
+
+First inspect the active connection in each owner's existing Dot. Reuse Onion or Delta when the intended address, both message permissions and actual send tools are already available. Only when the grant is insufficient, request native message access and let that owner approve the existing identity and explicitly select Send. A tool-catalogue mismatch with both permissions already granted is not a reason to reconnect repeatedly. No customer needs access to the source repository or publisher settings. Follow `DEMO.md` for the two-owner exchange and `DOTS-HOSTED-ACCEPTANCE.md` for hosted evidence.
+
+For monitoring, check actual task state and native creation/refresh capability before modifying an existing task. Deleted tasks cannot be resumed. An enabled host task, visible event definition or generic update does not prove an active backend subscription. Stop after one unsupported/failed native operation without repeated setup prompts, timed substitutes or manual work presented as automatic acceptance. A real Work Cloud monitor coordinated by a Dot uses the same official plugin and retained identity, but its execution surface must be explicitly chosen by the owner and reported accurately. It requires genuine source registration and native work/reply/settlement evidence. See `DOTS.md` and the official setup skill for the lifecycle checks.
+
+## Verified distribution boundary, 2026-11-05
+
+Both owners completed a real native message/reply exchange. Their currently installed development Apps are distinct: Je uses `asdk_app_6ae4b1eeb69481918c65e9c8d90f3928`; Rachel reports `asdk_app_6ae92daeb0ec8191888ffb993a7ae17b`. Both point to the production endpoint, but that does not make them a single shared plugin. Updating Je's private App-backed skill does not update Rachel's separate App.
+
+The owner selected an Envoi business publisher for one canonical public release. Business verification, required public support/privacy/terms pages, actual review materials and platform review still need completion. Preserve both development connections during preparation. Author-supplied public uploads declare the production MCP connection directly and cannot include private `.app.json` bindings; retain bindings generated by the submission portal. The final canonical public App ID and supported migration must be verified rather than promising that either private development App ID will survive publication. Both owners and customers should then use that same selected release and approve their own retained server-side identities.
+
+## Public release readiness
+
+Prepare one canonical production package while preserving both owners' existing development connections. Record package validation, actual review execution and public publication as separate outcomes. The owner confirmed on November6 that public support, privacy-policy and terms pages do not exist yet. Do not invent their URLs, support arrangements, retention periods, deletion promises or legal publisher name.
+
+| Item | What the publisher must finish | Current boundary |
+| --- | --- | --- |
+| Business publisher | Verify the Envoi business identity and its exact displayed name in the intended publishing organization/project. | Envoi Business selected; verification incomplete. |
+| Listing | Prepare supported descriptions, Communication category, owner-reviewed prompts and contained square brand assets. | Draft text and review cases can be prepared offline; no guarantee of directory access. |
+| Public pages | Publish and inspect product, support, privacy-policy and terms pages without a private login. Policy coverage must reflect actual collection, use, recipients, retention and deletion; support must give a real way to get help. | Website supplied; support/privacy/terms not yet created. A package homepage does not fill these listing fields. |
+| Public package | Declare the verified production MCP endpoint and OAuth message scopes in portable configuration; exclude private `.app.json`/`apps` bindings and credentials. Preserve the original private source separately. | A valid draft is not a submission-ready release. |
+| Reviewer materials | Exactly five positive and three negative cases, actual run results, a readable reviewer-accessible recording, release notes and secure reviewer access with sample data. | Existing owner message receipts are not substitute executions of dedicated review cases. Do not use owners' private inboxes as reviewer accounts. |
+| Publication decisions | Owner specifies country availability and any payments/purchases. Enter credentials only in secure portal fields; complete domain/developer verification, scans and human attestations. | Unknown decisions remain absent from metadata, rather than false declarations. |
+| Native monitoring | Resolve the current creation/end failure and prove one active source, native activity and canonical work/reply/settlement. | Do not advertise reliable unattended replies while this remains blocked. |
+| Shared installation | After review/approval and authorized publication, verify the real canonical listing link and supported migration for both owners. Each approves their own retained Envoi identity. | Distinct current DEVELOPMENT App IDs are not the future shared public listing. |
+
+The public release's natural onboarding path is: install the verified official listing, select it in the existing Dot, approve only the intended identity/message grant, verify actual identity and send tools, then authorize ordinary messaging. Monitoring follows only after its separate preflight and workflow approval. Publisher configuration, business verification and policy publication are not customer onboarding tasks.
+
+OpenAI's [submission requirements](https://developers.openai.com/plugins/deploy/submission) describe required listing URLs, reviewer evidence and the separate draft, review and publication stages. Missing policy pages block public submission; they do not revoke existing development connections. Prepare the review walkthrough before portal upload, record real interactions and never present a script as a completed recording.
+
+## Production configuration
+
+The normal guarded command remains npm run cf:deploy:beta. Beta's source configuration records the six already-approved live Dots flags as true and retains the reviewed MCP Events callback origin. Staging and global server defaults remain unchanged. The validator rejects accidental disabling of those beta values; production smoke additionally requires the actual remote OAuth/on-demand route, because service health alone can pass while Dots is disabled.
+
+Keep the source configuration in sync with approved dashboard edits before another deployment. Legacy core-only promotion profiles intentionally disable some features and are not the current Dots production configuration. No custom profile or customer code/configuration change is needed for the canonical Dots path.
