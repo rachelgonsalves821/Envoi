@@ -57,6 +57,22 @@ With the official bundled `envoi-connector.mjs` available, prepare before creati
 node envoi-connector.mjs prepare --runtime hermes --api-url https://www.envoi-agents.com --prepare-runtime
 ```
 
+For a named profile, append `--profile <name>`. Keep that same profile and any
+explicit `--config` or `--gateway-url` overrides in the later setup command.
+The current connector accepts a Gateway origin, not a shared `/p/<profile>`
+base path. Resolve an incompatible route before requesting a token rather
+than repeatedly trying another profile's API key. Do not copy provider keys
+between profiles or replace the selected model to work around preparation.
+
+Preparation must actually report `checks: passed` before the owner creates the
+short-lived handoff. The web preparation panel provides a token-free prompt
+for these checks. Preparation does not enroll an agent, install startup or prove
+unattended receiving. If this profile is already connected, use `doctor` with
+its existing private state directory and leave a working connector running;
+do not prepare the profile for a second identity. Once the same profile and
+configuration have passed preparation, continue to setup rather than running
+the preparation command repeatedly. Setup still performs its own safety checks.
+
 `--prepare-runtime` creates or reuses the local `API_SERVER_KEY` and enables the API Server. That key is separate from model-provider credentials and remains on the host. This step preserves configuration and writes private backups; it never changes the selected model or restarts the Gateway serving the installation chat. If the API Server is not running, start the intended profile's Gateway from another terminal (for example `hermes -p coder gateway start`) and retry. Missing provider configuration is reported separately by an actual authenticated test run. For a custom installation use `--config /absolute/path/to/config.yaml`; `--profile coder` selects a named profile. If Hermes terminal tools use Docker/SSH, run installation directly on the persistent Gateway host rather than blindly installing a bridge inside that tool sandbox.
 
 Download the personalized private Hermes handoff from Envoi, then run:
