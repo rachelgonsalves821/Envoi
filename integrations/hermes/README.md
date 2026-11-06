@@ -94,7 +94,19 @@ identity bindings must use `status` or `doctor` instead. After the connector sto
 setup still requires actual runtime verification; a historical passed check alone
 does not prove the Gateway is ready. This does not add automatic Hermes startup.
 
-On a saved-connection restart, a parked Hermes MCP connection may take up to its five-minute self-probe interval to rediscover Envoi. The connector keeps the same relay and state alive while retrying actual tool verification for up to six minutes. During this bounded recovery, status reports waiting with runtime checks pending; no work is claimed and no ready setup report is sent. Cancellation, expired/revoked credentials and authentication failures do not bypass verification. A timeout retains the enrollment and reports TOOLS_NOT_READY instead of silently re-enrolling or restarting the Gateway. Initial installation still requires the Gateway to load its MCP settings.
+On a saved-connection restart, a previously parked Hermes MCP connection may still
+need its self-probe to rediscover Envoi. The running connector keeps the same relay
+and state alive through temporary Gateway, provider or Envoi readiness failures,
+waiting until recovery or owner cancellation instead of exiting after six minutes.
+After a model proof reports missing tools, it waits for new Gateway catalog
+discovery before another model request. Discovery only permits a new proof; an
+actual successful identity-tool invocation is still required. Status remains
+waiting with runtime checks pending, with no claims or ready report during recovery.
+Paused agents defer verification; expired/revoked credentials and authentication
+failures remain fatal. One-shot activation setup checks retain their explicit
+deadline and preserve enrollment on timeout. Initial legacy setup still reports a
+failed tool proof without re-enrollment; start its saved connection to recover.
+This does not restart a Gateway or install automatic startup.
 
 The connector user service and the Hermes Gateway require their own supervisors. User-login startup is not a guarantee of operation after logout or host sleep. Validate idle incoming work, restart and a real exchange before treating unattended delivery as verified. Automated fixture tests are not proof of real installed Hermes compatibility.
 

@@ -26,13 +26,14 @@ async function fixture(allowWrites = false) {
     load: async () => structuredClone(session), save: async value => { session = structuredClone(value); }
   }, { fetch: upstream });
   const success = vi.fn();
+  const discovery = vi.fn();
   const relay = await startMcpRelay({ connector, bearerToken: bearer, port: 0, onSuccessfulToolCall: success,
-    allowCollaborationWrites: allowWrites });
+    allowCollaborationWrites: allowWrites, onToolDiscovery: discovery });
   const call = (method: string, id = 1, params?: unknown) => fetch(relay.url, { method: 'POST',
     headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', 'mcp-protocol-version': '2025-11-25' },
     body: JSON.stringify({ jsonrpc: '2.0', ...(method.startsWith('notifications/') ? {} : { id }), method,
       params: params ?? (method === 'initialize' ? { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'Hermes', version: '1' } } : {}) }) });
-  return { relay, connector, upstream, success, call, setOffline: () => { offline = true; }, setOnline: () => { offline = false; },
+  return { relay, connector, upstream, success, discovery, call, setOffline: () => { offline = true; }, setOnline: () => { offline = false; },
     deny: (status: number, code: string) => { denial = { status, body: { error: code, code, message: 'Denied', requestId: 'request_test' } }; },
     clearDenial: () => { denial = undefined; }, session: () => session, replace: (value: ConnectorSession) => { session = value; } };
 }
@@ -52,6 +53,8 @@ describe('Hermes relay outage isolation', () => {
       expect(catalog.status).toBe(200);
       expect(await catalog.json()).toEqual({ jsonrpc: '2.0', id: 23, result: { tools: [{ name: 'envoi_agent_info' }] } });
       expect(f.upstream).toHaveBeenCalledTimes(requests);
+      expect(f.discovery).toHaveBeenCalledTimes(2);
+      expect(f.discovery).toHaveBeenLastCalledWith(['envoi_agent_info']);
       const error = await f.call('tools/call', 24, { name: 'envoi_agent_info', arguments: {} });
       expect(error.status).toBe(200);
       const body = await error.json();

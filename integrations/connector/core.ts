@@ -566,7 +566,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         if (!(await bridge.connector.lifecycle()).paused) {
           await record('tool_verification');
           if (saved.runtime === 'hermes') await waitForRuntimeTools(bridge, stop.signal, {
-            timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
+            timeoutMs: options.toolRecoveryTimeoutMs ?? null, retryMs: options.toolRecoveryRetryMs,
             onWaiting(code) {
               diagnostics = { status: 'waiting', runtimeChecks: 'pending', errorCode: code,
                 guidance: 'Waiting for the selected Gateway to rediscover Envoi tools. Saved enrollment is unchanged.' };

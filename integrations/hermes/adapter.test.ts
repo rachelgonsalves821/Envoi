@@ -296,7 +296,11 @@ describe('Hermes profile MCP configuration', () => {
     const relay = JSON.parse(await readFile(path.join(stateDir, 'hermes-relay.json'), 'utf8'));
     let invoke = false;
     const fetcher = vi.fn<typeof fetch>(async (url, init) => {
-      if (String(url).startsWith(context.apiUrl)) return payload({ result: { content: [{ type: 'text', text: '{"agentId":"hermes_agent"}' }] } });
+      if (String(url).startsWith(context.apiUrl)) {
+        const request = JSON.parse(String(init?.body));
+        if (request.method === 'tools/list') return payload({ jsonrpc: '2.0', id: request.id, result: { tools: [{ name: 'envoi_agent_info' }] } });
+        return payload({ result: { content: [{ type: 'text', text: '{"agentId":"hermes_agent"}' }] } });
+      }
       if (init?.method === 'POST') {
         if (invoke) await fetch(`http://127.0.0.1:${relay.port}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${relay.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 'test', method: 'tools/call', params: { name: 'envoi_agent_info', arguments: {} } }) });
         return payload({ run_id: 'verify_1' }, 202);
@@ -305,7 +309,14 @@ describe('Hermes profile MCP configuration', () => {
     });
     const bridge = await hermesAdapter.createBridge(f.config, { ...context, fetch: fetcher });
     try {
+      expect(bridge.readyToVerify!()).toBe(true);
       await expect(bridge.verify!()).rejects.toMatchObject({ code: 'TOOLS_NOT_READY' });
+      expect(bridge.readyToVerify!()).toBe(false);
+      const catalog = await fetch(`http://127.0.0.1:${relay.port}/mcp`, { method: 'POST', headers: {
+        authorization: `Bearer ${relay.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 'discovery', method: 'tools/list' }) });
+      expect(catalog.status).toBe(200);
+      expect(bridge.readyToVerify!()).toBe(true);
       invoke = true;
       await expect(bridge.verify!()).resolves.toBeUndefined();
     } finally { await bridge.close(); }

@@ -19,6 +19,31 @@ function fixture() {
 }
 
 describe('runtime tool recovery without tearing down the relay', () => {
+  it('waits beyond six minutes without repeating a model proof before new tool discovery', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+      const stop = new AbortController(); setTimeout(() => stop.abort(), milliseconds); return stop.signal;
+    });
+    const f = fixture();
+    const stop = new AbortController();
+    let discovered = false;
+    (f.bridge as RuntimeBridge & { readyToVerify: () => boolean }).readyToVerify = () => discovered;
+    f.verify.mockImplementation(async () => { if (!discovered) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Parked'); });
+    let ended = false;
+    const result = waitForRuntimeTools(f.bridge, stop.signal, { timeoutMs: null });
+    void result.then(() => { ended = true; }, () => { ended = true; });
+    try {
+      await vi.advanceTimersByTimeAsync(12 * 60_000);
+      expect(ended).toBe(false);
+      expect(f.verify).toHaveBeenCalledTimes(1);
+      expect(f.close).not.toHaveBeenCalled();
+      expect(f.connector.processWorkOnce).not.toHaveBeenCalled();
+      discovered = true;
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(result).resolves.toBeUndefined();
+      expect(f.verify).toHaveBeenCalledTimes(2);
+    } finally { stop.abort(); await result.catch(() => {}); }
+  });
   it('outlasts the Hermes 300-second parked-server probe without claiming or closing the relay', async () => {
     vi.useFakeTimers();
     const f = fixture();
@@ -49,6 +74,19 @@ describe('runtime tool recovery without tearing down the relay', () => {
     await expect(waitForRuntimeTools(f.bridge, new AbortController().signal, { timeoutMs: 20 }))
       .rejects.toMatchObject({ code: 'TOOLS_NOT_READY' });
     expect(f.connector.run).not.toHaveBeenCalled();
+  });
+
+  it('honors the server retry-after while preserving the bridge and avoiding model calls', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.connector.checkStatus.mockRejectedValueOnce(new EnvoiError('Busy', 429, 'RATE_LIMITED', { retryAfterSeconds: 2 }));
+    const result = waitForRuntimeTools(f.bridge, new AbortController().signal, { timeoutMs: null, retryMs: 1 });
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(f.verify).not.toHaveBeenCalled();
+    expect(f.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toBeUndefined();
+    expect(f.verify).toHaveBeenCalledOnce();
   });
 
   it('stops promptly when cancelled during recovery backoff', async () => {

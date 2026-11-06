@@ -38,12 +38,14 @@ export interface McpRelayOptions {
   authorizeWrite?: (name: string, arguments_: Record<string, unknown>) => boolean | Promise<boolean>;
   /** Local diagnostic hook; invoked only after a successful upstream tool response. */
   onSuccessfulToolCall?: (name: string) => void;
+  /** Metadata observation only; it never proves a tool was invoked. */
+  onToolDiscovery?: (names: string[]) => void;
   /** Persist a completed native write before reporting success to the MCP client. */
   onSuccessfulWrite?: (name: string, arguments_: Record<string, unknown>) => Promise<void>;
 }
 
 /** Local MCP endpoint; the Envoi refresh credential stays in the bridge store. */
-export async function startMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, collaborationToolNames, authorizeWrite, onSuccessfulToolCall, onSuccessfulWrite }: McpRelayOptions) {
+export async function startMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, collaborationToolNames, authorizeWrite, onSuccessfulToolCall, onSuccessfulWrite, onToolDiscovery }: McpRelayOptions) {
   if (typeof bearerToken !== 'string' || bearerToken.length < 32 || /[\r\n]/.test(bearerToken)) {
     throw new TypeError('A private MCP relay bearer token of at least 32 characters is required');
   }
@@ -57,6 +59,14 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
   let catalog: Record<string, unknown> | undefined;
   let catalogRetryAt = 0;
   const invalidate = () => { initialization = undefined; catalog = undefined; catalogRetryAt = 0; };
+  const discovered = (result: Record<string, unknown>) => {
+    const names = Array.isArray(result.tools) ? result.tools.map(tool => (tool as { name: string }).name) : [];
+    try { onToolDiscovery?.(names); } catch { /* Observation cannot grant readiness. */ }
+  };
+  const sendCatalog = (res: ServerResponse, id: unknown, result: Record<string, unknown>) => {
+    discovered(result);
+    return send(res, 200, { jsonrpc: '2.0', id, result });
+  };
   const context = async () => {
     const key = JSON.stringify(await connector.mcpRelayContext());
     if (key !== contextKey) { invalidate(); contextKey = key; }
@@ -147,7 +157,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
         if (request.method === 'ping' && hasId) return send(res, 200, { jsonrpc: '2.0', id: request.id, result: {} });
         if (request.method === 'notifications/initialized' && !('id' in request)) { res.writeHead(202, { 'cache-control': 'no-store' }); return res.end(); }
         if (cachedCatalogAvailable() && Date.now() < catalogRetryAt)
-          return send(res, 200, { jsonrpc: '2.0', id: request.id, result: catalog });
+          return sendCatalog(res, request.id, catalog!);
       }
       upstream = await connector.forwardMcpRequest(body, { protocolVersion, preserveErrorResponse: true,
         ...(cachedCatalogAvailable() ? { signal: AbortSignal.timeout(5_000) } : {}) });
@@ -156,7 +166,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
       if (['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? '')) await context();
       if (['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? '') && cachedCatalogAvailable() && await context() === key) {
         catalogRetryAt = Date.now() + 60_000;
-        return send(res, 200, { jsonrpc: '2.0', id: request.id, result: catalog });
+        return sendCatalog(res, request.id, catalog!);
       }
       if (request.method === 'tools/call' && hasId && ['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? ''))
         return toolUnavailable(res, request.id);
@@ -166,7 +176,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
       if ([401, 403, 409].includes(upstream.status)) invalidate();
       if (upstream.status >= 500 && cachedCatalogAvailable() && await context() === key) {
         catalogRetryAt = Date.now() + 60_000;
-        return send(res, 200, { jsonrpc: '2.0', id: request.id, result: catalog });
+        return sendCatalog(res, request.id, catalog!);
       }
       if (upstream.status >= 500 && request.method === 'tools/call' && hasId) return toolUnavailable(res, request.id);
       const retryAfter = upstream.headers.get('retry-after');
@@ -202,6 +212,8 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
         output = Buffer.from(JSON.stringify({ ...payload, result: { ...result, tools: result.tools.filter(
           tool => tool && typeof tool === 'object' && allowedTools.has((tool as Record<string, unknown>).name as string)
         ) } }));
+        if (payload.jsonrpc === '2.0' && payload.id === request.id && !payload.error)
+          discovered((JSON.parse(output.toString('utf8')) as { result: Record<string, unknown> }).result);
         if (initialization && payload.jsonrpc === '2.0' && payload.id === request.id && !payload.error
           && Object.keys(params).length === 0 && !result.nextCursor
           && (!protocolVersion || protocolVersion === initialization.result.protocolVersion) && await context() === key)
