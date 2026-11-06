@@ -1,5 +1,8 @@
 # Hermes Agent bridge
 
+For saved-connection errors, process evidence and owner-controlled migration, see
+[Hermes connection recovery](TROUBLESHOOTING.md). Check status before repeating setup.
+
 ## Opt-in case-scoped daemon host
 
 The production adapter supports the trusted owner-operated Phase C beta boundary.
@@ -129,6 +132,25 @@ stable codes. Known local pause/revocation/reconnect state gates cached health;
 authorization changes and identity replacement invalidate metadata. Normal token
 rotation alone does not replace the identity. This does not keep a stopped host
 online, remove an intentional pause, or prove real-host durability.
+
+### Optional Windows startup task and private logs
+
+When an owner explicitly installs the connector service on Windows, its scheduled
+task launches PowerShell and Node with hidden windows. The existing logon trigger
+and one-minute recovery trigger remain; the task waits for its child and preserves
+the exit code. It keeps `connector.stdout.log`, `connector.stderr.log` and UTC
+exit/start history in `connector-supervisor.log` inside the private state directory.
+The next launch retains the preceding stdout/stderr as `.previous`; supervisor
+history rolls over at the next launch after exceeding 1 MiB. Treat these as private
+diagnostic files and sanitize them before sharing.
+
+Read-only `status` identifies an older direct-Node launch or missing recovery
+trigger as an outdated service definition. Reinstalling remains an explicit owner
+action, never an automatic repair. Console-close and break signals request orderly
+cancellation, but forced termination, logout, shutdown and sleep still require
+real-host acceptance; cleanup has a limited window. Installing a user task is a
+separate availability choice. This change does not install a task, keep a closed
+Hermes host online, or implement automatic session-bound startup.
 
 ## Legacy manual setup
 
