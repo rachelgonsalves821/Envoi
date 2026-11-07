@@ -34,6 +34,7 @@ function terminal(value:any,journal:any,outcome:'completed'|'failed'){
   const receipt=value?.result??value,frame=journal?.input?.[0];
   if(!object(receipt)||receipt.status!=='terminal'||!frame||typeof frame.sessionId!=='string'||typeof frame.admissionId!=='string'
     ||receipt.ref?.session_id!==frame.sessionId||receipt.admission_id!==frame.admissionId
+    ||receipt.input_id!==undefined&&receipt.input_id!==frame.inputId
     ||(outcome==='completed'?receipt.outcome!=='completed':!['failed','interrupted','cancelled','rejected'].includes(receipt.outcome)))
     refuse('GENUINE_PRIOR_NATIVE_TERMINAL_REQUIRED');
 }
