@@ -21,7 +21,7 @@ export interface BridgeConfiguration {
 }
 
 /** Legacy setup and Quick Connect share the durable work and reply implementation. */
-export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number;beforeScopedTurn?:ScopedPreparationGuard;openClawTargetResolver?:OpenClawTargetResolver;openClawTargetSelection?:OpenClawTargetSelectionAuthority } = {}) {
+export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number;beforeScopedTurn?:ScopedPreparationGuard;scopedReadOnlyWork?:(workId:string)=>boolean;openClawTargetResolver?:OpenClawTargetResolver;openClawTargetSelection?:OpenClawTargetSelectionAuthority } = {}) {
   const env = await openClawRuntimeEnvironment(config.stateDir, options.env ?? process.env, config);
   if (env.ENVOI_SCOPED_TOOLS === 'true') {
     const store = new FileBridgeStore(config.stateDir);
@@ -36,6 +36,7 @@ export async function createOpenClawBridge(config: BridgeConfiguration, options:
       ...(options.pollIntervalMs ? { pollIntervalMs: options.pollIntervalMs } : {}),
       caseSessionHandler: scopedTurnHandler({
         admit: message => store.admit(message),
+        readOnlyWork: options.scopedReadOnlyWork,
         run: async(turn,host)=>{await guardScopedPreparation(options.beforeScopedTurn,host.workId,turn.signal);
           if (!targets) return openClawScopedTurn({ gatewayUrl: config.gatewayUrl, gatewayToken: config.gatewayToken, agentId: config.agentId, store: runs, fetch: options.fetch })(turn,host);
           if (!host.workId) throw new Error('Trusted scoped work identity required');

@@ -22,6 +22,8 @@ export interface AdapterOptions {
   onRuntimeEvent?: ScopedRuntimeObserver;
   beforeNativeSubmit?: import('../hermes/native-binding').NativeSubmissionGuard;
   beforeScopedTurn?: import('../hermes/native-binding').ScopedPreparationGuard;
+  /** Trusted per-work restriction only; never selected by conversation text. */
+  scopedReadOnlyWork?: (workId: string) => boolean;
   nativeRequestGate?: import('../hermes/request-gate-attestation').NativeRequestGateExpectation;
   /** Opt-in trusted local target selection; conveys no native egress capability. */
   openClawTargetResolver?: import('../openclaw/scoped-target').OpenClawTargetResolver;

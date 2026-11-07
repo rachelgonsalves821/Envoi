@@ -11,7 +11,7 @@ export type PhysicalMeterEvent=Readonly<{phase:'reserved'|'dispatched'|'response
 export type PhysicalMeterAuthorization=Readonly<{onMeterEvent(event:PhysicalMeterEvent):void|Promise<void>}>;
 export type ModelBudgetAmendment = Readonly<{ purpose:'phase-c-decline-continuation'; models:number; approvalReceiptSha256:string }>;
 type Role = 'je1' | 'je2' | 'testowner' | 'openclaw';
-type Flow = Readonly<{ id: string; role: Role; requests: number; workHash: string | null }>;
+type Flow = Readonly<{ id: string; role: Role; requests: number; workHash: string | null; retired?:true }>;
 type Prior = { actualCalls: number; actualHermesApiCalls: number; openClawProviderRequestsReserved: number;
   possibleHostMessageEffects: number; canonicalEffects: number; caseIds: string[]; newInstallationsUsed: number;
   priorUploadedAssets: number; stopped: boolean; failure: string; [key: string]: unknown };
@@ -19,6 +19,8 @@ type RecordLine = { previous: string; kind: string; [key: string]: unknown };
 export type ReviewedGraphAmendmentProof=Readonly<{expectedWindow:string;allHostsStopped:boolean;canonicalLeasesZero:boolean;previousNativeTerminal:boolean;chargedAttempts:number;
   graphApprovalRaw:string;clientSource:string;serverSource:string;packetSha256:string}>;
 const nativeHistoryKinds=new Set(['binding','phase','attempt','dispatched','finished']);
+const allocatedRequests=(flows:readonly Flow[])=>flows.reduce((n,f)=>n+(f.retired?0:f.requests),0);
+const flowHasHistory=(rows:readonly RecordLine[],id:string)=>rows.some(r=>r.flow===id||r.kind==='phase'&&Array.isArray(r.active)&&r.active.includes(id));
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 function refuse(code: string): never { throw Object.assign(new Error(code), { code }); }
 const exactHash = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
@@ -51,7 +53,7 @@ export class RequestBudgetLedger {
       || prior.priorUploadedAssets !== 0 || !prior.stopped || prior.failure !== 'LIVE_ASSERTION_FAILED') refuse('CARRIED_HISTORY_REQUIRED');
     if (!flows.length || new Set(flows.map(f => f.id)).size !== flows.length || flows.some(f => !/^[a-z0-9-]{1,80}$/.test(f.id)
       || !['je1','je2','testowner','openclaw'].includes(f.role) || f.workHash !== null && !exactHash(f.workHash)
-      || !Number.isSafeInteger(f.requests) || f.requests < 1) || flows.reduce((n, f) => n + f.requests, 0) > caps.models-30) refuse('FLOW_ALLOCATION_REFUSED');
+      || !Number.isSafeInteger(f.requests) || f.requests < 1 || f.retired!==undefined) || flows.reduce((n, f) => n + f.requests, 0) > caps.models-30) refuse('FLOW_ALLOCATION_REFUSED');
     const seed = { previous: '0'.repeat(64), kind: 'seed', version: 1, prior: structuredClone(prior),
       priorSha256: hash(JSON.stringify(prior)), flows: structuredClone(flows), window, caps, executionAllowed: false,
       ...(amendment?{modelBudgetAmendment:structuredClone(amendment)}:{}) };
@@ -73,7 +75,8 @@ export class RequestBudgetLedger {
       lines.push(line); previous = hash(value + '\n');
     }
     const seed = lines[0];
-    if (seed?.kind !== 'seed' || seed.version !== 1 || !exactHash(seed.window) || JSON.stringify(seed.caps) !== JSON.stringify(approvedCaps(seed.modelBudgetAmendment))) refuse('REQUEST_LEDGER_SEED_INVALID');
+    if (seed?.kind !== 'seed' || seed.version !== 1 || !exactHash(seed.window) || JSON.stringify(seed.caps) !== JSON.stringify(approvedCaps(seed.modelBudgetAmendment))
+      ||!Array.isArray(seed.flows)||seed.flows.some((f:Flow)=>f.retired!==undefined)) refuse('REQUEST_LEDGER_SEED_INVALID');
     const p = seed.prior as Prior;
     if (p.actualCalls !== 30 || p.actualHermesApiCalls !== 24 || p.openClawProviderRequestsReserved !== 6
       || p.possibleHostMessageEffects !== 22 || p.canonicalEffects !== 9 || p.newInstallationsUsed !== 5
@@ -86,6 +89,7 @@ export class RequestBudgetLedger {
   }
 
   get window() { return (this.lines.filter(l => l.kind === 'window').at(-1)?.window ?? this.lines[0].window) as string; }
+  get contentSha256(){return hash(this.lines.map(line=>JSON.stringify(line)+'\n').join(''));}
   get reviewedPlan() { return structuredClone(this.lines.filter(l=>l.kind==='plan').at(-1)?.plan) as ReviewedContinuationPlan|undefined; }
   get reviewedGraphApprovalRaw(){return (this.lines.filter(l=>l.kind==='plan').at(-1)?.proof as ReviewedGraphAmendmentProof|undefined)?.graphApprovalRaw;}
   get flows() { const plan=this.reviewedPlan;return plan?plan.flows.map(({policy:_policy,...flow})=>flow):structuredClone(this.lines[0].flows) as Flow[]; }
@@ -113,6 +117,8 @@ export class RequestBudgetLedger {
       activeDeadline: this.lines.filter(l => l.kind === 'phase').at(-1)?.deadline as number | undefined,
       carriedActualCalls: 30, conservativeChargedAttempts: 30 + requests.length,
       knownDispatchedRequests: this.lines.filter(l => l.kind === 'dispatched').length,
+      knownHermesDispatches: requests.filter(r=>r.role!=='openclaw'&&this.lines.some(f=>f.kind==='dispatched'&&f.attempt===r.attempt)).length,
+      knownOpenClawDispatches: requests.filter(r=>r.role==='openclaw'&&this.lines.some(f=>f.kind==='dispatched'&&f.attempt===r.attempt)).length,
       unresolvedDispatches: requests.filter(l => !this.lines.some(f => f.kind === 'dispatched' && f.attempt === l.attempt)
         && !this.lines.some(f => f.kind === 'finished' && f.attempt === l.attempt && f.outcome === 'not_forwarded')).length,
       carriedActionBaselinesOnly: true,
@@ -123,11 +129,12 @@ export class RequestBudgetLedger {
     const flows = this.flows;
     if (!flows.length || new Set(flows.map(f => f.id)).size !== flows.length || flows.some(f => !/^[a-z0-9-]{1,80}$/.test(f.id)
       || !['je1','je2','testowner','openclaw'].includes(f.role) || !Number.isSafeInteger(f.requests) || f.requests < 1
-      || f.workHash !== null && !exactHash(f.workHash))) refuse('REQUEST_LEDGER_FLOW_INVALID');
+      || f.workHash !== null && !exactHash(f.workHash)||f.retired!==undefined&&f.retired!==true)) refuse('REQUEST_LEDGER_FLOW_INVALID');
     if (this.lines.some(l => !['seed','binding','phase','attempt','dispatched','finished','window','plan'].includes(l.kind))) refuse('REQUEST_LEDGER_RECORD_INVALID');
     this.validatePlans();
-    if (s.chargedAttempts > this.modelCap || this.flows.reduce((n, f) => n + f.requests, 0) > this.modelCap-30) refuse('REQUEST_LEDGER_CAP_INVALID');
+    if (s.chargedAttempts > this.modelCap || allocatedRequests(this.flows) > this.modelCap-30) refuse('REQUEST_LEDGER_CAP_INVALID');
     for (const flow of this.flows) if (s.requests.filter(r => r.flow === flow.id).length > flow.requests) refuse('REQUEST_LEDGER_FLOW_INVALID');
+    if(flows.some(f=>f.retired&&flowHasHistory(this.lines,f.id)))refuse('RETIRED_FLOW_HAS_NATIVE_HISTORY');
   }
   private validatePlans(){
     let previousFlows=structuredClone(this.lines[0].flows) as Flow[];
@@ -148,12 +155,14 @@ export class RequestBudgetLedger {
         ||proof.chargedAttempts!==30+attempts.length||approvals.has(plan.ownerApprovalHash)
         ||attempts.some(a=>!prefix.some(f=>f.kind==='finished'&&f.attempt===a.attempt))
         ||attempts.some(a=>!prefix.some(f=>f.kind==='dispatched'&&f.attempt===a.attempt)&&!prefix.some(f=>f.kind==='finished'&&f.attempt===a.attempt&&f.outcome==='not_forwarded'))
-        ||plan.flows.reduce((n,f)=>n+f.requests,0)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
+        ||allocatedRequests(plan.flows)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
       for(const old of previousFlows){
         const next=plan.flows.find(f=>f.id===old.id),charged=attempts.filter(a=>a.flow===old.id).length;
         if(!next||next.role!==old.role||next.workHash!==old.workHash||next.requests>old.requests||next.requests<charged
+          ||old.retired&&!next.retired||next.retired&&next.requests!==old.requests||!old.retired&&next.retired&&flowHasHistory(prefix,old.id)
           ||!sameContinuationFlowPolicy(next.policy,policies.get(old.id)!)||previousPlan&&plan.flowCases[old.id]!==previousPlan.flowCases[old.id])refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
       }
+      if(plan.flows.some(f=>f.retired&&!previousFlows.some(old=>old.id===f.id)))refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
       if(previousPlan&&Object.keys(previousPlan.actorIds).some(role=>previousPlan!.actorIds[role as Role]!==plan.actorIds[role as Role]))refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
       approvals.add(plan.ownerApprovalHash);previousFlows=plan.flows.map(({policy:_policy,...flow})=>flow);policies=new Map(plan.flows.map(f=>[f.id,f.policy]));previousPlan=plan;
     }
@@ -162,7 +171,7 @@ export class RequestBudgetLedger {
   async bindWork(flowId: string, proof: { canonicalWorkHash: string; nativeToken: string; evidenceHash: string }) {
     return this.serialized(async () => {
       const flow = this.flows.find(f => f.id === flowId);
-      if (!flow || !exactHash(proof.canonicalWorkHash) || !exactHash(proof.nativeToken) || !exactHash(proof.evidenceHash)
+      if (!flow || flow.retired || !exactHash(proof.canonicalWorkHash) || !exactHash(proof.nativeToken) || !exactHash(proof.evidenceHash)
         || flow.workHash !== null && flow.workHash !== proof.canonicalWorkHash) refuse('CANONICAL_WORK_BINDING_REQUIRED');
       if (this.lines.some(l => l.kind === 'binding' && l.flow !== flowId && (l.nativeToken === proof.nativeToken || l.canonicalWorkHash === proof.canonicalWorkHash))) refuse('CANONICAL_WORK_BINDING_CHANGED');
       const prior = this.lines.find(l => l.kind === 'binding' && l.flow === flowId);
@@ -204,30 +213,42 @@ export class RequestBudgetLedger {
     });
   }
   /** Explicit reviewed graph metadata only: no implicit adoption, new seed, budget increase or deadline reset. */
-  async amendReviewedPlan(value:ReviewedContinuationPlan,proof:ReviewedGraphAmendmentProof){
-    return this.serialized(async()=>{
+  private checkedReviewedPlan(value:ReviewedContinuationPlan,proof:ReviewedGraphAmendmentProof,window=this.window){
       const plan=validateReviewedContinuationPlan(value),current=this.reviewedPlan,s=this.snapshot();
       if(!current&&this.lines.some(r=>nativeHistoryKinds.has(r.kind)))refuse('FIRST_REVIEWED_GRAPH_REQUIRES_UNUSED_NATIVE_HISTORY');
-      const approval=validateReviewedGraphApproval(proof.graphApprovalRaw,{planSha256:plan.planSha256,window:this.window,clientSource:proof.clientSource,serverSource:proof.serverSource,packetSha256:proof.packetSha256});
+      const approval=validateReviewedGraphApproval(proof.graphApprovalRaw,{planSha256:plan.planSha256,window,clientSource:proof.clientSource,serverSource:proof.serverSource,packetSha256:proof.packetSha256});
       if(approval.approvalHash!==plan.ownerApprovalHash)refuse('GRAPH_SOURCE_APPROVAL_HASH_MISMATCH');
-      if(proof.expectedWindow!==this.window||proof.allHostsStopped!==true||proof.canonicalLeasesZero!==true||proof.previousNativeTerminal!==true
+      if(proof.expectedWindow!==window||proof.allHostsStopped!==true||proof.canonicalLeasesZero!==true||proof.previousNativeTerminal!==true
         ||proof.chargedAttempts!==s.chargedAttempts||s.pending||s.unresolvedDispatches)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
-      if(current&&JSON.stringify(current)===JSON.stringify(plan))return;
+      if(current&&JSON.stringify(current)===JSON.stringify(plan))return {plan,approval,unchanged:true};
       if(this.lines.some(l=>l.kind==='plan'&&(l.plan as ReviewedContinuationPlan).ownerApprovalHash===plan.ownerApprovalHash)
-        ||plan.flows.reduce((n,f)=>n+f.requests,0)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
+        ||allocatedRequests(plan.flows)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
       for(const old of this.flows){
         const next=plan.flows.find(f=>f.id===old.id),policy=current?.flows.find(f=>f.id===old.id)?.policy??defaultContinuationFlowPolicy(old.id);
         if(!next||next.role!==old.role||next.workHash!==old.workHash||next.requests>old.requests||next.requests<s.requests.filter(r=>r.flow===old.id).length
+          ||old.retired&&!next.retired||next.retired&&next.requests!==old.requests||!old.retired&&next.retired&&flowHasHistory(this.lines,old.id)
           ||!sameContinuationFlowPolicy(next.policy,policy)||current&&next&&plan.flowCases[old.id]!==current.flowCases[old.id])refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
       }
+      if(plan.flows.some(f=>f.retired&&!this.flows.some(old=>old.id===f.id)))refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
       if(current&&Object.keys(current.actorIds).some(role=>current.actorIds[role as Role]!==plan.actorIds[role as Role]))refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
+      return {plan,approval,unchanged:false};
+  }
+  /** Read-only admission review for an exact proposed window; grants no execution. */
+  inspectReviewedPlanAmendment(value:ReviewedContinuationPlan,proof:ReviewedGraphAmendmentProof){
+    if(!exactHash(proof.expectedWindow))refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
+    const {plan}=this.checkedReviewedPlan(value,proof,proof.expectedWindow);
+    return Object.freeze({planSha256:plan.planSha256,window:proof.expectedWindow,chargedAttempts:this.snapshot().chargedAttempts});
+  }
+  async amendReviewedPlan(value:ReviewedContinuationPlan,proof:ReviewedGraphAmendmentProof){
+    return this.serialized(async()=>{
+      const {plan,approval,unchanged}=this.checkedReviewedPlan(value,proof);if(unchanged)return;
       await this.append('plan',{window:this.window,plan,proof:structuredClone(proof),approvalHash:approval.approvalHash});
     });
   }
   async selectPhase(phase: 'hermes' | 'openclaw', active: readonly string[], absoluteDeadline: number) {
     return this.serialized(async () => {
       if (this.snapshot().pending) refuse('UNKNOWN_PROVIDER_ATTEMPT');
-      if (!active.length || active.some(id => !this.flows.some(f => f.id === id && (phase === 'openclaw' ? f.role === 'openclaw' : f.role !== 'openclaw')))) refuse('HOST_PHASE_REFUSED');
+      if (!active.length || active.some(id => !this.flows.some(f => f.id === id && !f.retired && (phase === 'openclaw' ? f.role === 'openclaw' : f.role !== 'openclaw')))) refuse('HOST_PHASE_REFUSED');
       const roles = active.map(id => this.flows.find(f => f.id === id)!.role);
       const sameRole=new Set(roles).size!==roles.length;
       if(sameRole&&(!this.reviewedPlan?.allowSameRoleCohorts||active.length!==2||new Set(active.map(id=>this.reviewedPlan!.flowCases[id])).size!==2)
@@ -244,7 +265,7 @@ export class RequestBudgetLedger {
       if (!s.activeDeadline || Date.now() >= s.activeDeadline) refuse('NATIVE_DEADLINE_EXPIRED');
       if (this.denied || (s.lastPhase === 'openclaw') !== (role === 'openclaw') || !s.lastPhase) refuse('HOST_PHASE_REFUSED');
       const binding = this.lines.find(l => l.kind === 'binding' && l.window === this.window && l.role === role && l.nativeToken === nativeToken && s.lastActive?.includes(l.flow as string));
-      const flow = this.flows.find(f => f.id === binding?.flow && f.role === role);
+      const flow = this.flows.find(f => f.id === binding?.flow && f.role === role && !f.retired);
       if (!flow || s.chargedAttempts >= this.modelCap || s.requests.filter(r => r.flow === flow.id).length >= flow.requests) refuse('MODEL_REQUEST_CAP_REACHED');
       const attempt = randomBytes(16).toString('hex');
       await this.append('attempt', { attempt, flow: flow.id, role, canonicalWorkHash: binding!.canonicalWorkHash });
