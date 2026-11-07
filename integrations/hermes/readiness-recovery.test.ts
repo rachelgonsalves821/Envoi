@@ -14,7 +14,10 @@ const session = (): ConnectorSession => ({ agentId, inboxId, address: 'review@en
   agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
 
 describe('Hermes cached-catalog readiness recovery', () => {
-  it('recovers a missed model proof when the Gateway already loaded its catalog', async () => {
+  it.each([
+    { scenario: 'recovers a missed proof without rediscovery', exhaust: false },
+    { scenario: 'caps cached proofs and renews the budget only after discovery', exhaust: true }
+  ])('$scenario', async ({ exhaust }) => {
     const root = await mkdtemp(path.join(tmpdir(), 'envoi-integrated-review-'));
     const home = path.join(root, 'profile'), stateDir = path.join(root, 'state');
     await mkdir(home); await mkdir(stateDir);
@@ -22,9 +25,10 @@ describe('Hermes cached-catalog readiness recovery', () => {
     await writeFile(configPath, 'model:\n  default: synthetic-model\n');
     await writeFile(path.join(home, '.env'), 'API_SERVER_ENABLED=true\nAPI_SERVER_KEY=synthetic-local-key\n');
     await writeFile(path.join(stateDir, 'session.json'), JSON.stringify(session()));
-    let modelRuns = 0, identityCalls = 0, allowIdentity = false;
+    let modelRuns = 0, identityCalls = 0, allowIdentity = false, upstreamLists = 0, gatewayLists = 0;
     let relay: { port: number; token: string };
     const rpc = async (method: string, params: unknown = {}) => {
+      if (method === 'tools/list') gatewayLists++;
       const response = await fetch(`http://127.0.0.1:${relay.port}/mcp`, { method: 'POST',
         headers: { authorization: `Bearer ${relay.token}`, 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 'review', method, params }) });
@@ -37,8 +41,11 @@ describe('Hermes cached-catalog readiness recovery', () => {
         const request = JSON.parse(String(init?.body));
         if (request.method === 'initialize') return Response.json({ jsonrpc: '2.0', id: request.id,
           result: { protocolVersion: '2025-11-25', capabilities: { tools: {} }, serverInfo: { name: 'review', version: '1' } } });
-        if (request.method === 'tools/list') return Response.json({ jsonrpc: '2.0', id: request.id,
-          result: { tools: [{ name: 'envoi_agent_info', inputSchema: { type: 'object' } }] } });
+        if (request.method === 'tools/list') {
+          upstreamLists++;
+          return Response.json({ jsonrpc: '2.0', id: request.id,
+            result: { tools: [{ name: 'envoi_agent_info', inputSchema: { type: 'object' } }] } });
+        }
         expect(request.method).toBe('tools/call'); identityCalls++;
         return Response.json({ jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ agentId }) }] } });
       }
@@ -54,18 +61,49 @@ describe('Hermes cached-catalog readiness recovery', () => {
       apiUrl: 'http://127.0.0.1:18671', apiKey: 'synthetic-local-key' }, {
       apiUrl: 'https://review.envoi.example', stateDir, env: {}, fetch: fetcher
     });
+    const stop = new AbortController();
+    // Test cleanup guard, independent of the production readiness deadline.
+    const cleanupTimer = setTimeout(() => stop.abort(), 10_000);
+    let pending: Promise<void> | undefined;
     try {
       relay = JSON.parse(await readFile(path.join(stateDir, 'hermes-relay.json'), 'utf8'));
       // The real relay sees discovery before the first proof; the Gateway need not list it again.
       await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'synthetic-gateway', version: '1' } });
       await rpc('tools/list');
       expect(bridge.readyToVerify!()).toBe(true);
-      await waitForRuntimeTools(bridge, new AbortController().signal, { timeoutMs: 1_000, retryMs: 5,
-        onWaiting: () => { allowIdentity = true; }
+      let parkAt = 7, announceParked!: () => void;
+      let parked = new Promise<void>(resolve => { announceParked = resolve; });
+      pending = waitForRuntimeTools(bridge, stop.signal, { timeoutMs: null, retryMs: 5,
+        onWaiting: () => {
+          if (!exhaust) allowIdentity = true;
+          else if (modelRuns >= parkAt) announceParked();
+        }
       });
-      expect(modelRuns).toBe(2);
+      // Observe rejection even if an assertion below fails before awaiting it.
+      void pending.catch(() => {});
+      if (exhaust) {
+        for (const count of [7, 14]) {
+          if (count === 14) {
+            parkAt = count;
+            parked = new Promise<void>(resolve => { announceParked = resolve; });
+            await rpc('tools/list');
+          }
+          await Promise.race([parked, pending.then(() => { throw new Error('Recovery ended before the retry budget parked'); })]);
+          await new Promise(resolve => setTimeout(resolve, 40));
+          expect(modelRuns).toBe(count); // Fresh proof plus six cached retries, then no billing.
+          expect(identityCalls).toBe(0);
+          expect(bridge.readyToVerify!()).toBe(false);
+        }
+        allowIdentity = true;
+        await rpc('tools/list');
+      }
+      await pending;
+      expect(modelRuns).toBe(exhaust ? 15 : 2);
       expect(identityCalls).toBe(1);
+      expect(gatewayLists).toBe(exhaust ? 3 : 1);
+      expect(upstreamLists).toBe(1); // Gateway rediscovery can use the proven local catalog.
     } finally {
+      clearTimeout(cleanupTimer); stop.abort(); await pending?.catch(() => {});
       await bridge.close();
       if (path.dirname(path.resolve(root)) !== path.resolve(tmpdir()) || !path.basename(root).startsWith('envoi-integrated-review-')) throw new Error('Unsafe fixture cleanup');
       await rm(root, { recursive: true, force: true });
@@ -73,7 +111,8 @@ describe('Hermes cached-catalog readiness recovery', () => {
   });
 
   it.each(['owner', 'deadline'] as const)('aborts an in-flight status check on %s cancellation', async mode => {
-    let saved = session();
+    const original = session();
+    let saved = structuredClone(original);
     let release!: (response: Response) => void, entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });
     let transportSignal: AbortSignal | undefined;
@@ -95,7 +134,7 @@ describe('Hermes cached-catalog readiness recovery', () => {
       const outcome = await Promise.race([pending, new Promise(resolve => setTimeout(() => resolve('still-pending'), 250))]);
       expect(outcome).toMatchObject({ code: mode === 'owner' ? 'SETUP_CANCELLED' : 'TOOLS_NOT_READY' });
       expect(transportSignal?.aborted).toBe(true);
-      expect(saved.lifecycle?.state).not.toBe('DEGRADED');
+      expect(saved).toEqual(original);
     } finally { release(Response.json({ state: 'active', agent: { id: agentId }, inboxId })); await pending; }
   });
 });

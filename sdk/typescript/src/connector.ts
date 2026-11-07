@@ -1026,7 +1026,7 @@ export class EnvoiConnector {
     if (isHumanDecisionMessage(work.message)) assertHumanDecisionMessage(work.message);
     if (!/^msg_[A-Za-z0-9_-]+$/.test(work.workId) || typeof work.leaseToken !== 'string' || work.leaseToken.length < 1 || work.leaseToken.length > 256
       || !work.message.caseId || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || Date.parse(work.leaseExpiresAt) <= Date.now()) throw new TypeError('A live case-bound work lease is required');
-    await this.checkStatus();
+    await this.checkStatus(options.signal);
     options.signal?.throwIfAborted();
     if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable; update the server before processing', 404, 'FEATURE_DISABLED');
     const identity = validSession(await this.store.load());
@@ -1114,7 +1114,7 @@ export class EnvoiConnector {
         const leases = [...this.activeLeaseChecks];
         const checks = leases.map(([renew]) => renew().catch(error => { if (!localCancellation(error)) throw error; }));
         try {
-          await Promise.all([this.checkStatus().then(async () => {
+          await Promise.all([this.checkStatus(signal).then(async () => {
             await this.guard(true);
             if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
           }), ...checks]);
@@ -1191,7 +1191,7 @@ export class EnvoiConnector {
     await this.guard();
     if ((await this.lifecycle()).paused) return null;
     if (scoped) {
-      await this.checkStatus();
+      await this.checkStatus(signal);
       if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
       if ((await this.lifecycle()).paused) return null;
     }
@@ -1536,7 +1536,7 @@ export class EnvoiConnector {
         safetyAt = Math.min(safetyAt, toolRetryAt);
       }
       if (this.options.caseSessionHandler && error instanceof EnvoiError && error.code === 'CASE_SESSION_ENDED' && error.reason === 'credential_ended') {
-        try { await this.checkStatus(); }
+        try { await this.checkStatus(stopped); }
         catch (statusError) { error = statusError; await this.observeError(error); }
       }
       const state = await this.lifecycle();
@@ -1569,7 +1569,7 @@ export class EnvoiConnector {
         const activity = () => { clearTimeout(idle); idle = setTimeout(() => stream.abort(), 60_000); };
         try {
           // A failed connection still counts as a reconnect for paused recovery.
-          if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+          if ((await this.lifecycle()).paused) { await this.checkStatus(streamSignal); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
           if (streamSignal.aborted) break;
           const response = await this.withFreshSession(async current => {
             if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new EnvoiError('Connector session changed while connecting');
@@ -1610,7 +1610,7 @@ export class EnvoiConnector {
                 if (baseline && !this.cursorFor(validSession(await this.store.load()))) await this.saveCursor(session, frame.data.cursor as string | null);
                 connected = true; safetyAt = Date.now() + safetyDelay();
                 this.wakeTransport = 'connected'; this.lastWakeReadyAt = new Date().toISOString(); this.lastWakeErrorCode = undefined;
-                if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+                if ((await this.lifecycle()).paused) { await this.checkStatus(streamSignal); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
                 trigger();
               } else if (frame.type === 'replay_required') { recovery = true; break; }
               else if (frame.type === 'replay_error') throw new EnvoiError('Envoi event replay failed', undefined, 'NETWORK_ERROR');
@@ -1657,7 +1657,7 @@ export class EnvoiConnector {
         const retryAt = Math.max(state.retryAt ? Date.parse(state.retryAt) : 0, toolRetryAt);
         if (state.paused) {
           pending = false; this.nextClaimAt = Infinity;
-          if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(); } catch (error) { await failure(error); } }
+          if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(stopped); } catch (error) { await failure(error); } }
         } else if (hasHandler) {
           if (now >= Math.min(safetyAt, this.nextClaimAt)) { pending = true; safetyAt = now + safetyDelay(state); this.nextClaimAt = Infinity; }
           if (pending && !flight && now >= retryAt) {

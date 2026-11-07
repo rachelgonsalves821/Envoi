@@ -104,15 +104,21 @@ waiting until recovery or owner cancellation instead of exiting after six minute
 If no catalog containing the identity tool has been discovered, it waits for
 Gateway discovery before another model request. If the catalog is already loaded
 but the model finishes without invoking the tool, it retries the proof after
-15 seconds, then 30 seconds, then at most once per minute. This does not require
-the Gateway to reload its cached catalog. Discovery only permits a new proof; an
+15 seconds, then 30 seconds, then at most once per minute, with a maximum of six
+additional cached-catalog attempts after the discovery-backed proof. If all miss
+the invocation, model proofs pause until the Gateway lists the identity tool
+again; the same relay and status checks remain alive. Check model tool use and
+approval prompts before retrying. Fresh Gateway discovery replenishes the retry
+budget. Recovery within the budget does not require reloading the cached catalog.
+Discovery only permits a new proof; an
 actual successful identity-tool invocation is still required. Status remains
 waiting with runtime checks pending, with no claims or ready report during recovery.
 Paused agents defer verification; expired/revoked credentials and authentication
 failures remain fatal. One-shot activation setup checks retain their explicit
 deadline and preserve enrollment on timeout. Initial legacy setup still reports a
 failed tool proof without re-enrollment; start its saved connection to recover.
-Owner cancellation and setup deadlines also abort pending status requests and
+Setup/start status pre-checks and run-loop/scoped status checks forward their
+available owner signals. Owner cancellation and setup deadlines abort pending status requests and
 credential refresh when no other caller still needs that shared refresh. Any
 uncertain rotation retains its saved ID for recovery. This does not restart a
 Gateway or install automatic startup.

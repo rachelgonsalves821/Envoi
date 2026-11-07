@@ -38,6 +38,8 @@ If the stored refresh credential has expired, the connector stops before making 
 
 `checkStatus(signal?)` accepts an optional owner/deadline signal. Cancellation aborts its HTTP request and detaches that caller from any credential refresh. A shared refresh continues while another caller needs it; otherwise its transport is aborted. An uncertain rotation keeps its saved ID for retry, and a successfully received successor is still persisted. Owner cancellation reports `REQUEST_CANCELLED` without marking the installation degraded. Existing callers may omit the signal.
 
+The SDK run loop, scoped work checks, and integrated setup/start/doctor paths forward their available owner signals to status checks, including those before tool recovery. Cancelling legacy setup skips its error report rather than posting an owner cancellation as a setup failure.
+
 ## Fenced work API contract
 
 A trusted `caseSessionHandler` can throw `PermanentWorkError` for a conclusively

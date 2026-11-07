@@ -6942,7 +6942,7 @@ var Pn = class {
 	}
 	async createCaseSession(e, t) {
 		if (t.signal?.throwIfAborted(), G(e.message) && Sn(e.message), !/^msg_[A-Za-z0-9_-]+$/.test(e.workId) || typeof e.leaseToken != "string" || e.leaseToken.length < 1 || e.leaseToken.length > 256 || !e.message.caseId || !Number.isFinite(Date.parse(e.leaseExpiresAt)) || Date.parse(e.leaseExpiresAt) <= Date.now()) throw TypeError("A live case-bound work lease is required");
-		if (await this.checkStatus(), t.signal?.throwIfAborted(), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable; update the server before processing", 404, "FEATURE_DISABLED");
+		if (await this.checkStatus(t.signal), t.signal?.throwIfAborted(), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable; update the server before processing", 404, "FEATURE_DISABLED");
 		let n = K(await this.store.load());
 		if (e.message.recipientAgentId !== n.agentId) throw new I("Work belongs to another agent", void 0, "CASE_SESSION_RESPONSE_INVALID");
 		if (G(e.message) && e.message.recipientInboxId !== n.inboxId) throw new I("Work belongs to another inbox", void 0, "CASE_SESSION_RESPONSE_INVALID");
@@ -7033,7 +7033,7 @@ var Pn = class {
 					if (!n(e)) throw e;
 				}));
 				try {
-					await Promise.all([this.checkStatus().then(async () => {
+					await Promise.all([this.checkStatus(e).then(async () => {
 						if (await this.guard(!0), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable", 404, "FEATURE_DISABLED");
 					}), ...i]), e?.throwIfAborted();
 				} catch (t) {
@@ -7101,7 +7101,7 @@ var Pn = class {
 		if (!(t ?? this.options.handler)) throw TypeError("A durable work handler is required");
 		if (e?.aborted || (await this.guard(), (await this.lifecycle()).paused)) return null;
 		if (t) {
-			if (await this.checkStatus(), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable", 404, "FEATURE_DISABLED");
+			if (await this.checkStatus(e), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable", 404, "FEATURE_DISABLED");
 			if ((await this.lifecycle()).paused) return null;
 		}
 		let n;
@@ -7381,7 +7381,7 @@ var Pn = class {
 				return;
 			}
 			if (await this.observeError(e), i && (s = Date.now() + le(++c), u = Math.min(u, s)), this.options.caseSessionHandler && e instanceof I && e.code === "CASE_SESSION_ENDED" && e.reason === "credential_ended") try {
-				await this.checkStatus();
+				await this.checkStatus(n);
 			} catch (t) {
 				e = t, await this.observeError(e);
 			}
@@ -7420,7 +7420,7 @@ var Pn = class {
 					clearTimeout(o), o = setTimeout(() => t.abort(), 6e4);
 				};
 				try {
-					if ((await this.lifecycle()).paused && (await this.checkStatus(), d = Date.now() + 3e4 + Math.random() * 3e4), r.aborted) break;
+					if ((await this.lifecycle()).paused && (await this.checkStatus(r), d = Date.now() + 3e4 + Math.random() * 3e4), r.aborted) break;
 					let e = await this.withFreshSession(async (e) => {
 						if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new I("Connector session changed while connecting");
 						g = e;
@@ -7460,7 +7460,7 @@ var Pn = class {
 								await this.observeEvent(n, t.type), await this.options.onEvent?.(n), await this.saveCursor(g, t.id), this.lastWakeEventAt = (/* @__PURE__ */ new Date()).toISOString(), (t.type === "work.available" && n.agentId === g.agentId || (t.type === "message.delivered" || t.type === "human.instruction_created") && n.recipientAgentId === g.agentId) && p();
 							} else if (t.type === "ready") {
 								if (t.data.inboxId !== g.inboxId || t.data.cursor !== null && (typeof t.data.cursor != "string" || !/^\d{20}$/.test(t.data.cursor))) throw new I("Envoi returned an invalid ready frame");
-								v && !this.cursorFor(K(await this.store.load())) && await this.saveCursor(g, t.data.cursor), l = !0, u = Date.now() + m(), this.wakeTransport = "connected", this.lastWakeReadyAt = (/* @__PURE__ */ new Date()).toISOString(), this.lastWakeErrorCode = void 0, (await this.lifecycle()).paused && (await this.checkStatus(), d = Date.now() + 3e4 + Math.random() * 3e4), p();
+								v && !this.cursorFor(K(await this.store.load())) && await this.saveCursor(g, t.data.cursor), l = !0, u = Date.now() + m(), this.wakeTransport = "connected", this.lastWakeReadyAt = (/* @__PURE__ */ new Date()).toISOString(), this.lastWakeErrorCode = void 0, (await this.lifecycle()).paused && (await this.checkStatus(r), d = Date.now() + 3e4 + Math.random() * 3e4), p();
 							} else if (t.type === "replay_required") {
 								s = !0;
 								break;
@@ -7505,7 +7505,7 @@ var Pn = class {
 					if (i = !1, this.nextClaimAt = Infinity, t >= d) {
 						d = t + 3e4 + Math.random() * 3e4;
 						try {
-							await this.checkStatus();
+							await this.checkStatus(n);
 						} catch (e) {
 							await h(e);
 						}
