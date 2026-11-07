@@ -94,6 +94,16 @@ it('uses reviewed flow policy for independent declined no-action proofs and reje
  const s=await setup({role:'testowner',noAction:true});const results=await s.receiver.runMany(s.flows);expect(results.every(p=>'decisionOutcome' in p&&p.decisionOutcome==='declined'&&p.newCanonicalEffects===0)).toBe(true);expect(s.reserveOperation).not.toHaveBeenCalled();
  const changed=await setup({role:'testowner',noAction:true,removeAfter:true});await expect(changed.receiver.runMany(changed.flows)).rejects.toMatchObject({code:'EXPLICIT_NATIVE_BATCH_INCOMPLETE',completedWorkIds:[]});
 });
+it('supplies the adapter a trusted active-work restriction for no-action reviews only',async()=>{
+ const s=await setup({noAction:true,decisionOutcome:null,process:async(_channel,ctx)=>{
+  expect(state.context.scopedReadOnlyWork(ctx.workId)).toBe(true);
+  expect(()=>state.context.scopedReadOnlyWork('msg_foreign')).toThrow('EXPLICIT_WORK_STEP_REQUIRED');
+ }});
+ await s.receiver.runMany(s.flows);
+ expect(()=>state.context.scopedReadOnlyWork(s.flows[0].workId)).toThrow('EXPLICIT_WORK_STEP_REQUIRED');
+ const ordinary=await setup({process:async(_channel,ctx)=>{expect(state.context.scopedReadOnlyWork(ctx.workId)).toBe(false);}});
+ await ordinary.receiver.runMany(ordinary.flows);
+});
 it('refuses a native journal changed after its provider forwarding fence was closed',async()=>{
  const s=await setup({tamperAfterEnd:true});await expect(s.receiver.runMany(s.flows)).rejects.toMatchObject({code:'EXPLICIT_NATIVE_BATCH_INCOMPLETE',completedWorkIds:[]});expect(s.controller.closeNativeForwarding).toHaveBeenCalledTimes(2);expect(s.record).toHaveBeenCalledWith(expect.objectContaining({kind:'canonical_settlement',status:'processed'}));
 });
