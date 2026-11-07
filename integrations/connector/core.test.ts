@@ -165,6 +165,35 @@ describe('read-only setup retries against the existing Hermes owner', () => {
 });
 
 describe('shared connector lifecycle', () => {
+  it('shows parked proof guidance and clears it after new discovery permits verification', async () => {
+    const f = await fixture();
+    await setupConnection(f.handoff, f.resolver, f.options);
+    let recovered = false, parked!: () => void, ready!: () => void;
+    const parkedSignal = new Promise<void>(resolve => { parked = resolve; });
+    const readySignal = new Promise<void>(resolve => { ready = resolve; });
+    const create = f.adapter.createBridge;
+    f.adapter.createBridge = async (configuration, context) => {
+      const bridge = await create(configuration, context);
+      bridge.readyToVerify = () => recovered;
+      bridge.verify = async () => { if (!recovered) throw new ConnectorSetupError('TOOLS_PROOF_PARKED', 'Budget exhausted'); };
+      bridge.connector.run = async signal => { if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); };
+      return bridge;
+    };
+    const owner = new AbortController();
+    const running = startConnection(f.options.stateDir, owner.signal, f.resolver, { ...f.options, toolRecoveryRetryMs: 5,
+      onWaiting: code => { if (code === 'TOOLS_PROOF_PARKED') parked(); }, onReady: ready });
+    void running.catch(() => {});
+    try {
+      await Promise.race([parkedSignal, running.then(() => { throw new Error('Stopped before parking'); })]);
+      expect(await queryControl(f.options.stateDir, 'status')).toMatchObject({ errorCode: 'TOOLS_PROOF_PARKED', runtimeChecks: 'pending', guidance: expect.stringMatching(/paused.*model tool use/i) });
+      recovered = true;
+      await Promise.race([readySignal, running.then(() => { throw new Error('Stopped before readiness'); })]);
+      const status = await queryControl(f.options.stateDir, 'status');
+      expect(status.runtimeChecks).toBe('passed');
+      expect(status.errorCode).toBeUndefined();
+      expect(status.guidance).toBeUndefined();
+    } finally { owner.abort(); await running; }
+  });
   it('preserves enrollment and skips the error report when setup status is cancelled', async () => {
     const f = await fixture();
     let entered!: () => void, release!: () => void;

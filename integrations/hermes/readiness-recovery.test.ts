@@ -15,9 +15,10 @@ const session = (): ConnectorSession => ({ agentId, inboxId, address: 'review@en
 
 describe('Hermes cached-catalog readiness recovery', () => {
   it.each([
-    { scenario: 'recovers a missed proof without rediscovery', exhaust: false },
-    { scenario: 'caps cached proofs and renews the budget only after discovery', exhaust: true }
-  ])('$scenario', async ({ exhaust }) => {
+    { scenario: 'recovers a missed proof without rediscovery', exhaust: false, listDuringProof: false },
+    { scenario: 'caps cached proofs and renews the budget only after discovery', exhaust: true, listDuringProof: false },
+    { scenario: 'does not refill the proof budget from listings inside its own runs', exhaust: true, listDuringProof: true }
+  ])('$scenario', async ({ exhaust, listDuringProof }) => {
     const root = await mkdtemp(path.join(tmpdir(), 'envoi-integrated-review-'));
     const home = path.join(root, 'profile'), stateDir = path.join(root, 'state');
     await mkdir(home); await mkdir(stateDir);
@@ -52,6 +53,7 @@ describe('Hermes cached-catalog readiness recovery', () => {
       expect(url.origin).toBe('http://127.0.0.1:18671');
       if (url.pathname === '/v1/runs' && init?.method === 'POST') {
         modelRuns++;
+        if (listDuringProof) await rpc('tools/list');
         if (allowIdentity) await rpc('tools/call', { name: 'envoi_agent_info', arguments: {} });
         return Response.json({ run_id: 'review_run' }, { status: 202 });
       }
@@ -72,9 +74,11 @@ describe('Hermes cached-catalog readiness recovery', () => {
       await rpc('tools/list');
       expect(bridge.readyToVerify!()).toBe(true);
       let parkAt = 7, announceParked!: () => void;
+      const waitingCodes: string[] = [];
       let parked = new Promise<void>(resolve => { announceParked = resolve; });
       pending = waitForRuntimeTools(bridge, stop.signal, { timeoutMs: null, retryMs: 5,
-        onWaiting: () => {
+        onWaiting: code => {
+          waitingCodes.push(code);
           if (!exhaust) allowIdentity = true;
           else if (modelRuns >= parkAt) announceParked();
         }
@@ -93,6 +97,7 @@ describe('Hermes cached-catalog readiness recovery', () => {
           expect(modelRuns).toBe(count); // Fresh proof plus six cached retries, then no billing.
           expect(identityCalls).toBe(0);
           expect(bridge.readyToVerify!()).toBe(false);
+          expect(waitingCodes.at(-1)).toBe('TOOLS_PROOF_PARKED');
         }
         allowIdentity = true;
         await rpc('tools/list');
@@ -100,8 +105,10 @@ describe('Hermes cached-catalog readiness recovery', () => {
       await pending;
       expect(modelRuns).toBe(exhaust ? 15 : 2);
       expect(identityCalls).toBe(1);
-      expect(gatewayLists).toBe(exhaust ? 3 : 1);
-      expect(upstreamLists).toBe(1); // Gateway rediscovery can use the proven local catalog.
+      if (exhaust) expect(waitingCodes.at(-1)).toBe('TOOLS_NOT_READY');
+      expect(gatewayLists).toBe((exhaust ? 3 : 1) + (listDuringProof ? modelRuns : 0));
+      // The test guard is shorter than the relay's60s cache TTL.
+      expect(upstreamLists).toBe(1);
     } finally {
       clearTimeout(cleanupTimer); stop.abort(); await pending?.catch(() => {});
       await bridge.close();
