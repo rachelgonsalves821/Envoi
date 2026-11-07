@@ -31,6 +31,22 @@ async function promptly<T>(pending: Promise<T>) {
 }
 
 describe('status cancellation and shared credential refresh', () => {
+  it('cancels a paused run-loop status request and finishes shutdown promptly', async () => {
+    const f = fixture(), entered = deferred<void>();
+    await f.store.save({ ...f.current(), lifecycle: { state: 'PAUSED', paused: true, changedAt: new Date().toISOString(), failures: 0 } });
+    let transport: AbortSignal | null | undefined, held: ReturnType<typeof heldFetch>;
+    const connector = new EnvoiConnector('https://envoi.example', f.store, { fetch: async (url, init) => {
+      expect(String(url)).toBe('https://envoi.example/api/agent/status');
+      transport = init?.signal; held = heldFetch(transport); entered.resolve(); return held.promise;
+    } });
+    const owner = new AbortController(), running = connector.run(owner.signal);
+    await entered.promise; owner.abort();
+    try {
+      expect(await promptly(running.then(() => 'stopped'))).toBe('stopped');
+      expect(transport?.aborted).toBe(true);
+      expect(f.current().lifecycle).toMatchObject({ state: 'STOPPED', paused: true });
+    } finally { held!.release(status()); await running; }
+  });
   it('does not send status or refresh for an already cancelled caller', async () => {
     const f = fixture(true), fetcher = vi.fn<typeof fetch>();
     const connector = new EnvoiConnector('https://envoi.example', f.store, { fetch: fetcher });

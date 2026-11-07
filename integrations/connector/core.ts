@@ -289,14 +289,14 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     options.onProgress?.('Verifying runtime tools and Envoi access');
     bridge = await adapter.createBridge(config, context);
     await bridge.connector.start();
-    await bridge.connector.checkStatus();
+    await bridge.connector.checkStatus(options.signal);
     const paused = (await bridge.connector.lifecycle()).paused;
-    if (!paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+    if (!paused) { await bridge.verify?.(options.signal); await report(saved, bridge.connector, 'ready', fetcher); }
     const checks = paused ? 'deferred_while_paused' as const : 'passed' as const;
     await privateJson(path.join(directory, 'setup-check.json'), { runtime: saved.runtime, checkedAt: new Date().toISOString(), checks });
     return { stateDir: directory, runtime: saved.runtime, address: session.address, agentId: session.agentId, checks };
   } catch (error) {
-    if (saved && (bridge || enrolledConnector)) await report(saved, bridge?.connector ?? enrolledConnector!, 'error', fetcher,
+    if (!options.signal?.aborted && saved && (bridge || enrolledConnector)) await report(saved, bridge?.connector ?? enrolledConnector!, 'error', fetcher,
       error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEST_FAILED').catch(() => {});
     throw error;
   } finally { try { await bridge?.close(); } finally { await unlock(); } }
@@ -382,7 +382,7 @@ export async function adoptActivatedConnection(apiUrl: string, runtime: Connecto
     const startup = new EnvoiConnector(origin, store, { fetch: fetcher });
     // A saved revocation/reconnect requirement stops before any service or runtime call.
     await startup.start();
-    await startup.checkStatus();
+    await startup.checkStatus(options.signal);
     if (options.installService) await checkServiceManager();
     const adapter = resolveAdapter(runtime);
     const context = { ...options, apiUrl: origin, stateDir: directory, fetch: fetcher };
@@ -400,14 +400,14 @@ export async function adoptActivatedConnection(apiUrl: string, runtime: Connecto
     await privateJson(path.join(directory, 'connection.json'), saved);
     bridge = await adapter.createBridge(configuration, context);
     await bridge.connector.start();
-    await bridge.connector.checkStatus();
+    await bridge.connector.checkStatus(options.signal);
     let paused = (await bridge.connector.lifecycle()).paused;
     if (!paused) {
       if (runtime === 'hermes') await waitForRuntimeTools(bridge, options.signal ?? new AbortController().signal, {
         timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
-        onWaiting() { options.onProgress?.('Waiting for Hermes Gateway MCP reconciliation; keep this connector running.'); }
+        onWaiting() { options.onProgress?.('Waiting for Hermes Gateway tools and identity verification; keep this connector running.'); }
       });
-      else await bridge.verify?.();
+      else await bridge.verify?.(options.signal);
       // The owner may pause while recovery waits. Never report ready in that case.
       paused = (await bridge.connector.lifecycle()).paused;
       if (!paused) await report(saved, bridge.connector, 'ready', fetcher);
@@ -562,18 +562,18 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         if (wake) bridge.connector.scopedWakeWorkDriver();
         bridge.connector.onState(lifecycle => { diagnostics = { ...diagnostics, status: lifecycle.state === 'DEGRADED' ? 'waiting' : lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance }; });
         await bridge.connector.start();
-        await bridge.connector.checkStatus();
+        await bridge.connector.checkStatus(stop.signal);
         if (!(await bridge.connector.lifecycle()).paused) {
           await record('tool_verification');
           if (saved.runtime === 'hermes') await waitForRuntimeTools(bridge, stop.signal, {
             timeoutMs: options.toolRecoveryTimeoutMs ?? null, retryMs: options.toolRecoveryRetryMs,
             onWaiting(code) {
               diagnostics = { status: 'waiting', runtimeChecks: 'pending', errorCode: code,
-                guidance: 'Waiting for the selected Gateway to rediscover Envoi tools. Saved enrollment is unchanged.' };
+                guidance: 'Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged.' };
               options.onWaiting?.(code);
             }
           });
-          else await bridge.verify?.();
+          else await bridge.verify?.(stop.signal);
           if (!(await bridge.connector.lifecycle()).paused) await report(saved, bridge.connector, 'ready', fetcher);
         }
         const lifecycle = await bridge.connector.lifecycle();
@@ -704,7 +704,7 @@ export async function doctorConnection(stateDir: string, resolveAdapter: Adapter
     const config = await adapter.discover(context, saved.configuration);
     await (adapter.startupCheck ?? adapter.preflight)(config, context);
     const store = new FileBridgeStore(directory);
-    await new EnvoiConnector(saved.apiUrl, store, { fetch: fetcher }).checkStatus();
+    await new EnvoiConnector(saved.apiUrl, store, { fetch: fetcher }).checkStatus(options.signal);
     return { ...await connectionStatus(directory), runtimeChecks: 'preflight_only',
       note: 'No connector is running. Preflight cannot prove MCP tool discovery, inbox wake, or agent processing', ...adapter.describe(config) };
   } finally { await unlock(); }
