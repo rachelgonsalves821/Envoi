@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
+import { fileFolderFor, fileSourceView } from './file-folders';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
@@ -36,7 +37,7 @@ import { agentLabel, connectionLabel } from './agent-presence';
 import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
-import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
+import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, cachedWorkspaceView, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
 import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, dotsSetupSkillFile, isLoopbackOrigin, runtimeLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
@@ -142,6 +143,13 @@ function WorkspaceApp() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [view, setView] = useState<HumanView | null>(null);
+  // Only reuse views authorized for this human in the current browser session.
+  // A fresh server read still checks access and replaces each reused snapshot.
+  const workspaceViewCache = useRef<Record<string, HumanView>>({});
+  const rootPrefetch = useRef<AbortController | null>(null);
+  // Child snapshots stay available across workspace switches within one
+  // authenticated session. AppShell unmounts while the selected view reloads.
+  const childViewCache = useRef<Record<string, HumanView>>({});
   const [requestedSection, setRequestedSection] = useState<NavSection>('inbox');
   const [error, setError] = useState('');
   const [authNotice, setAuthNotice] = useState(() => new URLSearchParams(window.location.search).has('auth_error')
@@ -198,6 +206,10 @@ function WorkspaceApp() {
     setWorkspaces([]);
     setWorkspace(null);
     setView(null);
+    rootPrefetch.current?.abort();
+    rootPrefetch.current = null;
+    workspaceViewCache.current = {};
+    childViewCache.current = {};
     setError('');
     setRequestedSection('inbox');
     setSyncNotice('');
@@ -247,11 +259,12 @@ function WorkspaceApp() {
     if (!quiet) activeWorkspace.current = workspaceId;
     if (activeWorkspace.current !== workspaceId) throw new SessionRequestCancelled();
     const ticket = viewOrder.current.begin();
-    if (!quiet) setView(null);
+    if (!quiet) setView(cachedWorkspaceView(workspaceViewCache.current, workspaceId, humanRef.current?.id || ''));
     try {
       const next = await api.humanView(workspaceId, undefined, viewRequests.current.signal);
       if (!isCurrentSession(generation) || !viewOrder.current.isCurrent(ticket) || activeWorkspace.current !== workspaceId) throw new SessionRequestCancelled();
       checkViewIdentity(next, workspaceId);
+      workspaceViewCache.current[workspaceId] = next;
       setView(current => {
         if (!isCurrentSession(generation) || activeWorkspace.current !== workspaceId) return current;
         return applyOrderedViewResponse<HumanView | null>(current, next, viewOrder.current, ticket, (previous, incoming, stale) => incoming ? quiet ? mergeHistory(previous, incoming, undefined, stale) : incoming : previous);
@@ -259,9 +272,14 @@ function WorkspaceApp() {
       return next;
     } catch (caught) {
       if (isCurrentSession(generation) && viewOrder.current.isCurrent(ticket) && caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
+      if (isCurrentSession(generation) && viewOrder.current.isCurrent(ticket) && caught instanceof ApiError && caught.status === 401) {
+        delete workspaceViewCache.current[workspaceId];
+        setView(null);
+        expireSession();
+      }
       throw caught;
     }
-  }, [checkViewIdentity, loseWorkspaceAccess]);
+  }, [checkViewIdentity, expireSession, loseWorkspaceAccess]);
 
   const quietRefresh = useCallback((workspaceId: string) => {
     const generation = sessionGeneration();
@@ -366,6 +384,21 @@ function WorkspaceApp() {
   }, [clearPrivateState, config, endSession, loadView, loadWorkspaceDirectory]);
 
   loadAccountRef.current = loadAccount;
+
+  useEffect(() => {
+    const parentId = workspace?.kind === 'agent' ? workspace.parentInboxId : null;
+    if (boot !== 'ready' || !parentId || !human || workspaceViewCache.current[parentId] || rootPrefetch.current) return;
+    const generation = sessionGeneration();
+    const controller = new AbortController();
+    rootPrefetch.current = controller;
+    void api.humanView(parentId, undefined, controller.signal).then(next => {
+      if (isCurrentSession(generation) && cachedWorkspaceView({ [parentId]: next }, parentId, human.id)) {
+        workspaceViewCache.current[parentId] = next;
+      }
+    }).catch(() => {}).finally(() => {
+      if (rootPrefetch.current === controller) rootPrefetch.current = null;
+    });
+  }, [boot, human?.id, workspace?.id, workspace?.kind, workspace?.parentInboxId]);
 
   const revalidateAccount = useCallback(async (quiet = false) => {
     if (signingOut.current || endedElsewhere.current) return;
@@ -597,6 +630,15 @@ function WorkspaceApp() {
       historyBusy={historyBusy}
       claimRoute={['/claim', '/authorize-agent'].includes(window.location.pathname)}
       initialSection={requestedSection}
+      initialChildViews={childViewCache.current}
+      onChildViewsChange={next => {
+        if (isCurrentSession(renderedGeneration) && humanRef.current?.id === human.id) {
+          const verified = Object.fromEntries(Object.entries(next).filter(([inboxId, child]) =>
+            child.inbox.id === inboxId && child.requester?.id === human.id && child.requester.auth.assurance !== 'phone'));
+          childViewCache.current = { ...childViewCache.current, ...verified };
+          workspaceViewCache.current = { ...workspaceViewCache.current, ...verified };
+        }
+      }}
       onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); setRequestedSection(nextSection); await selectWorkspace(next); }}
       onPreferenceUpdated={(inboxId, caseId, preference) => {
         checkRenderedSession();
@@ -775,6 +817,8 @@ interface ShellProps {
   config: AuthConfig; human: Human; organizations: Organization[]; workspaces: Workspace[];
   workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace, section?: NavSection) => Promise<void>;
   initialSection?: NavSection;
+  initialChildViews?: Record<string, HumanView>;
+  onChildViewsChange?: (views: Record<string, HumanView>) => void;
   claimRoute?: boolean;
   onPreferenceUpdated?: (inboxId: string, caseId: string, preference: InboxPreference) => void;
   onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>; syncNotice: string;
@@ -793,7 +837,8 @@ export function AppShell(props: ShellProps) {
   const [navOpen, setNavOpen] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<string[]>([]);
   const [toast, setToast] = useState('');
-  const [childViews, setChildViews] = useState<Record<string, HumanView>>({});
+  const [childViews, setChildViews] = useState<Record<string, HumanView>>(() => props.initialChildViews || {});
+  const [childViewFailures, setChildViewFailures] = useState<string[]>([]);
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
@@ -840,6 +885,9 @@ export function AppShell(props: ShellProps) {
   const counts = caseCounts({ ...queueView, caseQueue: filterInboxCases(queueView.caseQueue) });
   const caseSources = aggregateViews.flatMap(item => item.caseQueue.map(workCase => ({ workCase, sourceView: item, key: `${item.inbox.id}:${workCase.id}` })));
   const inboxCases = filterInboxCases(queueView.caseQueue, { view: section === 'completed' ? 'done' : 'main', ...(selectedFolderId ? { folderId: selectedFolderId } : {}) });
+  const missingAgentViews = agentInboxes.filter(inbox => inbox.status !== 'removed' && !childViews[inbox.id]);
+  const doneLoadStatus = section === 'completed' && workspace.id === rootWorkspace.id && missingAgentViews.length
+    ? missingAgentViews.some(inbox => childViewFailures.includes(inbox.id)) ? 'error' : 'loading' : undefined;
   const sectionCases = section === 'completed' ? inboxCases : casesForSection(inboxCases, section, queueView.assets);
   const visibleCaseEntries = sectionCases.flatMap(item => {
     const source = caseSources.find(entry => entry.workCase === item);
@@ -852,25 +900,32 @@ export function AppShell(props: ShellProps) {
   const currentAgent = workspace.kind === 'agent' ? view.agents.find(item => item.id === workspace.ownerAgentId) || null : null;
 
   useEffect(() => { document.documentElement.dataset.theme = 'light'; localStorage.removeItem('envoi.theme'); }, []);
+  useEffect(() => { props.onChildViewsChange?.(childViews); }, [childViews, props.onChildViewsChange]);
   useEffect(() => {
     if (rootWorkspace.id === previewWorkspace.id) return;
     let cancelled = false;
-    const inboxes = [rootWorkspace, ...agentInboxes];
+    // The selected root view is already loaded. Only child inboxes contribute
+    // cases to the All inboxes and Done aggregates.
+    const inboxes = agentInboxes.filter(inbox => inbox.status !== 'removed');
     let loading = false;
     async function refreshChildren() {
       if (loading) return;
       loading = true;
       try {
-        const results = await Promise.all(inboxes.map(async inbox => {
+        await Promise.all(inboxes.map(async inbox => {
           const order = childResponseOrder(inbox.id);
           const ticket = order.begin();
           try {
             const refreshed = await api.humanView(inbox.id);
-            return { key: inbox.id, value: refreshed, order, ticket };
+            // Publish each inbox as it arrives. One slow agent must not leave
+            // every completed conversation hidden behind the slowest read.
+            if (!cancelled) {
+              setChildViews(current => cancelled ? current : applyOrderedViewResponses(current, [{ key: inbox.id, value: refreshed, order, ticket }]));
+              setChildViewFailures(current => current.filter(id => id !== inbox.id));
+            }
           }
-          catch { return null; }
+          catch { if (!cancelled) setChildViewFailures(current => current.includes(inbox.id) ? current : [...current, inbox.id]); }
         }));
-        if (!cancelled) setChildViews(current => cancelled ? current : applyOrderedViewResponses(current, results));
       } finally { loading = false; }
     }
     void refreshChildren();
@@ -921,6 +976,7 @@ export function AppShell(props: ShellProps) {
     const ticket = order.begin();
     const refreshed = await api.humanView(inboxId);
     setChildViews(current => applyOrderedViewResponses(current, [{ key: inboxId, value: refreshed, order, ticket }]));
+    setChildViewFailures(current => current.filter(id => id !== inboxId));
   }
   function childResponseOrder(inboxId: string) {
     let order = childResponseOrders.current.get(inboxId);
@@ -1029,14 +1085,14 @@ export function AppShell(props: ShellProps) {
         {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
-{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={openConnect} />}
+{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} />}
 {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={openConnect} onRefresh={refreshAgentInbox} notify={setToast} />}
             {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onConnect={openConnect} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
           </main>
         ) : (
           <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}`}>
-{!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={openConnect} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
+{!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={openConnect} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} conversationsStatus={doneLoadStatus} onRetryConversations={() => { for (const inbox of missingAgentViews) void refreshAgentInbox(inbox.id).catch(() => setChildViewFailures(current => current.includes(inbox.id) ? current : [...current, inbox.id])); }} />}
             {selectedCase && <main id="main-content" className="case-main">
 <CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
             </main>}
@@ -1070,7 +1126,7 @@ function NavItem({ section, label, icon, count, active, attention, onClick }: { 
   return <button className={`nav-item ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => onClick(section)}><span className="nav-icon">{icon}</span><span>{label}</span>{Boolean(count) && <span className={`nav-count ${attention ? 'attention' : ''}`} aria-label={`${count} items`}>{count! > 9 ? '9+' : count}</span>}</button>;
 }
 
-function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onConnect, onLoadOlder, historyBusy, onSelect }: { section: NavSection; folderName?: string; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onConnect: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void }) {
+function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onConnect, onLoadOlder, historyBusy, onSelect, conversationsStatus, onRetryConversations }: { section: NavSection; folderName?: string; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onConnect: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void; conversationsStatus?: 'loading' | 'error'; onRetryConversations?: () => void }) {
   const [query, setQuery] = useState('');
   const loadMarker = useRef<HTMLDivElement>(null);
   const hasMore = Boolean(Object.keys(olderCursors(view)).length);
@@ -1099,7 +1155,8 @@ function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId,
       <label className="queue-search"><Search size={15} /><span className="sr-only">Search cases</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search" /><kbd>/</kbd></label>
       <div className="case-list" role="listbox" aria-label="Conversations">
         {filtered.map(item => <CaseRow key={caseKey(item)} workCase={item} view={caseSourceView(item, view)} showOwner={!currentAgent} selected={selectedId === caseKey(item)} onSelect={onSelect} />)}
-        {!filtered.length && <div className="empty-list inbox-empty"><span className="empty-icon"><Inbox size={25} /></span><strong>{query ? 'No conversations found' : 'No conversations yet'}</strong><span>{query ? 'Try a different search.' : 'Conversations between your agents and other agents will appear here.'}</span>{!query && !view.agents.length && <button className="button secondary" onClick={onConnect}>Connect an agent</button>}</div>}
+        {!filtered.length && !query && conversationsStatus && <div className="empty-list inbox-empty" role="status"><span className="empty-icon"><Inbox size={25} /></span><strong>{conversationsStatus === 'loading' ? 'Loading agent conversations…' : 'Some conversations could not load'}</strong><span>{conversationsStatus === 'loading' ? 'Your agents’ Done conversations will appear shortly.' : 'Try loading the missing agent inboxes again.'}</span>{conversationsStatus === 'error' && <button className="button secondary" onClick={onRetryConversations}>Retry</button>}</div>}
+        {!filtered.length && (query || !conversationsStatus) && <div className="empty-list inbox-empty"><span className="empty-icon"><Inbox size={25} /></span><strong>{query ? 'No conversations found' : 'No conversations yet'}</strong><span>{query ? 'Try a different search.' : 'Conversations between your agents and other agents will appear here.'}</span>{!query && !view.agents.length && <button className="button secondary" onClick={onConnect}>Connect an agent</button>}</div>}
         {hasMore && <div ref={loadMarker} aria-hidden="true" />}
       </div>
     </aside>
@@ -1469,34 +1526,34 @@ export function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   );
 }
 
-function SharedFilesPage({ view, notify, onOpenCase, onConnect }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void; onConnect: () => void }) {
+function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void }) {
   const [query, setQuery] = useState('');
   const [direction, setDirection] = useState<'all' | 'received' | 'sent'>('all');
   const [kind, setKind] = useState('');
   const [layout, setLayout] = useState<'list' | 'grid'>('list');
   const [folder, setFolder] = useState('');
-  const caseFor = (asset: Asset) => view.caseQueue.find(item => item.id === asset.caseId);
-  const folderFor = (asset: Asset) => {
-    const workCase = caseFor(asset);
-    if (!workCase) return 'Other files';
-    const events = timelineForCase(workCase, view.messages);
-    const id = participantIds(workCase, events).find(value => value !== localAgentId(workCase, view) && value !== workCase.principal);
-    return resolveParticipant(workCase, id, view.agents, view.participantDirectory, localAgentId(workCase, view)).displayName;
-  };
-  const folders = [...new Set(view.assets.map(folderFor))].sort();
+  const sourceFor = (asset: Asset) => fileSourceView(asset, view);
+  const caseFor = (asset: Asset) => sourceFor(asset).caseQueue.find(item => item.id === asset.caseId) || view.caseQueue.find(item => item.id === asset.caseId);
+  const folderFor = (asset: Asset) => fileFolderFor(asset, view);
+  const folders = [...new Map(view.assets.map(asset => {
+    const fileFolder = folderFor(asset);
+    return [fileFolder.id, fileFolder] as const;
+  })).values()].sort((left, right) => left.label.localeCompare(right.label));
+  const selectedFolder = folders.find(item => item.id === folder);
   const kinds = [{ label: 'PDFs', match: 'pdf' }, { label: 'Documents', match: 'document' }, { label: 'Spreadsheets', match: 'sheet' }, { label: 'Images', match: 'image/' }, { label: 'Archives', match: 'zip' }];
   const files = view.assets.filter(asset => {
     const workCase = caseFor(asset);
-    const localId = workCase ? localAgentId(workCase, view) : view.inbox.ownerAgentId;
+    const source = sourceFor(asset);
+    const localId = workCase ? localAgentId(workCase, source) : source.inbox.ownerAgentId;
     const owner = Boolean(localId && asset.createdByAgentId === localId);
-    return (!folder || folderFor(asset) === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset)}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || Boolean(localId) && (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
+    return (!folder || folderFor(asset).id === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset).label}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || Boolean(localId) && (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
   }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return <div className="files-page">
     <div className="files-heading"><div><h1>Files</h1><p>Files shared in your agents’ conversations.</p></div>{view.assets.length > 0 && <div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div>}</div>
     {view.assets.length > 0 && <><div className="files-toolbar"><div className="files-segment" aria-label="File direction">{([['all','All'],['received','Received'],['sent','Sent by my agents']] as const).map(([value,label]) => <button key={value} aria-pressed={direction === value} onClick={() => setDirection(value)}>{label}</button>)}</div><div className="files-types">{kinds.map(item => <button key={item.label} aria-pressed={kind === item.match} onClick={() => setKind(current => current === item.match ? '' : item.match)}>{item.label}</button>)}</div><div className="files-segment layout-toggle"><button aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button></div></div>
-    {folder && <div className="files-breadcrumb"><button onClick={() => setFolder('')}>Files</button><ChevronRight size={16} /><span>{folder}</span></div>}</>}
-    {!folder && folders.length > 0 && <section className="files-folders"><h2>Folders</h2><div className="folder-grid">{folders.map((name, index) => <button key={name} onClick={() => setFolder(name)}><Folder size={22} fill={AGENT_COLORS[index % AGENT_COLORS.length]} color={AGENT_COLORS[index % AGENT_COLORS.length]} /><span>{name}</span><small>{view.assets.filter(asset => folderFor(asset) === name).length}</small></button>)}</div></section>}
-    <section className="recent-files">{view.assets.length > 0 && <h2>{folder ? folder : 'Recent files'}</h2>}{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={view.agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={view.inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><span className="empty-icon"><FileText size={25} /></span><strong>{view.assets.length ? 'No matching files' : 'No files yet'}</strong><span>{view.assets.length ? 'Try another search or filter.' : 'Files shared in conversations will appear here.'}</span>{!view.assets.length && !view.agents.length && <button className="button secondary" onClick={onConnect}>Connect an agent</button>}</div>}</section>
+    {folder && <div className="files-breadcrumb"><button onClick={() => setFolder('')}>Files</button><ChevronRight size={16} /><span>{selectedFolder?.label || 'Other files'}</span></div>}</>}
+    {!folder && folders.length > 0 && <section className="files-folders"><h2>Folders</h2><div className="folder-grid">{folders.map((item, index) => <button key={item.id} onClick={() => setFolder(item.id)}><Folder size={22} fill={AGENT_COLORS[index % AGENT_COLORS.length]} color={AGENT_COLORS[index % AGENT_COLORS.length]} /><span>{item.label}</span><small>{view.assets.filter(asset => folderFor(asset).id === item.id).length}</small></button>)}</div></section>}
+    <section className="recent-files">{view.assets.length > 0 && <h2>{selectedFolder?.label || 'Recent files'}</h2>}{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={sourceFor(asset).agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={sourceFor(asset).inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><span className="empty-icon"><FileText size={25} /></span><strong>{view.assets.length ? 'No matching files' : 'No files yet'}</strong><span>{view.assets.length ? 'Try another search or filter.' : 'Files shared in conversations will appear here.'}</span></div>}</section>
   </div>;
 }
 
@@ -1527,7 +1584,7 @@ export function PoliciesPage({ entries, onConnect, onRefresh, notify }: { entrie
     setError(''); setReconsentRequired(false);
   }
   async function save() {
-    if (!editing) return;
+    if (!editing || reconsentRequired) return;
     setBusy(true); setError('');
     try {
       const hidden = editing.agent.permissions.filter(permission => !AGENT_PERMISSION_OPTIONS.some(option => option.id === permission));
@@ -1554,10 +1611,10 @@ export function PoliciesPage({ entries, onConnect, onRefresh, notify }: { entrie
     <MonadPermissionPanel agents={entries.filter(entry => entry.view.canManageInbox).map(({ agent, inbox }) => ({ id: agent.id, name: agent.name, inboxId: inbox.id }))} /></>}
     {editing && <Modal title={`Edit ${editing.agent.name}’s permissions`} onClose={() => setEditing(null)} dismissible={!busy}>
       <p>Changes apply to future agent actions. Earlier activity stays in the record.</p>
-      <AgentPermissionPicker selected={selected} onChange={setSelected} />
+      <AgentPermissionPicker selected={selected} onChange={value => { setSelected(value); setError(''); setReconsentRequired(false); }} />
       <FormError message={error} />
-      {reconsentRequired && <DotsSetupGuide origin={window.location.origin} name={editing.agent.name} address={editing.agent.address} reconnect />}
-      <div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => setEditing(null)}>Cancel</button><button type="button" className="button primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save permissions'}</button></div>
+      {reconsentRequired && <><p>Approve the missing access in your Dot using the message access prompt below. Saving these same choices again cannot expand OAuth access. After approval, close this editor and refresh permissions.</p><DotsSetupGuide origin={window.location.origin} name={editing.agent.name} address={editing.agent.address} reconnect /></>}
+      <div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => setEditing(null)}>Cancel</button><button type="button" className="button primary" disabled={busy || reconsentRequired} onClick={() => void save()}>{busy ? 'Saving…' : 'Save permissions'}</button></div>
     </Modal>}
   </PageFrame>;
 }
