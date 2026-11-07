@@ -206,6 +206,9 @@ export async function createContinuationReceiver(options:{
   try{
     const adapter=adapterFor(runtime),context={apiUrl:origin,stateDir:options.stateDir,env:options.env,signal,fetch:fetcher,
       nativeRequestGate:options.nativeGate,beforeNativeSubmit,
+      scopedReadOnlyWork:(workId:string)=>{ensure();const state=active.get(workId);
+        if(!state||state.settled||state.failed)refuse('EXPLICIT_WORK_STEP_REQUIRED');
+        return !state.held&&!recovery&&policy(state.flowId).noAction;},
       ...(targets?{openClawTargetResolver:(workId:string,bounded:AbortSignal)=>targets.resolve(workId,bounded),openClawTargetSelection:options.openClawTargetSelection}:{}),
       beforeScopedTurn:async(workId:string,scopedSignal:AbortSignal)=>{const state=active.get(workId);if(!state)refuse('EXPLICIT_WORK_STEP_REQUIRED');if(preNativeControl){
         const c=preNativeControl,capture=state.controlCapture;
