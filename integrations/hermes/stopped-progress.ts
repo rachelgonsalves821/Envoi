@@ -135,6 +135,10 @@ function joinAncestor(child:Awaited<ReturnType<typeof inspectHistory>>,parent:Aw
     ||pin.completed.some(p=>!h.completed.some((q:any)=>q.flowId===p.flowId&&['journal','nativeEvidence','nativeTerminal'].every(key=>samePin(q[key],p[key as keyof typeof p] as ProgressPin))))
     ||pin.failed.length!==1||!samePin(h.failedReceipt?.journal,pin.failed[0].journal)||h.failedReceipt?.workId!==parent.state.started[pin.failed[0].flowId]?.workId
     ||!object(c)||c.priorWindow!==parent.window||c.priorClientSource!==parent.receipt.clientSource||c.stateSha256!==pin.priorState.sha256
+    ||c.receiptEvidenceSha256!==hash(JSON.stringify(canonical(pin.failed[0])))
+    ||c.receipt?.workId!==h.failedReceipt?.workId||c.receipt?.canonicalStatus!=='failed'||c.receipt?.nativeTerminalNegative!==true
+    ||c.receipt?.journalUnchanged!==true||c.receipt?.modelCallsAddedByReconciliation!==0
+    ||c.receipt?.originalAdmissionClientSource!==parent.receipt.clientSource||c.receipt?.dispositionReconciledByClientSource!==child.receipt.clientSource
     ||JSON.stringify(canonical(c.completedResults))!==JSON.stringify(canonical(parent.state.results))
     ||!Array.isArray(c.completedFlows)||JSON.stringify([...c.completedFlows].sort())!==JSON.stringify(Object.keys(parent.state.results).sort())
     ||!Array.isArray(c.blockedWorkIds)||Object.values(parent.state.started).some((w:any)=>!c.blockedWorkIds.includes(w.workId)))refuse('EXACT_PROGRESS_ANCESTRY_REQUIRED');

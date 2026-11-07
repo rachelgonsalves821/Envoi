@@ -62,9 +62,12 @@ async function secondGeneration(postExpiry=false){
    failedReceipt:{workId:s.state.started['private-receipt-review'].workId,journal:parent.failed[0].journal}}});
  const receipt={...s.options.receipt,packetSha256:packet.sha256},signed=s.sign(s.nextGraph,receipt,'continued actual-format');
  const c=await ContinuationController.startStoppedProgress(await ContinuationController.prepareStoppedProgress({...s.options,receipt,expected:{...s.options.expected,packetSha256:packet.sha256},reviewedPlan:signed.plan,graphApprovalRaw:signed.raw}));c.stop();
+ const failed=parent.failed[0],ancestorReceipt=JSON.parse(await fs.readFile(parent.priorExecution.path,'utf8')).receipt;
  const window=hash(JSON.stringify(receipt)),state={window,planSha256:hash(JSON.stringify({fixture:'inert-continued',windowId:window})),started:{},results:{},taskReceipts:{shared:{state:'accepted',messageId:'msg_retained_shared'}},
   carriedProgress:{priorWindow:s.original.ledger.window,priorClientSource:JSON.parse(await fs.readFile(parent.priorExecution.path,'utf8')).receipt.clientSource,stateSha256:parent.priorState.sha256,
-   completedFlows:Object.keys(s.state.results),completedResults:s.state.results,blockedWorkIds:Object.values(s.state.started).map((v:any)=>v.workId)}};
+   completedFlows:Object.keys(s.state.results),completedResults:s.state.results,blockedWorkIds:Object.values(s.state.started).map((v:any)=>v.workId),
+   receiptEvidenceSha256:hash(JSON.stringify({canonicalSnapshot:failed.canonicalSnapshot,flowId:failed.flowId,journal:failed.journal,nativeTerminal:failed.nativeTerminal})),
+   receipt:{workId:s.state.started[failed.flowId].workId,canonicalStatus:'failed',nativeTerminalNegative:true,journalUnchanged:true,modelCallsAddedByReconciliation:0,originalAdmissionClientSource:ancestorReceipt.clientSource,dispositionReconciledByClientSource:receipt.clientSource}}};
  const now=Date.parse(receipt.hardStopUtc)+1000;vi.spyOn(Date,'now').mockReturnValue(now);
  const recovery:any={...parent,priorPacket:packet,priorExecution:await s.pin('continued-execution.json',{receipt,window,approvalSha256:receipt.approvalReceiptSha256,graphApprovalRaw:signed.raw}),
   priorState:await s.pin('continued-state.json',state),priorLedger:await s.pin('continued-ledger.jsonl',await fs.readFile(s.filename,'utf8')),completed:[],failed:[],ancestors:[parent],
@@ -108,6 +111,12 @@ it('refuses dropped or changed ancestry even when the latest run has no native s
  await expect(ContinuationController.prepareStoppedProgress({...s.options,recovery:{...s.options.recovery,ancestors:[]}})).rejects.toThrow('EXACT_PROGRESS_ANCESTRY_REQUIRED');
  await fs.appendFile(s.parent.completed[0].nativeTerminal.path,' ');
  await expect(ContinuationController.prepareStoppedProgress(s.options)).rejects.toThrow('STOPPED_PROGRESS_EVIDENCE_CHANGED');expect(await fs.readFile(s.filename)).toEqual(before);
+});
+it.each(['nativeTerminal','canonicalSnapshot'] as const)('rejects re-pinned ancestral %s substitution against the immutable carried failed-proof digest',async field=>{
+ const s=await secondGeneration(),before=await fs.readFile(s.filename),p=s.parent.failed[0],value=JSON.parse(await fs.readFile(p[field].path,'utf8'));
+ if(field==='nativeTerminal')value.result.outcome='cancelled';else value.messages[0].text='substituted canonical content';
+ p[field]=await s.pin('substituted-'+field+'.json',value);
+ await expect(ContinuationController.prepareStoppedProgress(s.options)).rejects.toThrow('EXACT_PROGRESS_ANCESTRY_REQUIRED');expect(await fs.readFile(s.filename)).toEqual(before);
 });
 it.each(['packetSha256','graphApproval','approvalSha256','graphApprovalRaw'] as const)('refuses conflicting actual execution %s aliases before any write',async field=>{
  const s=await secondGeneration(),before=await fs.readFile(s.filename),value=JSON.parse(await fs.readFile(s.options.recovery.priorExecution.path,'utf8'));
