@@ -18,9 +18,11 @@ export async function waitForRuntimeTools(bridge: RuntimeBridge, signal: AbortSi
   const bounded = deadline ? AbortSignal.any([signal, deadline]) : signal;
   let discoveryRequired = false;
   let transientFailures = 0;
+  let missedProofs = 0;
   while (!bounded.aborted) {
     try {
-      await bridge.connector.checkStatus();
+      await bridge.connector.checkStatus(bounded);
+      bounded.throwIfAborted();
       if ((await bridge.connector.lifecycle()).paused) return;
       if (discoveryRequired && bridge.readyToVerify && !bridge.readyToVerify()) {
         options.onWaiting?.('TOOLS_NOT_READY');
@@ -40,7 +42,11 @@ export async function waitForRuntimeTools(bridge: RuntimeBridge, signal: AbortSi
       if (error instanceof ConnectorSetupError && error.code === 'TOOLS_NOT_READY') discoveryRequired = true;
       options.onWaiting?.(error instanceof ConnectorSetupError || error instanceof EnvoiError ? error.code ?? 'CONNECTION_TEMPORARILY_UNAVAILABLE' : 'CONNECTION_TEMPORARILY_UNAVAILABLE');
       const retryAfter = error instanceof EnvoiError ? error.retryAfterSeconds ?? 0 : 0;
-      const delay = error instanceof ConnectorSetupError && error.code === 'TOOLS_NOT_READY' ? options.retryMs ?? 15_000
+      // Never invoke the model repeatedly while discovery is absent. Once tools
+      // are known, a missed invocation gets bounded exponential retry spacing.
+      const toolsMissing = error instanceof ConnectorSetupError && error.code === 'TOOLS_NOT_READY';
+      const proofDelay = toolsMissing && bridge.readyToVerify?.() ? Math.min(60_000, 15_000 * 2 ** Math.min(missedProofs++, 2)) : 15_000;
+      const delay = error instanceof ConnectorSetupError && error.code === 'TOOLS_NOT_READY' ? options.retryMs ?? proofDelay
         : options.retryMs ?? retryDelay(++transientFailures, Math.random(), retryAfter);
       await waitForRetry(Math.max(delay, retryAfter * 1000), bounded);
     }

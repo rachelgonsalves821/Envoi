@@ -101,15 +101,21 @@ On a saved-connection restart, a previously parked Hermes MCP connection may sti
 need its self-probe to rediscover Envoi. The running connector keeps the same relay
 and state alive through temporary Gateway, provider or Envoi readiness failures,
 waiting until recovery or owner cancellation instead of exiting after six minutes.
-After a model proof reports missing tools, it waits for new Gateway catalog
-discovery before another model request. Discovery only permits a new proof; an
+If no catalog containing the identity tool has been discovered, it waits for
+Gateway discovery before another model request. If the catalog is already loaded
+but the model finishes without invoking the tool, it retries the proof after
+15 seconds, then 30 seconds, then at most once per minute. This does not require
+the Gateway to reload its cached catalog. Discovery only permits a new proof; an
 actual successful identity-tool invocation is still required. Status remains
 waiting with runtime checks pending, with no claims or ready report during recovery.
 Paused agents defer verification; expired/revoked credentials and authentication
 failures remain fatal. One-shot activation setup checks retain their explicit
 deadline and preserve enrollment on timeout. Initial legacy setup still reports a
 failed tool proof without re-enrollment; start its saved connection to recover.
-This does not restart a Gateway or install automatic startup.
+Owner cancellation and setup deadlines also abort pending status requests and
+credential refresh when no other caller still needs that shared refresh. Any
+uncertain rotation retains its saved ID for recovery. This does not restart a
+Gateway or install automatic startup.
 
 The connector user service and the Hermes Gateway require their own supervisors. User-login startup is not a guarantee of operation after logout or host sleep. Validate idle incoming work, restart and a real exchange before treating unattended delivery as verified. Automated fixture tests are not proof of real installed Hermes compatibility.
 

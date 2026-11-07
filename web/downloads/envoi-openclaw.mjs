@@ -6324,79 +6324,99 @@ var Fn = class {
 			guidance: e.paused ? ue("wait_for_resume") : void 0
 		});
 	}
-	async freshSession(e = !1) {
-		if (await this.guard(), this.refreshInFlight) return this.refreshInFlight;
-		this.refreshInFlight = (async () => {
-			let t = G(await this.store.load());
-			if (!e && !t.pendingRotation && Date.parse(t.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return t;
-			if (Date.parse(t.agentRefreshTokenExpiresAt) <= Date.now()) throw new An();
-			let n = await Mn(t.agentRefreshToken);
-			if (t.pendingRotation && t.pendingRotation.refreshTokenFingerprint !== n) throw new An();
-			let r = t.pendingRotation || {
-				rotationId: crypto.randomUUID(),
-				refreshTokenFingerprint: n,
-				startedAt: (/* @__PURE__ */ new Date()).toISOString()
+	async freshSession(e = !1, t) {
+		if (t?.throwIfAborted(), await this.guard(), t?.throwIfAborted(), this.refreshInFlight?.controller.signal.aborted) {
+			let n = this.refreshInFlight.promise.catch(() => void 0);
+			return t ? await K(() => n, t) : await n, this.freshSession(e, t);
+		}
+		if (!this.refreshInFlight) {
+			let t = {
+				controller: new AbortController(),
+				waiters: /* @__PURE__ */ new Set(),
+				promise: null
 			};
-			t.pendingRotation || await this.mutate((e) => ({
-				...e,
-				pendingRotation: r
-			})), await this.guard();
-			let i = new AbortController();
-			this.activeRefresh.add(i);
-			let a;
-			try {
-				a = await oe(this.origin, t.agentRefreshToken, r.rotationId, {
-					...this.options,
-					fetch: (e, t) => (this.options.fetch || fetch)(e, {
-						...t,
-						signal: t?.signal ? AbortSignal.any([t.signal, i.signal]) : i.signal
-					})
+			this.refreshInFlight = t, t.promise = (async () => {
+				let n = G(await this.store.load());
+				if (t.controller.signal.throwIfAborted(), !e && !n.pendingRotation && Date.parse(n.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return n;
+				if (Date.parse(n.agentRefreshTokenExpiresAt) <= Date.now()) throw new An();
+				let r = await Mn(n.agentRefreshToken);
+				if (n.pendingRotation && n.pendingRotation.refreshTokenFingerprint !== r) throw new An();
+				let i = n.pendingRotation || {
+					rotationId: crypto.randomUUID(),
+					refreshTokenFingerprint: r,
+					startedAt: (/* @__PURE__ */ new Date()).toISOString()
+				};
+				n.pendingRotation || await this.mutate((e) => ({
+					...e,
+					pendingRotation: i
+				})), await this.guard();
+				let a = t.controller;
+				this.activeRefresh.add(a);
+				let o;
+				try {
+					o = await oe(this.origin, n.agentRefreshToken, i.rotationId, {
+						...this.options,
+						fetch: (e, t) => (this.options.fetch || fetch)(e, {
+							...t,
+							signal: t?.signal ? AbortSignal.any([t.signal, a.signal]) : a.signal
+						})
+					});
+				} finally {
+					this.activeRefresh.delete(a);
+				}
+				return await this.guard(), this.mutate((e) => {
+					if (["REVOKED", "NEEDS_RECONNECT"].includes(e.lifecycle?.state ?? "")) throw new I(e.lifecycle?.guidance ?? "Credential ended", void 0, e.lifecycle?.code);
+					let { pendingRotation: t, ...n } = e;
+					return G({
+						...n,
+						...o
+					});
 				});
-			} finally {
-				this.activeRefresh.delete(i);
-			}
-			return await this.guard(), this.mutate((e) => {
-				if (["REVOKED", "NEEDS_RECONNECT"].includes(e.lifecycle?.state ?? "")) throw new I(e.lifecycle?.guidance ?? "Credential ended", void 0, e.lifecycle?.code);
-				let { pendingRotation: t, ...n } = e;
-				return G({
-					...n,
-					...a
-				});
+			})().catch(async (e) => {
+				throw t.controller.signal.aborted || await this.observeError(e), e;
+			}).finally(() => {
+				this.refreshInFlight === t && (this.refreshInFlight = null);
 			});
-		})();
+		}
+		let n = this.refreshInFlight, r = Symbol();
+		n.waiters.add(r);
 		try {
-			return await this.refreshInFlight;
-		} catch (e) {
-			throw await this.observeError(e), e;
+			return await (t ? K(() => n.promise, t) : n.promise);
 		} finally {
-			this.refreshInFlight = null;
+			n.waiters.delete(r), !n.waiters.size && this.refreshInFlight === n && n.controller.abort();
 		}
 	}
-	async withFreshSession(e, t = !1, n = !1) {
+	async withFreshSession(e, t = !1, n = !1, r) {
+		if (r?.aborted) throw new I("Connector request was cancelled", void 0, "REQUEST_CANCELLED");
 		await this.guard(t);
-		let r = await this.freshSession();
+		let i;
+		try {
+			i = await this.freshSession(!1, r);
+		} catch (e) {
+			throw r?.aborted ? new I("Connector request was cancelled", void 0, "REQUEST_CANCELLED") : e;
+		}
 		await this.guard(t);
-		let i = this.actionEpoch, a = new AbortController();
-		t && this.activeActions.add(a);
-		let o = async (n) => {
-			if (await this.guard(t), t && i !== this.actionEpoch) throw new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
-			let r = await e(n, a.signal);
-			if (await this.guard(t), t && i !== this.actionEpoch) throw new I("Connector action was interrupted");
-			return await this.healthy(), r;
+		let a = this.actionEpoch, o = new AbortController();
+		t && this.activeActions.add(o);
+		let s = async (n) => {
+			if (r?.throwIfAborted(), await this.guard(t), t && a !== this.actionEpoch) throw new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
+			let i = await e(n, r ? AbortSignal.any([o.signal, r]) : o.signal);
+			if (r?.throwIfAborted(), await this.guard(t), t && a !== this.actionEpoch) throw new I("Connector action was interrupted");
+			return await this.healthy(), i;
 		};
 		try {
 			try {
-				return await o(r);
+				return await s(i);
 			} catch (e) {
 				if (!(e instanceof I) || ce(e).retry !== "refresh_then_retry_once") throw e;
 				await this.guard(t);
 				let n = G(await this.store.load());
-				return await o(n.agentApiToken === r.agentApiToken ? await this.freshSession(!0) : n);
+				return await s(n.agentApiToken === i.agentApiToken ? await this.freshSession(!0, r) : n);
 			}
 		} catch (e) {
-			throw t && a.signal.aborted ? (await this.guard(t), new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof I && ce(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
+			throw r?.aborted ? new I("Connector request was cancelled", void 0, "REQUEST_CANCELLED") : t && o.signal.aborted ? (await this.guard(t), new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof I && ce(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
 		} finally {
-			this.activeActions.delete(a);
+			this.activeActions.delete(o);
 		}
 	}
 	withFreshClient(e, t = !0) {
@@ -6491,7 +6511,7 @@ var Fn = class {
 			try {
 				for (;;) {
 					f.throwIfAborted();
-					let e = await In(() => t.read(), f);
+					let e = await K(() => t.read(), f);
 					if (e.done) break;
 					i += e.value.length, i > 65536 && (a(), n("SYNTHETIC_FIXTURE_RESULT_UNKNOWN")), r.push(e.value);
 				}
@@ -6506,9 +6526,9 @@ var Fn = class {
 			}), "Synthetic fixture request failed");
 		};
 		try {
-			let e = await In(() => this.freshSession(), f);
+			let e = await K(() => this.freshSession(), f);
 			await m(), (e.agentId !== a.agentId || e.inboxId !== a.inboxId) && n("SYNTHETIC_FIXTURE_IDENTITY_MISMATCH");
-			let t = this.options.fetch ?? fetch, r = async (e, n) => In(async () => {
+			let t = this.options.fetch ?? fetch, r = async (e, n) => K(async () => {
 				let r = await t(e, n);
 				return f.aborted && (r.body?.cancel().catch(() => {}), f.throwIfAborted()), r;
 			}, f), i = await h(await r(this.origin + "/api/agent/status", {
@@ -6570,7 +6590,7 @@ var Fn = class {
 			(!i || i.workId !== r.workId || i.leaseExpiresAt !== r.leaseExpiresAt || !i.retired || i.processed || r.expected === "expired" && Date.now() < Date.parse(i.leaseExpiresAt) + 1500) && n("ACTUAL_RETIRED_CONTROL_LEASE_REQUIRED");
 		};
 		a(), i.used.has(r.expected) && n("CONTROL_PROBE_ALREADY_ATTEMPTED"), i.used.add(r.expected);
-		let o = AbortSignal.any([t.signal, AbortSignal.timeout(Math.min(this.options.timeoutMs ?? 3e4, 3e4))]), s = this.options.fetch ?? fetch, c = async (e, t) => In(async () => {
+		let o = AbortSignal.any([t.signal, AbortSignal.timeout(Math.min(this.options.timeoutMs ?? 3e4, 3e4))]), s = this.options.fetch ?? fetch, c = async (e, t) => K(async () => {
 			o.throwIfAborted();
 			let r = await s(e, {
 				...t,
@@ -6587,7 +6607,7 @@ var Fn = class {
 			o.addEventListener("abort", l, { once: !0 });
 			try {
 				for (;;) {
-					let e = await In(() => i.read(), o);
+					let e = await K(() => i.read(), o);
 					if (e.done) break;
 					c += e.value.length, c > 65536 && (l(), n("CONTROL_PROBE_RESULT_UNKNOWN")), a.push(e.value);
 				}
@@ -6610,7 +6630,7 @@ var Fn = class {
 		}, o);
 		try {
 			o.throwIfAborted();
-			let e = r.expected === "revoked" ? G(await this.store.load()) : await In(() => this.freshSession(), o);
+			let e = r.expected === "revoked" ? G(await this.store.load()) : await K(() => this.freshSession(), o);
 			o.throwIfAborted(), a();
 			let t = await c(this.origin + "/api/agent/status", { headers: { authorization: "Bearer " + e.agentApiToken } });
 			r.expected === "revoked" ? (![401, 403].includes(t.status) || !["CREDENTIAL_REVOKED", "REVOKED"].includes(String(t.value.code))) && n("ACTUAL_CONTROL_PRECONDITION_REQUIRED") : (t.status !== 200 || t.value.inboxId !== e.inboxId || t.value.agent?.id !== e.agentId || t.value.state !== (r.expected === "paused" ? "paused" : "active")) && n("ACTUAL_CONTROL_PRECONDITION_REQUIRED"), o.throwIfAborted(), a();
@@ -7100,7 +7120,7 @@ var Fn = class {
 			let e = 0;
 			for (; !u.signal.aborted;) {
 				let t = Date.parse(f) - Date.now();
-				if (await Ln(e ? Math.min(1e3, Math.max(1, Math.floor(t / 3))) : Math.max(100, Math.min(r ? 2e4 : 3e4, Math.floor(t / 3))), u.signal), u.signal.aborted) break;
+				if (await In(e ? Math.min(1e3, Math.max(1, Math.floor(t / 3))) : Math.max(100, Math.min(r ? 2e4 : 3e4, Math.floor(t / 3))), u.signal), u.signal.aborted) break;
 				try {
 					await v(), e = 0;
 				} catch (t) {
@@ -7120,7 +7140,7 @@ var Fn = class {
 		}, S = !1, C = null;
 		try {
 			if (u.signal.aborted) throw new I("Work claim was interrupted before admission");
-			if (n && await In(n, u.signal), await this.guard(!0), await i.admit(e.message), u.signal.aborted) throw new I("Work lease was interrupted before acknowledgement");
+			if (n && await K(n, u.signal), await this.guard(!0), await i.admit(e.message), u.signal.aborted) throw new I("Work lease was interrupted before acknowledgement");
 			let s = await this.postWork(`${o}/acknowledge`, { leaseToken: e.leaseToken }, c, u.signal, !!r);
 			if (s.workId !== e.workId || s.status !== "acknowledged" || s.receipt?.state !== "acknowledged" || s.receipt.messageId !== e.message.id) throw new I("Envoi returned an invalid acknowledgement");
 			if (u.signal.aborted) throw new I("Work lease was interrupted before processing");
@@ -7194,11 +7214,11 @@ var Fn = class {
 					if (!Se(e) || ++o > 3) throw e;
 					let t = le(o, Math.random(), e.retryAfterSeconds);
 					if (Date.now() + t >= Date.parse(r())) throw e;
-					await Ln(t, n);
+					await In(t, n);
 				}
 			}
 			try {
-				await In(() => t.process(a, {
+				await K(() => t.process(a, {
 					signal: a.signal,
 					workId: e.workId
 				}), a.signal), n.throwIfAborted();
@@ -7212,7 +7232,7 @@ var Fn = class {
 						if (!Se(e) || ++i > 3) throw e;
 						let t = le(i, Math.random(), e.retryAfterSeconds);
 						if (Date.now() + t >= Date.parse(r())) throw e;
-						await Ln(t, n);
+						await In(t, n);
 					}
 				}
 				n.throwIfAborted();
@@ -7265,31 +7285,31 @@ var Fn = class {
 			};
 		});
 	}
-	async checkStatus() {
-		let e = this.actionEpoch, t = await this.withFreshSession(async (e) => {
-			let t;
+	async checkStatus(e) {
+		let t = this.actionEpoch, n = await this.withFreshSession(async (e, t) => {
+			let n;
 			try {
-				t = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
+				n = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
 					headers: { authorization: `Bearer ${e.agentApiToken}` },
 					credentials: "omit",
 					redirect: "error",
-					signal: AbortSignal.timeout(this.options.timeoutMs ?? 3e4)
+					signal: AbortSignal.any([AbortSignal.timeout(this.options.timeoutMs ?? 3e4), t])
 				});
 			} catch {
 				throw new I("Envoi status could not be reached", void 0, "NETWORK_ERROR");
 			}
-			let n = await L(t, "Envoi status failed");
-			if (!["active", "paused"].includes(n.state) || n.inboxId !== e.inboxId || n.agent?.id !== e.agentId) throw new I("Envoi returned an invalid agent status");
-			return n;
-		});
-		e === this.actionEpoch && (this.caseSessionsAvailable = t.caseSessions?.available === !0 && t.caseSessions.version === 1, t.state === "paused" ? await this.observeError(new I("Paused", void 0, "AGENT_PAUSED"), e) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
+			let r = await L(n, "Envoi status failed");
+			if (!["active", "paused"].includes(r.state) || r.inboxId !== e.inboxId || r.agent?.id !== e.agentId) throw new I("Envoi returned an invalid agent status");
+			return r;
+		}, !1, !1, e);
+		t === this.actionEpoch && (this.caseSessionsAvailable = n.caseSessions?.available === !0 && n.caseSessions.version === 1, n.state === "paused" ? await this.observeError(new I("Paused", void 0, "AGENT_PAUSED"), t) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
 			paused: !1,
 			code: void 0,
 			reason: void 0,
 			guidance: void 0,
 			failures: 0,
 			retryAt: void 0
-		}, e), this.wakeTrigger?.()));
+		}, t), this.wakeTrigger?.()));
 	}
 	async run(e) {
 		await this.start();
@@ -7331,7 +7351,7 @@ var Fn = class {
 		};
 		e.addEventListener("abort", g, { once: !0 }), t.signal.addEventListener("abort", g, { once: !0 }), this.wakeTrigger = p;
 		let _ = await this.lifecycle();
-		_.retryAt && await Ln(Math.max(0, Date.parse(_.retryAt) - Date.now()), n);
+		_.retryAt && await In(Math.max(0, Date.parse(_.retryAt) - Date.now()), n);
 		let v = (async () => {
 			let e = 0;
 			for (; !n.aborted;) {
@@ -7409,7 +7429,7 @@ var Fn = class {
 				}
 				a >= 6e4 && (e = 0);
 				let b = Math.min(3e4, 1e3 * 2 ** Math.min(e++, 5));
-				await Ln(Math.max(c, Math.random() * b), n);
+				await In(Math.max(c, Math.random() * b), n);
 			}
 		})().catch(async (e) => {
 			await h(e, !0);
@@ -7440,7 +7460,7 @@ var Fn = class {
 					a = null, f();
 				})));
 				let p = e.paused ? d : i && !a ? l : r ? Math.max(l, Math.min(u, this.nextClaimAt)) : Infinity;
-				i && !a && !e.paused && Date.now() >= l || await Ln(Math.min(6e4, Math.max(1, p - Date.now())), AbortSignal.any([n, this.wake.signal]));
+				i && !a && !e.paused && Date.now() >= l || await In(Math.min(6e4, Math.max(1, p - Date.now())), AbortSignal.any([n, this.wake.signal]));
 			}
 			if (o) throw o;
 		} finally {
@@ -7450,7 +7470,7 @@ var Fn = class {
 		}
 	}
 };
-function In(e, t) {
+function K(e, t) {
 	return t.aborted ? Promise.reject(t.reason) : new Promise((n, r) => {
 		let i = () => r(t.reason);
 		t.addEventListener("abort", i, { once: !0 }), Promise.resolve().then(() => (t.throwIfAborted(), e())).then((e) => {
@@ -7460,7 +7480,7 @@ function In(e, t) {
 		});
 	});
 }
-function Ln(e, t) {
+function In(e, t) {
 	return t.aborted ? Promise.resolve() : new Promise((n) => {
 		let r = setTimeout(i, e);
 		function i() {
@@ -7469,20 +7489,20 @@ function Ln(e, t) {
 		t.addEventListener("abort", i, { once: !0 });
 	});
 }
-var K = class extends Error {
+var q = class extends Error {
 	code;
 	constructor(e, t) {
 		super(t), this.code = e, this.name = "ConnectorSetupError";
 	}
-}, Rn = S(x);
-function zn(e, t = process.env) {
+}, Ln = S(x);
+function Rn(e, t = process.env) {
 	let n = Object.entries(t).find(([e]) => e.toLowerCase() === "systemroot")?.[1] ?? Object.entries(t).find(([e]) => e.toLowerCase() === "windir")?.[1];
-	if (!n || !/^[A-Za-z]:[\\/]/.test(n) || /[\x00-\x1f<>"|?*]/.test(n)) throw new K("WINDOWS_HELPER_UNAVAILABLE", "Windows system directory could not be located. Run the connector from a normal Windows terminal with SystemRoot set; preserve any saved connection for retry.");
+	if (!n || !/^[A-Za-z]:[\\/]/.test(n) || /[\x00-\x1f<>"|?*]/.test(n)) throw new q("WINDOWS_HELPER_UNAVAILABLE", "Windows system directory could not be located. Run the connector from a normal Windows terminal with SystemRoot set; preserve any saved connection for retry.");
 	return e === "powershell.exe" ? f.win32.join(n, "System32", "WindowsPowerShell", "v1.0", e) : f.win32.join(n, "System32", e);
 }
-async function Bn() {
+async function zn() {
 	try {
-		let { stdout: e } = await Rn(zn("whoami.exe"), [
+		let { stdout: e } = await Ln(Rn("whoami.exe"), [
 			"/user",
 			"/fo",
 			"csv",
@@ -7494,15 +7514,15 @@ async function Bn() {
 		if (!t) throw Error();
 		return t;
 	} catch {
-		throw new K("WINDOWS_ACCOUNT_UNAVAILABLE", "Could not identify the current Windows account for private credential storage or user startup. Run the connector from your Windows account; preserve any saved connection for retry.");
+		throw new q("WINDOWS_ACCOUNT_UNAVAILABLE", "Could not identify the current Windows account for private credential storage or user startup. Run the connector from your Windows account; preserve any saved connection for retry.");
 	}
 }
-var Vn = S(x), Hn = class extends F {
+var Bn = S(x), Vn = class extends F {
 	constructor() {
 		super("This Envoi connection is already running. Stop its existing connector before setup or start");
 	}
 };
-async function Un(t) {
+async function Hn(t) {
 	let i = f.resolve(t);
 	await r(i, {
 		recursive: !0,
@@ -7511,7 +7531,7 @@ async function Un(t) {
 	let a = f.resolve(await s(i));
 	if ((await n(i)).isSymbolicLink() || (process.platform === "win32" ? a.toLowerCase() !== i.toLowerCase() : a !== i)) throw new F("Choose a private state directory without symbolic links");
 	if (process.platform === "win32") {
-		let e = await Bn(), t = [
+		let e = await zn(), t = [
 			"$ErrorActionPreference='Stop'",
 			`$p='${i.replaceAll("'", "''")}'`,
 			`$s=New-Object System.Security.Principal.SecurityIdentifier('${e}')`,
@@ -7527,7 +7547,7 @@ async function Un(t) {
 			"if ($v.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $s.Value -or !$v.AreAccessRulesProtected -or $g.Count -ne 1 -or $g[0].IdentityReference.Value -ne $s.Value -or $g[0].IsInherited -or $g[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or $g[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or [int]$g[0].InheritanceFlags -ne 3 -or [int]$g[0].PropagationFlags -ne 0) { throw 'Credential directory ACL verification failed' }"
 		].join("; ");
 		try {
-			await Vn(zn("powershell.exe"), [
+			await Bn(Rn("powershell.exe"), [
 				"-NoProfile",
 				"-NonInteractive",
 				"-Command",
@@ -7535,7 +7555,7 @@ async function Un(t) {
 			], {
 				windowsHide: !0,
 				timeout: 2e4
-			}), (await o(i)).length && await Vn(zn("icacls.exe"), [
+			}), (await o(i)).length && await Bn(Rn("icacls.exe"), [
 				f.join(i, "*"),
 				"/reset",
 				"/T",
@@ -7551,7 +7571,7 @@ async function Un(t) {
 	} else await e(i, 448);
 	return i;
 }
-async function Wn(e, t) {
+async function Un(e, t) {
 	let n = `${e}.${_()}.tmp`;
 	try {
 		let r = await i(n, "wx", 384);
@@ -7572,7 +7592,7 @@ async function Wn(e, t) {
 		await l(n, { force: !0 });
 	}
 }
-async function q(e, t = () => e) {
+async function J(e, t = () => e) {
 	let r = f.join(e, "connector.lock"), o = {
 		pid: process.pid,
 		nonce: _()
@@ -7644,11 +7664,11 @@ async function q(e, t = () => e) {
 				continue;
 			}
 		}
-		throw new Hn();
+		throw new Vn();
 	}
 	throw new F("Could not acquire the connector lock. Try again after the existing connector stops");
 }
-async function Gn(e) {
+async function Wn(e) {
 	try {
 		return await a(e, "utf8");
 	} catch (e) {
@@ -7656,37 +7676,37 @@ async function Gn(e) {
 		throw e;
 	}
 }
-function Kn(e, t) {
+function Gn(e, t) {
 	let n = e.replace(/^\uFEFF/, "").split(/\r?\n/).map((e) => e.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)).filter((e) => e?.[1] === t);
-	if (n.length > 1) throw new K("CONFIG_AMBIGUOUS", `Hermes has duplicate ${t} assignments. Resolve them locally and retry.`);
+	if (n.length > 1) throw new q("CONFIG_AMBIGUOUS", `Hermes has duplicate ${t} assignments. Resolve them locally and retry.`);
 	if (!n.length) return;
 	let r = n[0][2].trim(), i = r[0];
 	if (i === "\"" || i === "'") {
 		let e = r.indexOf(i, 1);
-		if (e < 0 || !/^\s*(?:#.*)?$/.test(r.slice(e + 1))) throw new K("CONFIG_INVALID", `Hermes ${t} must be a single-line literal.`);
+		if (e < 0 || !/^\s*(?:#.*)?$/.test(r.slice(e + 1))) throw new q("CONFIG_INVALID", `Hermes ${t} must be a single-line literal.`);
 		return r.slice(1, e);
 	}
 	return r.replace(/\s+#.*$/, "").trim();
 }
-function qn(e, t, n) {
-	if (Kn(e, t), !/^[A-Za-z0-9_]+$/.test(t) || /[\r\n\x00]/.test(n)) throw new K("CONFIG_INVALID", "Invalid local environment assignment.");
+function Kn(e, t, n) {
+	if (Gn(e, t), !/^[A-Za-z0-9_]+$/.test(t) || /[\r\n\x00]/.test(n)) throw new q("CONFIG_INVALID", "Invalid local environment assignment.");
 	let r = e.replace(/^\uFEFF/, "").split(/\r?\n/), i = r.findIndex((e) => RegExp(`^\\s*(?:export\\s+)?${t}\\s*=`).test(e)), a = `${t}=${n}`;
 	return i >= 0 ? r[i] = a : (r.at(-1) === "" && r.pop(), r.push(a)), `${r.join("\n").replace(/\n*$/, "")}\n`;
 }
-async function Jn(e, t, r) {
+async function qn(e, t, r) {
 	if (t === r) return;
 	let i = await n(e).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
 	});
-	if (i?.isSymbolicLink() || i && !i.isFile()) throw new K("CONFIG_INVALID", "Hermes configuration must be a regular file, without symbolic links.");
-	if (await Gn(e) !== t) throw new K("CONFIG_CHANGED", "Hermes configuration changed during setup. Retry without concurrent configuration edits.");
+	if (i?.isSymbolicLink() || i && !i.isFile()) throw new q("CONFIG_INVALID", "Hermes configuration must be a regular file, without symbolic links.");
+	if (await Wn(e) !== t) throw new q("CONFIG_CHANGED", "Hermes configuration changed during setup. Retry without concurrent configuration edits.");
 	if (t !== null) {
 		let n = `${e}.envoi-backup-${_()}`;
 		await u(n, t, {
 			flag: "wx",
 			mode: 384
-		}), await Yn(n);
+		}), await Jn(n);
 	}
 	let a = `${e}.${_()}.tmp`;
 	await u(a, r, {
@@ -7694,16 +7714,16 @@ async function Jn(e, t, r) {
 		mode: 384
 	});
 	try {
-		await Yn(a), await c(a, e);
+		await Jn(a), await c(a, e);
 	} finally {
 		await l(a, { force: !0 });
 	}
 }
-async function Yn(t) {
+async function Jn(t) {
 	if (process.platform !== "win32") return e(t, 384);
-	let n = S(x), r = await Bn(), i = `$ErrorActionPreference='Stop'; $p='${t.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${r}'); $a=New-Object System.Security.AccessControl.FileSecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','Allow'))); ([System.IO.FileInfo]::new($p)).SetAccessControl($a)`;
+	let n = S(x), r = await zn(), i = `$ErrorActionPreference='Stop'; $p='${t.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${r}'); $a=New-Object System.Security.AccessControl.FileSecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','Allow'))); ([System.IO.FileInfo]::new($p)).SetAccessControl($a)`;
 	try {
-		await n(zn("powershell.exe"), [
+		await n(Rn("powershell.exe"), [
 			"-NoProfile",
 			"-NonInteractive",
 			"-Command",
@@ -7713,77 +7733,77 @@ async function Yn(t) {
 			timeout: 2e4
 		});
 	} catch {
-		throw new K("STATE_UNAVAILABLE", "Windows could not protect Hermes local credentials for your account. Choose an owned profile directory and retry; preserve its private backups.");
+		throw new q("STATE_UNAVAILABLE", "Windows could not protect Hermes local credentials for your account. Choose an owned profile directory and retry; preserve its private backups.");
 	}
 }
-var Xn = (e) => n(e).catch((e) => {
+var Yn = (e) => n(e).catch((e) => {
 	if (e.code === "ENOENT") return null;
 	throw e;
 });
-async function Zn(e) {
+async function Xn(e) {
 	let t = f.resolve(await s(e));
-	if ((process.platform === "win32" ? t.toLowerCase() !== e.toLowerCase() : t !== e) || !(await n(e)).isDirectory()) throw new K("STATE_INVALID", "State migration requires an owned directory without symbolic links");
+	if ((process.platform === "win32" ? t.toLowerCase() !== e.toLowerCase() : t !== e) || !(await n(e)).isDirectory()) throw new q("STATE_INVALID", "State migration requires an owned directory without symbolic links");
 }
-async function Qn(e) {
+async function Zn(e) {
 	try {
 		let t = JSON.parse(await a(e, "utf8"));
 		if (!t || typeof t != "object" || Array.isArray(t)) throw Error();
 		return t;
 	} catch {
-		throw new K("STATE_INVALID", "Saved migration state is unreadable; preserve the private directory for recovery");
+		throw new q("STATE_INVALID", "Saved migration state is unreadable; preserve the private directory for recovery");
 	}
 }
-async function $n(e) {
-	let t = f.join(e, "hermes-relay.json"), n = await Xn(t);
+async function Qn(e) {
+	let t = f.join(e, "hermes-relay.json"), n = await Yn(t);
 	if (!n) return;
-	if (!n.isFile() || n.isSymbolicLink() || n.size > 128e3) throw new K("STATE_INVALID", "Hermes relay state must be a regular private file");
-	let r = await Qn(t);
+	if (!n.isFile() || n.isSymbolicLink() || n.size > 128e3) throw new q("STATE_INVALID", "Hermes relay state must be a regular private file");
+	let r = await Zn(t);
 	if (typeof r.serverName != "string" || !/^sinaloa_[a-f0-9]{16}$/.test(r.serverName)) return;
-	if (r.version !== 1 || !Number.isSafeInteger(r.port) || r.port < 1 || r.port > 65535 || !/^[a-f0-9]{64}$/.test(r.token)) throw new K("STATE_INVALID", "The prior Hermes relay state is invalid");
-	let i = f.join(e, "connection.json"), a = await Xn(i);
-	if (!a?.isFile() || a.isSymbolicLink() || a.size > 128e3) throw new K("STATE_INVALID", "The migrated connection needs its saved Hermes profile");
-	let o = await Qn(i), s = o.configuration;
-	if (o.runtime !== "hermes" || typeof s?.home != "string" || !f.isAbsolute(s.home) || typeof s.configPath != "string" || !f.isAbsolute(s.configPath)) throw new K("STATE_INVALID", "The migrated Hermes profile paths are invalid");
-	let c = r.serverName.slice(8), l = `envoi_${c}`, u = `SINALOA_MCP_${c.toUpperCase()}`, d = `ENVOI_MCP_${c.toUpperCase()}`, p = await Gn(s.configPath);
+	if (r.version !== 1 || !Number.isSafeInteger(r.port) || r.port < 1 || r.port > 65535 || !/^[a-f0-9]{64}$/.test(r.token)) throw new q("STATE_INVALID", "The prior Hermes relay state is invalid");
+	let i = f.join(e, "connection.json"), a = await Yn(i);
+	if (!a?.isFile() || a.isSymbolicLink() || a.size > 128e3) throw new q("STATE_INVALID", "The migrated connection needs its saved Hermes profile");
+	let o = await Zn(i), s = o.configuration;
+	if (o.runtime !== "hermes" || typeof s?.home != "string" || !f.isAbsolute(s.home) || typeof s.configPath != "string" || !f.isAbsolute(s.configPath)) throw new q("STATE_INVALID", "The migrated Hermes profile paths are invalid");
+	let c = r.serverName.slice(8), l = `envoi_${c}`, u = `SINALOA_MCP_${c.toUpperCase()}`, d = `ENVOI_MCP_${c.toUpperCase()}`, p = await Wn(s.configPath);
 	if (p !== null) {
 		let e = RegExp(`^  ${r.serverName}:`, "gm"), t = RegExp(`^  ${l}:`, "m");
-		if (e.test(p) && t.test(p)) throw new K("STATE_MIGRATION_CONFLICT", "Both prior and current Hermes MCP entries exist. Preserve the profile and resolve the duplicate");
+		if (e.test(p) && t.test(p)) throw new q("STATE_MIGRATION_CONFLICT", "Both prior and current Hermes MCP entries exist. Preserve the profile and resolve the duplicate");
 		let n = p.split(/\r?\n/), i = n.findIndex((e) => RegExp(`^  ${r.serverName}:`).test(e));
 		if (i >= 0) {
 			let e = i + 1;
 			for (; e < n.length && !/^(?:[^\s#]| {2}[A-Za-z0-9_-]+:)/.test(n[e]);) e++;
 			let t = n.slice(i, e).join("\n").replace(r.serverName, l).replaceAll(u, d).replace(/\bsinaloa_(?=[a-z])/g, "envoi_");
-			n.splice(i, e - i, ...t.split("\n")), await Jn(s.configPath, p, n.join("\n"));
+			n.splice(i, e - i, ...t.split("\n")), await qn(s.configPath, p, n.join("\n"));
 		}
 	}
-	let m = f.join(s.home, ".env"), h = await Gn(m), g = (h ?? "").split(/\r?\n/).filter((e) => !RegExp(`^\\s*${u}=`).test(e)).join("\n");
-	g = qn(g, d, r.token), await Jn(m, h, g), await Wn(t, {
+	let m = f.join(s.home, ".env"), h = await Wn(m), g = (h ?? "").split(/\r?\n/).filter((e) => !RegExp(`^\\s*${u}=`).test(e)).join("\n");
+	g = Kn(g, d, r.token), await qn(m, h, g), await Un(t, {
 		...r,
 		serverName: l
 	});
 }
-async function er(e, t = Un) {
+async function $n(e, t = Hn) {
 	let n = f.resolve(e), r = f.dirname(n), i = f.dirname(r), a = f.basename(i), o = f.basename(r), s = f.basename(n);
 	if (!["envoi", "sinaloa"].includes(a) || !de.includes(o) || !/^[a-f0-9]{24}$/.test(s)) return n;
 	let l = f.dirname(i), u = f.join(l, "envoi", o, s), d = f.join(l, "sinaloa", o, s);
-	if (!await Xn(d)) {
-		if (o === "hermes" && await Xn(u)) {
-			await Zn(u);
-			let e = await q(u);
+	if (!await Yn(d)) {
+		if (o === "hermes" && await Yn(u)) {
+			await Xn(u);
+			let e = await J(u);
 			try {
-				await $n(u);
+				await Qn(u);
 			} finally {
 				await e();
 			}
 		}
 		return u;
 	}
-	await Zn(d), await t(f.dirname(u));
-	let p = await q(f.dirname(u)), m = !1, h;
+	await Xn(d), await t(f.dirname(u));
+	let p = await J(f.dirname(u)), m = !1, h;
 	try {
-		if (!await Xn(d)) return u;
-		if (await Xn(u)) throw new K("STATE_MIGRATION_CONFLICT", "Both prior and current state directories exist. Preserve both and resolve their identity before starting");
-		return h = await q(d, () => m ? u : d), await c(d, u), m = !0, o === "hermes" && await $n(u), u;
+		if (!await Yn(d)) return u;
+		if (await Yn(u)) throw new q("STATE_MIGRATION_CONFLICT", "Both prior and current state directories exist. Preserve both and resolve their identity before starting");
+		return h = await J(d, () => m ? u : d), await c(d, u), m = !0, o === "hermes" && await Qn(u), u;
 	} finally {
 		try {
 			await h?.();
@@ -7792,17 +7812,17 @@ async function er(e, t = Un) {
 		}
 	}
 }
-var tr = 3e3, nr = /^[A-Za-z0-9._-]{1,64}$/;
-function rr(e) {
+var er = 3e3, tr = /^[A-Za-z0-9._-]{1,64}$/;
+function nr(e) {
 	return typeof e == "object" && !!e && !Array.isArray(e);
 }
-function ir(e) {
-	if (!rr(e) || !Array.isArray(e.keys) || e.keys.length > 32) throw Error("Invalid wake key set");
+function rr(e) {
+	if (!nr(e) || !Array.isArray(e.keys) || e.keys.length > 32) throw Error("Invalid wake key set");
 	let t = /* @__PURE__ */ new Map();
 	for (let n of e.keys) {
-		if (!rr(n)) throw Error("Invalid wake key set");
+		if (!nr(n)) throw Error("Invalid wake key set");
 		if (n.kty === "OKP" && n.crv === "Ed25519" && n.alg === "EdDSA") {
-			if (typeof n.kid != "string" || !nr.test(n.kid) || t.has(n.kid) || n.use !== "sig" || typeof n.status != "string" || ![
+			if (typeof n.kid != "string" || !tr.test(n.kid) || t.has(n.kid) || n.use !== "sig" || typeof n.status != "string" || ![
 				"active",
 				"next",
 				"retired"
@@ -7822,7 +7842,7 @@ function ir(e) {
 	}
 	return t;
 }
-function ar(e) {
+function ir(e) {
 	let t = e.get("cache-control") ?? "";
 	if (/(?:^|,)\s*(?:no-store|no-cache)(?:\s|,|$)/i.test(t)) return 0;
 	let n = [...t.matchAll(/(?:^|,)\s*max-age\s*=\s*"?(\d+)"?\s*(?=,|$)/gi)], r = e.get("age") ?? "0";
@@ -7830,7 +7850,7 @@ function ar(e) {
 	let i = Number(n[0][1]), a = Number(r);
 	return !Number.isSafeInteger(i) || !Number.isSafeInteger(a) ? 0 : Math.max(0, Math.min(300, i) - a) * 1e3;
 }
-var or = class {
+var ar = class {
 	url;
 	fetcher;
 	now;
@@ -7862,7 +7882,7 @@ var or = class {
 		let e = new AbortController(), t = this.now(), n, r, i = new Promise((t, r) => {
 			n = setTimeout(() => {
 				e.abort(), r(/* @__PURE__ */ Error("Wake key fetch timed out"));
-			}, tr);
+			}, er);
 		}), a = async () => {
 			let n = await this.fetcher(this.url, {
 				method: "GET",
@@ -7886,8 +7906,8 @@ var or = class {
 			}
 			let s = new TextDecoder("utf-8", { fatal: !0 }).decode(Buffer.concat(a));
 			return {
-				keys: ir(JSON.parse(s)),
-				expiresAt: t + ar(n.headers)
+				keys: rr(JSON.parse(s)),
+				expiresAt: t + ir(n.headers)
 			};
 		};
 		try {
@@ -7899,16 +7919,16 @@ var or = class {
 			clearTimeout(n), e.abort(), r?.cancel().catch(() => {});
 		}
 	}
-}, sr = /^wake_evt_[A-Za-z0-9_-]{16,64}$/, cr = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, lr = /^[A-Za-z0-9._-]{1,64}$/, ur = /* @__PURE__ */ new Set([
+}, or = /^wake_evt_[A-Za-z0-9_-]{16,64}$/, sr = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, cr = /^[A-Za-z0-9._-]{1,64}$/, lr = /* @__PURE__ */ new Set([
 	"wake.challenge",
 	"wake.work_available",
 	"wake.control_changed"
 ]);
-function dr(e) {
+function ur(e) {
 	return typeof e == "object" && !!e && !Array.isArray(e);
 }
-function fr(e) {
-	if (!dr(e) || e.version !== 1 || typeof e.type != "string" || !e.type.length || typeof e.id != "string" || !sr.test(e.id) || typeof e.subscriptionId != "string" || !cr.test(e.subscriptionId)) return;
+function dr(e) {
+	if (!ur(e) || e.version !== 1 || typeof e.type != "string" || !e.type.length || typeof e.id != "string" || !or.test(e.id) || typeof e.subscriptionId != "string" || !sr.test(e.subscriptionId)) return;
 	let t = {
 		version: 1,
 		type: e.type,
@@ -7919,10 +7939,10 @@ function fr(e) {
 	for (let n of ["createdAt", "expiresAt"]) typeof e[n] == "string" && Number.isFinite(Date.parse(e[n])) && (t[n] = e[n]);
 	return typeof e.challenge == "string" && /^envoi_wake_challenge_[A-Za-z0-9_-]{43}$/.test(e.challenge) && Buffer.from(e.challenge.slice(21), "base64url").toString("base64url") === e.challenge.slice(21) && (t.challenge = e.challenge), t;
 }
-function pr(e) {
-	return ur.has(e.type) && (e.type !== "wake.challenge" || !!e.challenge && !!e.expiresAt);
+function fr(e) {
+	return lr.has(e.type) && (e.type !== "wake.challenge" || !!e.challenge && !!e.expiresAt);
 }
-function mr(e) {
+function pr(e) {
 	try {
 		let t = new URL(e);
 		return e.length <= 2048 && t.protocol === "https:" && t.href === e && !t.username && !t.password && !e.includes("?") && !e.includes("#") && !/[\r\n]/.test(e) && (!t.port || t.port === "443");
@@ -7930,27 +7950,27 @@ function mr(e) {
 		return !1;
 	}
 }
-function hr(e) {
-	if (!dr(e) || e.version !== 1 || !dr(e.subscriptions) || !dr(e.accepted) || !dr(e.endedReasons) || Object.keys(e).some((e) => ![
+function mr(e) {
+	if (!ur(e) || e.version !== 1 || !ur(e.subscriptions) || !ur(e.accepted) || !ur(e.endedReasons) || Object.keys(e).some((e) => ![
 		"version",
 		"subscriptions",
 		"accepted",
 		"endedReasons"
-	].includes(e)) || Object.keys(e.subscriptions).length > 64 || Object.keys(e.accepted).length > 4096 || Object.keys(e.endedReasons).length > 64 || !Object.entries(e.subscriptions).every(([e, t]) => cr.test(e) && dr(t) && typeof t.url == "string" && mr(t.url) && (t.status === "pending" || t.status === "active") && Object.keys(t).every((e) => [
+	].includes(e)) || Object.keys(e.subscriptions).length > 64 || Object.keys(e.accepted).length > 4096 || Object.keys(e.endedReasons).length > 64 || !Object.entries(e.subscriptions).every(([e, t]) => sr.test(e) && ur(t) && typeof t.url == "string" && pr(t.url) && (t.status === "pending" || t.status === "active") && Object.keys(t).every((e) => [
 		"url",
 		"status",
 		"installationId"
 	].includes(e)) && typeof t.installationId == "string" && /^installation_[A-Za-z0-9_-]{3,128}$/.test(t.installationId))) return !1;
 	let t = 0;
 	for (let [n, r] of Object.entries(e.accepted)) {
-		if (!sr.test(n) || !dr(r) || typeof r.pending != "boolean" || typeof r.acknowledged != "boolean" || typeof r.receivedAt != "number" || !Number.isSafeInteger(r.receivedAt) || r.receivedAt < 0 || typeof r.expiresAt != "number" || !Number.isSafeInteger(r.expiresAt) || r.expiresAt < r.receivedAt + 39e5 || !dr(r.notification) || !fr(r.notification) || r.notification.id !== n || Object.keys(r).some((e) => ![
+		if (!or.test(n) || !ur(r) || typeof r.pending != "boolean" || typeof r.acknowledged != "boolean" || typeof r.receivedAt != "number" || !Number.isSafeInteger(r.receivedAt) || r.receivedAt < 0 || typeof r.expiresAt != "number" || !Number.isSafeInteger(r.expiresAt) || r.expiresAt < r.receivedAt + 39e5 || !ur(r.notification) || !dr(r.notification) || r.notification.id !== n || Object.keys(r).some((e) => ![
 			"receivedAt",
 			"expiresAt",
 			"notification",
 			"pending",
 			"acknowledged"
 		].includes(e))) return !1;
-		let e = fr(r.notification);
+		let e = dr(r.notification);
 		if (Object.entries(r.notification).some(([t, n]) => !Object.hasOwn(e, t) || e[t] !== n) || Buffer.byteLength(JSON.stringify(e)) > 1024) return !1;
 		r.pending && t++;
 	}
@@ -7967,7 +7987,7 @@ function hr(e) {
 		"feature_disabled"
 	].includes(t)) && Buffer.byteLength(JSON.stringify(e)) <= 4194304;
 }
-function gr(e) {
+function hr(e) {
 	let t = Object.create(null), n = 0, r = Object.entries(e.headers);
 	if (!(r.length > 64)) {
 		for (let [e, i] of r) if (i !== void 0) {
@@ -7977,23 +7997,23 @@ function gr(e) {
 		return t;
 	}
 }
-var _r = class {
+var gr = class {
 	registeredUrl;
 	store;
 	keys;
 	now;
 	inFlight = 0;
 	constructor(e) {
-		if (typeof e.registeredUrl != "string" || !mr(e.registeredUrl)) throw Error("Wake receiver requires its registered canonical HTTPS URL");
+		if (typeof e.registeredUrl != "string" || !pr(e.registeredUrl)) throw Error("Wake receiver requires its registered canonical HTTPS URL");
 		if (!e.store || typeof e.store.read != "function" || typeof e.store.update != "function" || e.now !== void 0 && typeof e.now != "function") throw Error("Invalid wake receiver configuration");
-		this.registeredUrl = e.registeredUrl, this.store = e.store, this.keys = new or(e), this.now = e.now ?? Date.now;
+		this.registeredUrl = e.registeredUrl, this.store = e.store, this.keys = new ar(e), this.now = e.now ?? Date.now;
 	}
 	async receive(e) {
 		let t = (e) => ({
 			status: e,
 			headers: {}
-		}), n = gr(e), r = n?.["envoi-wake-signature"]?.split(" ").filter((e) => e.startsWith("v1=")) ?? [], i = r[0]?.slice(3) ?? "";
-		if (e.method !== "POST" || !(e.body instanceof Uint8Array) || e.body.byteLength > 1024 || !n || !/^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?\s*$/i.test(n["content-type"] ?? "") || !sr.test(n["envoi-wake-id"] ?? "") || !lr.test(n["envoi-wake-key-id"] ?? "") || !/^[1-9][0-9]{0,11}$/.test(n["envoi-wake-timestamp"] ?? "") || !Number.isSafeInteger(Number(n["envoi-wake-timestamp"])) || r.length !== 1 || !/^[A-Za-z0-9_-]{86}$/.test(i) || Buffer.from(i, "base64url").toString("base64url") !== i) return t(400);
+		}), n = hr(e), r = n?.["envoi-wake-signature"]?.split(" ").filter((e) => e.startsWith("v1=")) ?? [], i = r[0]?.slice(3) ?? "";
+		if (e.method !== "POST" || !(e.body instanceof Uint8Array) || e.body.byteLength > 1024 || !n || !/^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?\s*$/i.test(n["content-type"] ?? "") || !or.test(n["envoi-wake-id"] ?? "") || !cr.test(n["envoi-wake-key-id"] ?? "") || !/^[1-9][0-9]{0,11}$/.test(n["envoi-wake-timestamp"] ?? "") || !Number.isSafeInteger(Number(n["envoi-wake-timestamp"])) || r.length !== 1 || !/^[A-Za-z0-9_-]{86}$/.test(i) || Buffer.from(i, "base64url").toString("base64url") !== i) return t(400);
 		if (this.inFlight >= 16) return t(503);
 		let a = Buffer.from(e.body);
 		this.inFlight++;
@@ -8015,11 +8035,11 @@ var _r = class {
 			} catch {
 				return t(400);
 			}
-			let c = fr(s);
+			let c = dr(s);
 			if (!c || c.id !== n["envoi-wake-id"]) return t(400);
 			let l = t(503);
 			return await this.store.update((i) => {
-				if (!hr(i)) throw Error("Invalid wake state");
+				if (!mr(i)) throw Error("Invalid wake state");
 				let a = Object.hasOwn(i.subscriptions, c.subscriptionId) ? i.subscriptions[c.subscriptionId] : void 0;
 				if (!a || a.url !== this.registeredUrl || i.endedReasons[a.installationId] === "revoked_by_owner") {
 					l = t(c.type === "wake.challenge" ? 503 : 400);
@@ -8029,14 +8049,14 @@ var _r = class {
 				if (!Number.isSafeInteger(o) || o < r || Math.abs(Number(n["envoi-wake-timestamp"]) * 1e3 - o) > 3e5 || e.notAfter !== void 0 && e.notAfter <= o) return;
 				for (let [e, t] of Object.entries(i.accepted)) (!t.pending || !t.acknowledged) && t.expiresAt <= o && delete i.accepted[e];
 				if (Object.hasOwn(i.accepted, c.id)) {
-					l = pr(i.accepted[c.id].notification) ? {
+					l = fr(i.accepted[c.id].notification) ? {
 						status: 200,
 						headers: {},
 						acceptedId: c.id
 					} : t(200);
 					return;
 				}
-				let s = pr(c);
+				let s = fr(c);
 				if (!(Object.keys(i.accepted).length >= 4096 || s && Object.values(i.accepted).filter((e) => e.pending).length >= 256)) {
 					if (i.accepted[c.id] = {
 						receivedAt: o,
@@ -8062,8 +8082,8 @@ var _r = class {
 			this.inFlight--;
 		}
 	}
-}, vr = 4194304;
-function yr() {
+}, _r = 4194304;
+function vr() {
 	return {
 		version: 1,
 		subscriptions: {},
@@ -8071,10 +8091,10 @@ function yr() {
 		endedReasons: {}
 	};
 }
-function br(e) {
-	if (!hr(e)) throw Error("Invalid private wake state");
+function yr(e) {
+	if (!mr(e)) throw Error("Invalid private wake state");
 }
-var xr = class e {
+var br = class e {
 	directory;
 	release;
 	writes = Promise.resolve();
@@ -8083,7 +8103,7 @@ var xr = class e {
 		this.directory = e, this.release = t;
 	}
 	static async open(t) {
-		let n = await Un(t), r = await q(n), i = new e(n, r);
+		let n = await Hn(t), r = await J(n), i = new e(n, r);
 		try {
 			return await i.read(), i;
 		} catch {
@@ -8100,16 +8120,16 @@ var xr = class e {
 		let e = await this.filename(), t, r = !1;
 		try {
 			let a = await n(e, { bigint: !0 });
-			if (r = !0, !a.isFile() || a.isSymbolicLink() || a.size > vr) throw Error();
+			if (r = !0, !a.isFile() || a.isSymbolicLink() || a.size > _r) throw Error();
 			t = await i(e, "r");
 			let o = await t.stat({ bigint: !0 });
-			if (!o.isFile() || o.size > vr || o.ino !== a.ino) throw Error();
+			if (!o.isFile() || o.size > _r || o.ino !== a.ino) throw Error();
 			if (o.dev !== a.dev) {
 				if (process.platform !== "win32" || a.dev !== 0n || o.dev === 0n || a.ino === 0n) throw Error();
 				let t = await i(e, "r");
 				try {
 					let r = await t.stat({ bigint: !0 }), i = await n(e, { bigint: !0 });
-					if (!r.isFile() || r.size > vr || r.dev !== o.dev || r.ino !== o.ino || !i.isFile() || i.isSymbolicLink() || i.size > vr || i.dev !== a.dev || i.ino !== a.ino || await this.filename() !== e) throw Error();
+					if (!r.isFile() || r.size > _r || r.dev !== o.dev || r.ino !== o.ino || !i.isFile() || i.isSymbolicLink() || i.size > _r || i.dev !== a.dev || i.ino !== a.ino || await this.filename() !== e) throw Error();
 				} finally {
 					await t.close();
 				}
@@ -8120,11 +8140,11 @@ var xr = class e {
 				if (!e.bytesRead) break;
 				c += e.bytesRead;
 			}
-			if (c > vr) throw Error();
+			if (c > _r) throw Error();
 			let l = JSON.parse(s.subarray(0, c).toString("utf8"));
-			return br(l), l;
+			return yr(l), l;
 		} catch (e) {
-			if (!r && e.code === "ENOENT") return yr();
+			if (!r && e.code === "ENOENT") return vr();
 			throw Error("Private wake state is unreadable");
 		} finally {
 			await t?.close();
@@ -8133,15 +8153,15 @@ var xr = class e {
 	update(e) {
 		let t = this.writes.then(async () => {
 			let t = await this.read();
-			if (e(t), br(t), Buffer.byteLength(JSON.stringify(t)) > vr) throw Error("Private wake state is full");
-			await Wn(await this.filename(), t);
+			if (e(t), yr(t), Buffer.byteLength(JSON.stringify(t)) > _r) throw Error("Private wake state is full");
+			await Un(await this.filename(), t);
 		});
 		return this.writes = t.catch(() => {}), t;
 	}
 	async close() {
 		await this.writes, !this.closed && (this.closed = !0, await this.release());
 	}
-}, J = (e) => !!e && typeof e == "object" && !Array.isArray(e), Sr = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, Cr = /* @__PURE__ */ new Set([
+}, Y = (e) => !!e && typeof e == "object" && !Array.isArray(e), xr = /^wake_sub_[A-Za-z0-9_-]{3,64}$/, Sr = /* @__PURE__ */ new Set([
 	"superseded",
 	"replaced",
 	"challenge_expired",
@@ -8152,27 +8172,27 @@ var xr = class e {
 	"delivery_failed",
 	"expired",
 	"feature_disabled"
-]), wr = /* @__PURE__ */ new Set([
+]), Cr = /* @__PURE__ */ new Set([
 	"challenge_expired",
 	"delivery_failed",
 	"expired",
 	"feature_disabled"
 ]);
-function Tr(e) {
+function wr(e) {
 	let t = new URL(e);
 	if (t.protocol !== "https:" || t.username || t.password || t.search || t.hash || t.port || e.length > 8192) throw TypeError("A fixed HTTPS wake URL without credentials, query or fragment is required");
 	return t.href;
 }
-function Er(e) {
+function Tr(e) {
 	if (e === null) return null;
-	if (!J(e) || typeof e.id != "string" || !Sr.test(e.id) || typeof e.status != "string" || ![
+	if (!Y(e) || typeof e.id != "string" || !xr.test(e.id) || typeof e.status != "string" || ![
 		"pending",
 		"active",
 		"ended"
-	].includes(e.status) || !(e.expiresAt === null || typeof e.expiresAt == "string" && Number.isFinite(Date.parse(e.expiresAt))) || !(e.endedReason === null || typeof e.endedReason == "string" && Cr.has(e.endedReason)) || e.status === "ended" != (e.endedReason !== null) || e.status === "active" && e.expiresAt === null) throw new I("Invalid wake subscription response");
+	].includes(e.status) || !(e.expiresAt === null || typeof e.expiresAt == "string" && Number.isFinite(Date.parse(e.expiresAt))) || !(e.endedReason === null || typeof e.endedReason == "string" && Sr.has(e.endedReason)) || e.status === "ended" != (e.endedReason !== null) || e.status === "active" && e.expiresAt === null) throw new I("Invalid wake subscription response");
 	return e;
 }
-var Dr = class {
+var Er = class {
 	identity;
 	connector;
 	constructor(e, t, n) {
@@ -8196,48 +8216,48 @@ var Dr = class {
 		}
 	}
 	subscription(e) {
-		if (!J(e) || !J(e.subscription)) throw new I("Invalid wake subscription response");
+		if (!Y(e) || !Y(e.subscription)) throw new I("Invalid wake subscription response");
 		let t = e.subscription;
-		if (Er(t), t.installationId !== this.identity.installationId || t.agentId !== this.identity.agentId || typeof t.url != "string" || Tr(t.url) !== t.url || !(t.replacesSubscriptionId === null || typeof t.replacesSubscriptionId == "string" && Sr.test(t.replacesSubscriptionId))) throw new I("Wake subscription identity changed");
+		if (Tr(t), t.installationId !== this.identity.installationId || t.agentId !== this.identity.agentId || typeof t.url != "string" || wr(t.url) !== t.url || !(t.replacesSubscriptionId === null || typeof t.replacesSubscriptionId == "string" && xr.test(t.replacesSubscriptionId))) throw new I("Wake subscription identity changed");
 		return t;
 	}
 	async status(e) {
 		let t = await this.request("/api/agent/status", void 0, e);
-		if (!J(t) || typeof t.state != "string" || !["active", "paused"].includes(t.state) || t.inboxId !== this.identity.inboxId || !J(t.agent) || t.agent.id !== this.identity.agentId || !J(t.installation) || t.installation.id !== this.identity.installationId) throw new I("Wake host identity changed");
+		if (!Y(t) || typeof t.state != "string" || !["active", "paused"].includes(t.state) || t.inboxId !== this.identity.inboxId || !Y(t.agent) || t.agent.id !== this.identity.agentId || !Y(t.installation) || t.installation.id !== this.identity.installationId) throw new I("Wake host identity changed");
 		if (t.httpWake === void 0) return {
 			paused: t.state === "paused",
 			wake: null
 		};
 		let n = t.httpWake;
-		if (!J(n) || typeof n.available != "boolean" || n.version !== 1 || !J(t.installation) || t.installation.id !== this.identity.installationId) throw new I("Invalid wake availability response");
+		if (!Y(n) || typeof n.available != "boolean" || n.version !== 1 || !Y(t.installation) || t.installation.id !== this.identity.installationId) throw new I("Invalid wake availability response");
 		return {
 			paused: t.state === "paused",
 			wake: {
 				available: n.available,
 				version: 1,
-				subscription: Er(n.subscription)
+				subscription: Tr(n.subscription)
 			}
 		};
 	}
 	async create(e, t) {
-		return this.subscription(await this.request("/api/agent/wake-subscriptions", { url: Tr(e) }, t));
+		return this.subscription(await this.request("/api/agent/wake-subscriptions", { url: wr(e) }, t));
 	}
 	async activate(e, t, n) {
-		if (!Sr.test(e) || !/^envoi_wake_challenge_[A-Za-z0-9_-]{43}$/.test(t)) throw TypeError("Invalid wake activation");
+		if (!xr.test(e) || !/^envoi_wake_challenge_[A-Za-z0-9_-]{43}$/.test(t)) throw TypeError("Invalid wake activation");
 		return this.subscription(await this.request(`/api/agent/wake-subscriptions/${encodeURIComponent(e)}/activate`, { challenge: t }, n));
 	}
 	async list(e) {
 		let t = await this.request("/api/agent/wake-subscriptions", void 0, e);
-		if (!J(t) || t.installationId !== this.identity.installationId || !Array.isArray(t.subscriptions)) throw new I("Invalid wake subscription list");
+		if (!Y(t) || t.installationId !== this.identity.installationId || !Array.isArray(t.subscriptions)) throw new I("Invalid wake subscription list");
 		let n = t.subscriptions.map((e) => this.subscription({ subscription: e }));
 		if (new Set(n.map((e) => e.id)).size !== n.length || n.filter((e) => e.status === "active").length > 1 || n.filter((e) => e.status === "pending").length > 1) throw new I("Inconsistent wake subscription list");
 		return n;
 	}
 	async end(e, t) {
-		if (!Sr.test(e)) throw TypeError("Invalid wake subscription");
+		if (!xr.test(e)) throw TypeError("Invalid wake subscription");
 		return this.subscription(await this.request(`/api/agent/wake-subscriptions/${encodeURIComponent(e)}/end`, {}, t));
 	}
-}, Or = class {
+}, Dr = class {
 	transport;
 	store;
 	driver;
@@ -8253,7 +8273,7 @@ var Dr = class {
 	subscriptionRetryAt = 0;
 	url;
 	constructor(e, t, n, r, i = Date.now) {
-		this.transport = e, this.store = t, this.driver = n, this.now = i, this.url = Tr(r);
+		this.transport = e, this.store = t, this.driver = n, this.now = i, this.url = wr(r);
 	}
 	async disableWake() {
 		this.wakeAvailable = !1, await this.store.update((e) => {
@@ -8314,7 +8334,7 @@ var Dr = class {
 			if ((await this.store.read()).endedReasons[this.transport.identity.installationId] === "revoked_by_owner") return;
 			for (let e of a) e.url === this.url && (e.status !== "ended" || e.id === r?.id) && await this.remember(e);
 			let o = a.some((e) => e.url === this.url && e.status === "pending"), s = a.find((e) => e.status === "active"), c = (await this.store.read()).endedReasons[this.transport.identity.installationId];
-			if (t !== this.generation || o || c && !wr.has(c) || s && (s.url !== this.url || s.expiresAt && Date.parse(s.expiresAt) > this.now() + 6048e5) || this.now() < this.subscriptionRetryAt) return;
+			if (t !== this.generation || o || c && !Cr.has(c) || s && (s.url !== this.url || s.expiresAt && Date.parse(s.expiresAt) > this.now() + 6048e5) || this.now() < this.subscriptionRetryAt) return;
 			e?.throwIfAborted();
 			let l = await this.transport.create(this.url, e);
 			if (t === this.generation) {
@@ -8391,7 +8411,7 @@ var Dr = class {
 					await this.disableWake();
 					return;
 				}
-				if (t instanceof I && t.code === "WAKE_SUBSCRIPTION_ENDED" && t.reason && Cr.has(t.reason)) {
+				if (t instanceof I && t.code === "WAKE_SUBSCRIPTION_ENDED" && t.reason && Sr.has(t.reason)) {
 					await this.store.update((n) => {
 						delete n.subscriptions[e.subscriptionId], n.endedReasons[this.transport.identity.installationId] !== "revoked_by_owner" && (n.endedReasons[this.transport.identity.installationId] = t.reason);
 					});
@@ -8474,12 +8494,12 @@ var Dr = class {
 		}
 	}
 };
-function kr(e) {
+function Or(e) {
 	if (!(e.connector instanceof Fn)) throw TypeError("An EnvoiConnector instance is required");
 	let t = e.connector.scopedWakeWorkDriver();
-	return new Or(new Dr(e.origin, e.identity, e.connector), e.store, t, e.registeredUrl);
+	return new Dr(new Er(e.origin, e.identity, e.connector), e.store, t, e.registeredUrl);
 }
-function Ar(e) {
+function kr(e) {
 	if (!e.path.startsWith("/") || e.path.includes("?") || e.path.includes("#") || /[\r\n]/.test(e.path)) throw TypeError("A fixed receiver path is required");
 	return (t, n) => {
 		let r = (e) => {
@@ -8543,7 +8563,7 @@ function Ar(e) {
 		});
 	};
 }
-function jr(e) {
+function Ar(e) {
 	let t = [
 		"ENVOI_WAKE_URL",
 		"ENVOI_WAKE_PORT",
@@ -8563,12 +8583,12 @@ function jr(e) {
 		installationId: a
 	};
 }
-async function Mr(e) {
+async function jr(e) {
 	let { connector: t, session: n, stateDir: r, config: i, signal: a } = e;
 	if (!f.isAbsolute(r) || !/^agent_[A-Za-z0-9_-]{3,128}$/.test(n.agentId) || !/^inbox_[A-Za-z0-9_-]{3,128}$/.test(n.inboxId)) throw Error("Hosted wake needs an enrolled private scoped connector");
-	let o = await xr.open(f.join(r, "wake"));
+	let o = await br.open(f.join(r, "wake"));
 	try {
-		let r = kr({
+		let r = Or({
 			connector: t,
 			store: o,
 			origin: t.wakeOrigin,
@@ -8578,11 +8598,11 @@ async function Mr(e) {
 				installationId: i.installationId
 			},
 			registeredUrl: i.registeredUrl
-		}), s = new _r({
+		}), s = new gr({
 			origin: t.wakeOrigin,
 			registeredUrl: i.registeredUrl,
 			store: o
-		}), c = new URL(i.registeredUrl), l = C(Ar({
+		}), c = new URL(i.registeredUrl), l = C(kr({
 			path: c.pathname,
 			receiver: s,
 			host: r,
@@ -8603,47 +8623,47 @@ async function Mr(e) {
 		await o.close();
 	}
 }
-var Nr = (e) => f.join(e, "hosted-wake.json"), Pr = () => /* @__PURE__ */ Error("Saved hosted wake configuration is invalid; stop the connector and configure wake again");
-async function Fr(e) {
-	let t = Nr(e), r = await n(t).catch((e) => {
+var Mr = (e) => f.join(e, "hosted-wake.json"), Nr = () => /* @__PURE__ */ Error("Saved hosted wake configuration is invalid; stop the connector and configure wake again");
+async function Pr(e) {
+	let t = Mr(e), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
 	});
 	if (!r) return null;
-	if (!r.isFile() || r.isSymbolicLink() || r.size > 4096 || process.platform !== "win32" && r.mode & 63) throw Pr();
+	if (!r.isFile() || r.isSymbolicLink() || r.size > 4096 || process.platform !== "win32" && r.mode & 63) throw Nr();
 	let i;
 	try {
 		i = JSON.parse(await a(t, "utf8"));
 	} catch {
-		throw Pr();
+		throw Nr();
 	}
-	if (!i || typeof i != "object" || Array.isArray(i)) throw Pr();
+	if (!i || typeof i != "object" || Array.isArray(i)) throw Nr();
 	let o = i;
-	if (o.version !== 1 || typeof o.registeredUrl != "string" || typeof o.port != "number" || typeof o.installationId != "string" || Object.keys(o).sort().join(",") !== "installationId,port,registeredUrl,version") throw Pr();
+	if (o.version !== 1 || typeof o.registeredUrl != "string" || typeof o.port != "number" || typeof o.installationId != "string" || Object.keys(o).sort().join(",") !== "installationId,port,registeredUrl,version") throw Nr();
 	let s;
 	try {
-		s = jr({
+		s = Ar({
 			ENVOI_WAKE_URL: o.registeredUrl,
 			ENVOI_WAKE_PORT: String(o.port),
 			ENVOI_WAKE_INSTALLATION_ID: o.installationId
 		});
 	} catch {
-		throw Pr();
+		throw Nr();
 	}
-	if (!s || s.port !== o.port) throw Pr();
+	if (!s || s.port !== o.port) throw Nr();
 	return s;
 }
-async function Ir(e, t) {
-	let n = jr(t), r = await Fr(e);
+async function Fr(e, t) {
+	let n = Ar(t), r = await Pr(e);
 	if (n && r && (n.registeredUrl !== r.registeredUrl || n.port !== r.port || n.installationId !== r.installationId)) throw Error("Hosted wake environment differs from saved configuration; stop the connector and configure wake again");
 	return n ?? r;
 }
-async function Lr(e, t = process.env, n = Un) {
-	let r = jr(t), i = await n(e), a = await q(i);
+async function Ir(e, t = process.env, n = Hn) {
+	let r = Ar(t), i = await n(e), a = await J(i);
 	try {
-		let e = await Fr(i);
+		let e = await Pr(i);
 		if (r && e && (r.registeredUrl !== e.registeredUrl || r.port !== e.port || r.installationId !== e.installationId)) throw Error("Hosted wake environment differs from saved configuration; use configure-wake to rotate it");
-		r && !e && await Wn(Nr(i), {
+		r && !e && await Un(Mr(i), {
 			version: 1,
 			...r
 		});
@@ -8651,12 +8671,12 @@ async function Lr(e, t = process.env, n = Un) {
 		await a();
 	}
 }
-async function Rr(e, t = process.env, n = Un) {
-	let r = jr(t);
+async function Lr(e, t = process.env, n = Hn) {
+	let r = Ar(t);
 	if (!r) throw Error("Set ENVOI_WAKE_URL, ENVOI_WAKE_PORT and ENVOI_WAKE_INSTALLATION_ID together");
-	let i = await n(e), a = await q(i);
+	let i = await n(e), a = await J(i);
 	try {
-		await Wn(Nr(i), {
+		await Un(Mr(i), {
 			version: 1,
 			...r
 		});
@@ -8664,18 +8684,18 @@ async function Rr(e, t = process.env, n = Un) {
 		await a();
 	}
 }
-async function zr(e, t = Un) {
-	let n = await t(e), r = await q(n);
+async function Rr(e, t = Hn) {
+	let n = await t(e), r = await J(n);
 	try {
-		await l(Nr(n), { force: !0 });
+		await l(Mr(n), { force: !0 });
 	} finally {
 		await r();
 	}
 }
-var Br = (e) => {
+var zr = (e) => {
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e)) throw TypeError("Invalid message ID");
 	return e;
-}, Vr = class {
+}, Br = class {
 	directory;
 	constructor(e) {
 		this.directory = e;
@@ -8733,7 +8753,7 @@ var Br = (e) => {
 		return this.replaceJson(f.join(this.directory, "session.json"), e);
 	}
 	async admit(e) {
-		let t = f.join(this.directory, "work", `${Br(e.id)}.json`);
+		let t = f.join(this.directory, "work", `${zr(e.id)}.json`);
 		try {
 			await u(t, JSON.stringify({
 				id: e.id,
@@ -8749,22 +8769,22 @@ var Br = (e) => {
 		}
 	}
 	async isHumanInstruction(e) {
-		return (await this.readJson(f.join(this.directory, "work", `${Br(e)}.json`)))?.kind === "humanInstruction";
+		return (await this.readJson(f.join(this.directory, "work", `${zr(e)}.json`)))?.kind === "humanInstruction";
 	}
 	replyFor(e) {
-		return this.readJson(f.join(this.directory, "work", `${Br(e)}.reply.json`));
+		return this.readJson(f.join(this.directory, "work", `${zr(e)}.reply.json`));
 	}
 	saveReply(e, t) {
-		return this.replaceJson(f.join(this.directory, "work", `${Br(e)}.reply.json`), t);
+		return this.replaceJson(f.join(this.directory, "work", `${zr(e)}.reply.json`), t);
 	}
 	async mcpReplySent(e) {
-		return (await this.readJson(f.join(this.directory, "work", `${Br(e)}.mcp-reply.json`)))?.sent === !0;
+		return (await this.readJson(f.join(this.directory, "work", `${zr(e)}.mcp-reply.json`)))?.sent === !0;
 	}
 	markMcpReplySent(e) {
-		return this.replaceJson(f.join(this.directory, "work", `${Br(e)}.mcp-reply.json`), { sent: !0 });
+		return this.replaceJson(f.join(this.directory, "work", `${zr(e)}.mcp-reply.json`), { sent: !0 });
 	}
 };
-function Hr(e = process.env, t) {
+function Vr(e = process.env, t) {
 	if (e.ENVOI_SCOPED_TOOLS !== void 0 && e.ENVOI_SCOPED_TOOLS !== "true" && e.ENVOI_SCOPED_TOOLS !== "false") throw TypeError("ENVOI_SCOPED_TOOLS must be true or false");
 	let n = t?.scopedTools;
 	if (n !== void 0 && n !== !0) throw TypeError("Invalid saved scoped mode");
@@ -8792,8 +8812,8 @@ function Hr(e = process.env, t) {
 	}
 	return e;
 }
-async function Ur(e, t, r) {
-	let i = Hr(t, r), o = f.join(e, "openclaw-mode.json"), s;
+async function Hr(e, t, r) {
+	let i = Vr(t, r), o = f.join(e, "openclaw-mode.json"), s;
 	try {
 		let e = await n(o);
 		if (!e.isFile() || e.isSymbolicLink() || e.size > 1024) throw Error("Invalid saved OpenClaw mode");
@@ -8803,21 +8823,21 @@ async function Ur(e, t, r) {
 		throw Error("Cannot read saved OpenClaw mode; preserve the private state directory");
 	}
 	if (!s || typeof s != "object" || Array.isArray(s) || Object.keys(s).sort().join(",") !== "scopedTools,version" || s.version !== 1 || s.scopedTools !== !0) throw Error("Invalid saved OpenClaw mode; preserve the private state directory");
-	return Hr(i, s);
+	return Vr(i, s);
 }
-async function Wr(e, t) {
-	t.ENVOI_SCOPED_TOOLS === "true" && await Wn(f.join(e, "openclaw-mode.json"), {
+async function Ur(e, t) {
+	t.ENVOI_SCOPED_TOOLS === "true" && await Un(f.join(e, "openclaw-mode.json"), {
 		version: 1,
 		scopedTools: !0
 	});
 }
-var Y = class extends Error {
+var X = class extends Error {
 	code;
 	constructor(e, t = "GATEWAY_TEST_FAILED") {
 		super(e), this.code = t, this.name = "OpenClawSetupError";
 	}
-}, Gr = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/, Kr = /^[A-Za-z_][A-Za-z0-9_]*$/, qr = "Envoi needs a Gateway credential: set gateway.auth.mode to \"token\" with gateway.auth.token (or OPENCLAW_GATEWAY_TOKEN), or to \"password\" with gateway.auth.password, restart the Gateway, and retry. This check did not redeem an enrollment token.", Jr = "Enable gateway.http.endpoints.chatCompletions.enabled in the active OpenClaw configuration, restart the Gateway, and retry the connector. This check did not redeem an enrollment token.", X = (e) => e && typeof e == "object" && !Array.isArray(e) ? e : {};
-function Yr(e) {
+}, Wr = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/, Gr = /^[A-Za-z_][A-Za-z0-9_]*$/, Kr = "Envoi needs a Gateway credential: set gateway.auth.mode to \"token\" with gateway.auth.token (or OPENCLAW_GATEWAY_TOKEN), or to \"password\" with gateway.auth.password, restart the Gateway, and retry. This check did not redeem an enrollment token.", qr = "Enable gateway.http.endpoints.chatCompletions.enabled in the active OpenClaw configuration, restart the Gateway, and retry the connector. This check did not redeem an enrollment token.", Z = (e) => e && typeof e == "object" && !Array.isArray(e) ? e : {};
+function Jr(e) {
 	if (e.length > 2e6) throw Error("configuration size");
 	let t = +(e.charCodeAt(0) === 65279), n = () => {
 		throw Error("configuration syntax");
@@ -8900,100 +8920,100 @@ function Yr(e) {
 	}, o = a();
 	return r(), (t !== e.length || !o || typeof o != "object" || Array.isArray(o)) && n(), o;
 }
-function Xr(e) {
+function Yr(e) {
 	let t;
 	try {
 		t = new URL(e);
 	} catch {
-		throw new Y("OpenClaw Gateway URL must be an HTTPS origin or loopback HTTP origin.");
+		throw new X("OpenClaw Gateway URL must be an HTTPS origin or loopback HTTP origin.");
 	}
 	let n = [
 		"localhost",
 		"127.0.0.1",
 		"[::1]"
 	].includes(t.hostname);
-	if (t.protocol !== "https:" && !(t.protocol === "http:" && n)) throw new Y("OpenClaw Gateway requires HTTPS or loopback HTTP. Set OPENCLAW_GATEWAY_URL to its private origin.");
-	if (t.username || t.password || t.search || t.hash || t.pathname !== "/" || /[\r\n\t\\]/.test(e)) throw new Y("OpenClaw Gateway URL must be an origin without credentials, query, fragment, or path.");
+	if (t.protocol !== "https:" && !(t.protocol === "http:" && n)) throw new X("OpenClaw Gateway requires HTTPS or loopback HTTP. Set OPENCLAW_GATEWAY_URL to its private origin.");
+	if (t.username || t.password || t.search || t.hash || t.pathname !== "/" || /[\r\n\t\\]/.test(e)) throw new X("OpenClaw Gateway URL must be an origin without credentials, query, fragment, or path.");
 	return t.origin;
 }
-var Zr = (e) => e === "token" ? "OPENCLAW_GATEWAY_TOKEN" : "OPENCLAW_GATEWAY_PASSWORD";
-function Qr(e, t, n = "token") {
-	let r = Zr(n);
+var Xr = (e) => e === "token" ? "OPENCLAW_GATEWAY_TOKEN" : "OPENCLAW_GATEWAY_PASSWORD";
+function Zr(e, t, n = "token") {
+	let r = Xr(n);
 	if (typeof e == "string") {
 		let i = e.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (e, i) => {
-			if (!t[i]) throw new Y(`OpenClaw Gateway ${n} references an unavailable environment variable. Run setup with the Gateway environment or set ${r} locally.`);
+			if (!t[i]) throw new X(`OpenClaw Gateway ${n} references an unavailable environment variable. Run setup with the Gateway environment or set ${r} locally.`);
 			return t[i];
 		});
-		if (i.includes("${")) throw new Y(`OpenClaw Gateway ${n} could not be resolved. Set ${r} locally.`);
+		if (i.includes("${")) throw new X(`OpenClaw Gateway ${n} could not be resolved. Set ${r} locally.`);
 		return i;
 	}
-	let i = X(e);
-	if (i.source === "env" && typeof i.id == "string" && Kr.test(i.id)) {
+	let i = Z(e);
+	if (i.source === "env" && typeof i.id == "string" && Gr.test(i.id)) {
 		let e = t[i.id];
 		if (e) return e;
-		throw new Y(`OpenClaw Gateway env secret is unavailable. Run setup with the Gateway environment or set ${r} locally.`);
+		throw new X(`OpenClaw Gateway env secret is unavailable. Run setup with the Gateway environment or set ${r} locally.`);
 	}
-	throw e === void 0 ? new Y(`OpenClaw Gateway ${n} was not found. Run setup on the Gateway host with its environment or set ${r} locally.`) : new Y(`OpenClaw Gateway uses an unsupported secret reference. Resolve it through your local secret manager and set ${r} locally; do not paste it into chat.`);
+	throw e === void 0 ? new X(`OpenClaw Gateway ${n} was not found. Run setup on the Gateway host with its environment or set ${r} locally.`) : new X(`OpenClaw Gateway uses an unsupported secret reference. Resolve it through your local secret manager and set ${r} locally; do not paste it into chat.`);
 }
-function $r(e) {
-	let t = Xr(e.gatewayUrl);
-	if (!e.gatewayToken || e.gatewayToken.trim() !== e.gatewayToken || /[\x00-\x20\x7f]/.test(e.gatewayToken) || e.gatewayToken.length > 16384) throw new Y("OpenClaw Gateway token is missing or invalid. Set OPENCLAW_GATEWAY_TOKEN locally.");
-	if (!Gr.test(e.agentId)) throw new Y("OpenClaw agent ID is invalid. Set OPENCLAW_AGENT_ID to a configured agent ID.");
+function Qr(e) {
+	let t = Yr(e.gatewayUrl);
+	if (!e.gatewayToken || e.gatewayToken.trim() !== e.gatewayToken || /[\x00-\x20\x7f]/.test(e.gatewayToken) || e.gatewayToken.length > 16384) throw new X("OpenClaw Gateway token is missing or invalid. Set OPENCLAW_GATEWAY_TOKEN locally.");
+	if (!Wr.test(e.agentId)) throw new X("OpenClaw agent ID is invalid. Set OPENCLAW_AGENT_ID to a configured agent ID.");
 	return t;
 }
-async function ei(e = {}) {
-	let t = Hr(e.env ?? process.env, e.fallbackConfiguration), n = e.homeDir ?? t.OPENCLAW_HOME ?? d(), r = e.profile ?? t.OPENCLAW_PROFILE;
-	if (r && !Gr.test(r)) throw new Y("OpenClaw profile is invalid. Specify its OPENCLAW_CONFIG_PATH directly.");
+async function $r(e = {}) {
+	let t = Vr(e.env ?? process.env, e.fallbackConfiguration), n = e.homeDir ?? t.OPENCLAW_HOME ?? d(), r = e.profile ?? t.OPENCLAW_PROFILE;
+	if (r && !Wr.test(r)) throw new X("OpenClaw profile is invalid. Specify its OPENCLAW_CONFIG_PATH directly.");
 	let i = (e) => m(e === "~" ? n : e.startsWith("~/") || e.startsWith("~\\") ? p(n, e.slice(2)) : e), o = e.configPath ?? t.OPENCLAW_CONFIG_PATH, s = i(o ?? p(i(t.OPENCLAW_STATE_DIR ?? p(n, r ? `.openclaw-${r}` : ".openclaw")), "openclaw.json")), c, l;
 	try {
 		let t = await (e.readFile ?? ((e) => a(e, "utf8")))(s);
 		try {
-			c = Yr(t);
+			c = Jr(t);
 		} catch {
-			throw new Y("OpenClaw configuration could not be parsed safely. Use JSON or JSON5 comments, quoted strings, simple keys and trailing commas; otherwise supply explicit Gateway settings.");
+			throw new X("OpenClaw configuration could not be parsed safely. Use JSON or JSON5 comments, quoted strings, simple keys and trailing commas; otherwise supply explicit Gateway settings.");
 		}
 	} catch (n) {
-		if (X(n).code !== "ENOENT") throw n instanceof Y ? n : new Y("OpenClaw configuration could not be read. Check OPENCLAW_CONFIG_PATH and local file permissions.");
+		if (Z(n).code !== "ENOENT") throw n instanceof X ? n : new X("OpenClaw configuration could not be read. Check OPENCLAW_CONFIG_PATH and local file permissions.");
 		if (e.allowMissingConfig && e.fallbackConfiguration) {
-			let n = $r(e.fallbackConfiguration), r = e.gatewayUrl ?? t.OPENCLAW_GATEWAY_URL;
-			if (r && Xr(r) !== n && !(e.gatewayToken ?? t.OPENCLAW_GATEWAY_TOKEN)) throw new Y("Changing the saved Gateway origin requires its own explicit local Gateway credential. Set OPENCLAW_GATEWAY_TOKEN for the selected Gateway.");
+			let n = Qr(e.fallbackConfiguration), r = e.gatewayUrl ?? t.OPENCLAW_GATEWAY_URL;
+			if (r && Yr(r) !== n && !(e.gatewayToken ?? t.OPENCLAW_GATEWAY_TOKEN)) throw new X("Changing the saved Gateway origin requires its own explicit local Gateway credential. Set OPENCLAW_GATEWAY_TOKEN for the selected Gateway.");
 			l = e.fallbackConfiguration;
 		}
 		let r = (e.gatewayUrl ?? t.OPENCLAW_GATEWAY_URL ?? l?.gatewayUrl) && (e.gatewayToken ?? t.OPENCLAW_GATEWAY_TOKEN ?? l?.gatewayToken) && (e.agentId ?? t.OPENCLAW_AGENT_ID ?? l?.agentId);
-		if (e.allowMissingConfig && !r) throw new Y("Resuming without an OpenClaw config requires explicit Gateway URL, Gateway token and agent ID. Supply all three connection settings locally.");
-		if (o && !(e.allowMissingConfig && r)) throw new Y("OpenClaw configuration was not found at OPENCLAW_CONFIG_PATH. Check the active Gateway profile and retry.");
+		if (e.allowMissingConfig && !r) throw new X("Resuming without an OpenClaw config requires explicit Gateway URL, Gateway token and agent ID. Supply all three connection settings locally.");
+		if (o && !(e.allowMissingConfig && r)) throw new X("OpenClaw configuration was not found at OPENCLAW_CONFIG_PATH. Check the active Gateway profile and retry.");
 	}
-	let u = X(c?.gateway), f = X(u.auth), h = f.password !== void 0 || !!t.OPENCLAW_GATEWAY_PASSWORD, g = f.mode ?? (h ? "password" : "token"), _ = g === "token" ? "token" : "password", v = e.gatewayUrl ?? t.OPENCLAW_GATEWAY_URL ?? l?.gatewayUrl, y = e.gatewayToken ?? t[Zr(_)] ?? l?.gatewayToken;
-	if (c?.$include !== void 0 && (!v || !y || !(e.agentId ?? t.OPENCLAW_AGENT_ID))) throw new Y("OpenClaw config includes other files. Supply explicit OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN and OPENCLAW_AGENT_ID from the active Gateway, or select its resolved configuration.");
-	if (u.mode === "remote" && (!v || !y)) throw new Y("OpenClaw uses a remote Gateway. Set OPENCLAW_GATEWAY_URL to the private HTTPS origin and OPENCLAW_GATEWAY_TOKEN to that Gateway credential locally.");
-	if (g === "none") throw new Y(`OpenClaw Gateway authentication is disabled (gateway.auth.mode is "none"). ${qr}`);
+	let u = Z(c?.gateway), f = Z(u.auth), h = f.password !== void 0 || !!t.OPENCLAW_GATEWAY_PASSWORD, g = f.mode ?? (h ? "password" : "token"), _ = g === "token" ? "token" : "password", v = e.gatewayUrl ?? t.OPENCLAW_GATEWAY_URL ?? l?.gatewayUrl, y = e.gatewayToken ?? t[Xr(_)] ?? l?.gatewayToken;
+	if (c?.$include !== void 0 && (!v || !y || !(e.agentId ?? t.OPENCLAW_AGENT_ID))) throw new X("OpenClaw config includes other files. Supply explicit OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN and OPENCLAW_AGENT_ID from the active Gateway, or select its resolved configuration.");
+	if (u.mode === "remote" && (!v || !y)) throw new X("OpenClaw uses a remote Gateway. Set OPENCLAW_GATEWAY_URL to the private HTTPS origin and OPENCLAW_GATEWAY_TOKEN to that Gateway credential locally.");
+	if (g === "none") throw new X(`OpenClaw Gateway authentication is disabled (gateway.auth.mode is "none"). ${Kr}`);
 	if (!y) {
-		if (g === "trusted-proxy" && !h) throw new Y("OpenClaw Gateway uses trusted-proxy authentication without a local password, so this host cannot connect directly. Set gateway.auth.password (or OPENCLAW_GATEWAY_PASSWORD) for same-host clients, restart the Gateway, and retry. This check did not redeem an enrollment token.");
+		if (g === "trusted-proxy" && !h) throw new X("OpenClaw Gateway uses trusted-proxy authentication without a local password, so this host cannot connect directly. Set gateway.auth.password (or OPENCLAW_GATEWAY_PASSWORD) for same-host clients, restart the Gateway, and retry. This check did not redeem an enrollment token.");
 		if (![
 			"token",
 			"password",
 			"trusted-proxy"
-		].includes(String(g))) throw new Y(`OpenClaw Gateway authentication mode is not supported. ${qr}`);
+		].includes(String(g))) throw new X(`OpenClaw Gateway authentication mode is not supported. ${Kr}`);
 	}
 	let b = t.OPENCLAW_GATEWAY_PORT === void 0 ? u.port ?? (r === "dev" ? 19001 : 18789) : Number(t.OPENCLAW_GATEWAY_PORT);
-	if (!v && !u.url && (!Number.isSafeInteger(b) || Number(b) < 1 || Number(b) > 65535)) throw new Y("OpenClaw Gateway port is invalid. Set OPENCLAW_GATEWAY_URL to the active Gateway origin.");
-	let x = Xr(v ?? (typeof u.url == "string" ? u.url : `http://127.0.0.1:${b}`));
+	if (!v && !u.url && (!Number.isSafeInteger(b) || Number(b) < 1 || Number(b) > 65535)) throw new X("OpenClaw Gateway port is invalid. Set OPENCLAW_GATEWAY_URL to the active Gateway origin.");
+	let x = Yr(v ?? (typeof u.url == "string" ? u.url : `http://127.0.0.1:${b}`));
 	if (![
 		"localhost",
 		"127.0.0.1",
 		"[::1]"
-	].includes(new URL(x).hostname) && (!v || !y)) throw new Y("A remote Gateway requires its own explicit OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN. Local discovered credentials cannot be forwarded to a remote host.");
-	let S = X(c?.agents), C = X(S.entries), w = Array.isArray(S.list) ? S.list : [], T = Object.keys(C).length ? Object.keys(C) : w.map((e) => X(e).id);
-	if (T.some((e) => typeof e != "string" || !Gr.test(e))) throw new Y("OpenClaw config contains an invalid agent ID. Repair the agent roster before setup.");
+	].includes(new URL(x).hostname) && (!v || !y)) throw new X("A remote Gateway requires its own explicit OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN. Local discovered credentials cannot be forwarded to a remote host.");
+	let S = Z(c?.agents), C = Z(S.entries), w = Array.isArray(S.list) ? S.list : [], T = Object.keys(C).length ? Object.keys(C) : w.map((e) => Z(e).id);
+	if (T.some((e) => typeof e != "string" || !Wr.test(e))) throw new X("OpenClaw config contains an invalid agent ID. Repair the agent roster before setup.");
 	let E = [...new Set(T)], D = e.agentId ?? t.OPENCLAW_AGENT_ID ?? l?.agentId;
-	if (!D && E.length > 1) throw new Y(`Choose the agent to connect by setting OPENCLAW_AGENT_ID. Available agents: ${E.join(", ")}.`);
-	if (D ??= E[0] ?? "main", E.length && !E.includes(D)) throw new Y(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${E.join(", ")}.`);
-	let O = X(X(X(u.http).endpoints).chatCompletions).enabled === !0, k = X(X(X(u.http).endpoints).responses).enabled === !0, A, j = f[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
+	if (!D && E.length > 1) throw new X(`Choose the agent to connect by setting OPENCLAW_AGENT_ID. Available agents: ${E.join(", ")}.`);
+	if (D ??= E[0] ?? "main", E.length && !E.includes(D)) throw new X(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${E.join(", ")}.`);
+	let O = Z(Z(Z(u.http).endpoints).chatCompletions).enabled === !0, k = Z(Z(Z(u.http).endpoints).responses).enabled === !0, A, j = f[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
 	try {
-		A = Qr(y ?? j, t, y ? "token" : _);
+		A = Zr(y ?? j, t, y ? "token" : _);
 	} catch (t) {
-		let n = X(j), r = typeof j == "string" ? j.includes("${") && !j.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && Kr.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
-		if (y || !r || !i || Xr(i.gatewayUrl) !== x) throw t;
+		let n = Z(j), r = typeof j == "string" ? j.includes("${") && !j.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && Gr.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
+		if (y || !r || !i || Yr(i.gatewayUrl) !== x) throw t;
 		A = i.gatewayToken;
 	}
 	let M = {
@@ -9005,17 +9025,17 @@ async function ei(e = {}) {
 		...c && !v && t.ENVOI_SCOPED_TOOLS === "true" ? { responsesEnabled: k } : {},
 		...t.ENVOI_SCOPED_TOOLS === "true" ? { scopedTools: !0 } : {}
 	};
-	return $r(M), M;
+	return Qr(M), M;
 }
-async function ti(e, t = {}) {
-	let n = Hr(t.env ?? process.env, e).ENVOI_SCOPED_TOOLS === "true", r = n ? "Enable gateway.http.endpoints.responses.enabled in the selected OpenClaw profile and retry. This check did not redeem an enrollment token." : Jr, i = $r(e);
-	if (n ? e.responsesEnabled === !1 : e.chatCompletionsEnabled === !1) throw new Y(r);
+async function ei(e, t = {}) {
+	let n = Vr(t.env ?? process.env, e).ENVOI_SCOPED_TOOLS === "true", r = n ? "Enable gateway.http.endpoints.responses.enabled in the selected OpenClaw profile and retry. This check did not redeem an enrollment token." : qr, i = Qr(e);
+	if (n ? e.responsesEnabled === !1 : e.chatCompletionsEnabled === !1) throw new X(r);
 	let a = t.timeoutMs ?? 6e4;
-	if (!Number.isSafeInteger(a) || a < 1 || a > 3e5) throw new Y("OpenClaw preflight timeout must be from 1 to 300000 milliseconds.");
-	if (t.signal?.aborted) throw new Y("OpenClaw connection test was canceled. This check did not redeem an enrollment token.");
+	if (!Number.isSafeInteger(a) || a < 1 || a > 3e5) throw new X("OpenClaw preflight timeout must be from 1 to 300000 milliseconds.");
+	if (t.signal?.aborted) throw new X("OpenClaw connection test was canceled. This check did not redeem an enrollment token.");
 	let o = new AbortController(), s = () => o.abort();
 	t.signal?.addEventListener("abort", s, { once: !0 });
-	let c = setTimeout(s, a), l = new Promise((e, n) => o.signal.addEventListener("abort", () => n(new Y("OpenClaw connection test was canceled or timed out. This check did not redeem an enrollment token.", t.signal?.aborted ? "GATEWAY_TEST_FAILED" : "GATEWAY_UNREACHABLE")), { once: !0 }));
+	let c = setTimeout(s, a), l = new Promise((e, n) => o.signal.addEventListener("abort", () => n(new X("OpenClaw connection test was canceled or timed out. This check did not redeem an enrollment token.", t.signal?.aborted ? "GATEWAY_TEST_FAILED" : "GATEWAY_UNREACHABLE")), { once: !0 }));
 	try {
 		await Promise.race([l, (async () => {
 			let a;
@@ -9050,30 +9070,30 @@ async function ti(e, t = {}) {
 					})
 				});
 			} catch {
-				throw new Y("OpenClaw Gateway could not be reached. Check it is running and run the connector in the same network environment. This check did not redeem an enrollment token.", "GATEWAY_UNREACHABLE");
+				throw new X("OpenClaw Gateway could not be reached. Check it is running and run the connector in the same network environment. This check did not redeem an enrollment token.", "GATEWAY_UNREACHABLE");
 			}
-			if (a.status === 404 || a.status === 405) throw new Y(r);
-			if (a.status === 401 || a.status === 403) throw new Y("OpenClaw Gateway authentication failed. Check the local Gateway credential and selected profile. This check did not redeem an enrollment token.", "GATEWAY_AUTH_FAILED");
-			if (!a.ok) throw new Y(`OpenClaw connection test failed with HTTP ${a.status}. Check Gateway health and the selected agent model. This check did not redeem an enrollment token.`, a.status === 429 || a.status >= 500 ? "GATEWAY_UNREACHABLE" : "GATEWAY_TEST_FAILED");
+			if (a.status === 404 || a.status === 405) throw new X(r);
+			if (a.status === 401 || a.status === 403) throw new X("OpenClaw Gateway authentication failed. Check the local Gateway credential and selected profile. This check did not redeem an enrollment token.", "GATEWAY_AUTH_FAILED");
+			if (!a.ok) throw new X(`OpenClaw connection test failed with HTTP ${a.status}. Check Gateway health and the selected agent model. This check did not redeem an enrollment token.`, a.status === 429 || a.status >= 500 ? "GATEWAY_UNREACHABLE" : "GATEWAY_TEST_FAILED");
 			let s;
 			try {
 				s = await a.json();
 			} catch {
-				throw new Y("OpenClaw connection test returned invalid JSON. Check the Gateway endpoint. This check did not redeem an enrollment token.");
+				throw new X("OpenClaw connection test returned invalid JSON. Check the Gateway endpoint. This check did not redeem an enrollment token.");
 			}
 			if (n) {
-				let e = X(s);
-				if (e.status !== "completed" || !Array.isArray(e.output) || !e.output.length || e.output.some((e) => !["message", "reasoning"].includes(String(X(e).type))) || !e.output.some((e) => Array.isArray(X(e).content) && X(e).content.some((e) => X(e).type === "output_text" && typeof X(e).text == "string" && X(e).text.trim()))) throw new Y("OpenClaw Responses test did not return a completed text reply. This check did not redeem an enrollment token.");
+				let e = Z(s);
+				if (e.status !== "completed" || !Array.isArray(e.output) || !e.output.length || e.output.some((e) => !["message", "reasoning"].includes(String(Z(e).type))) || !e.output.some((e) => Array.isArray(Z(e).content) && Z(e).content.some((e) => Z(e).type === "output_text" && typeof Z(e).text == "string" && Z(e).text.trim()))) throw new X("OpenClaw Responses test did not return a completed text reply. This check did not redeem an enrollment token.");
 				return;
 			}
-			let c = X(s).choices, l = Array.isArray(c) ? X(c[0]) : {}, u = X(l.message).content;
-			if (l.finish_reason !== "stop" || typeof u != "string" || !u.trim()) throw new Y("OpenClaw connection test did not return a completed text reply. Check the selected agent model and try again. This check did not redeem an enrollment token.");
+			let c = Z(s).choices, l = Array.isArray(c) ? Z(c[0]) : {}, u = Z(l.message).content;
+			if (l.finish_reason !== "stop" || typeof u != "string" || !u.trim()) throw new X("OpenClaw connection test did not return a completed text reply. Check the selected agent model and try again. This check did not redeem an enrollment token.");
 		})()]);
 	} finally {
 		clearTimeout(c), t.signal?.removeEventListener("abort", s);
 	}
 }
-var ni = S(x), Z = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), ri = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, ii = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`, ai = (e) => `'${e.replaceAll("'", "''")}'`, oi = (/* @__PURE__ */ new Date(Math.ceil((Date.now() + 6e4) / 6e4) * 6e4)).toISOString();
+var ti = S(x), ni = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), ri = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, ii = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`, ai = (e) => `'${e.replaceAll("'", "''")}'`, oi = (/* @__PURE__ */ new Date(Math.ceil((Date.now() + 6e4) / 6e4) * 6e4)).toISOString();
 function si(e, t, n, r) {
 	let i = f.join(e, "connector.stdout.log"), a = f.join(e, "connector.stderr.log"), o = f.join(e, "connector-supervisor.log"), s = [
 		"$ErrorActionPreference = 'Stop'",
@@ -9103,7 +9123,7 @@ function si(e, t, n, r) {
 		"}"
 	].join("\n");
 	return {
-		executable: zn("powershell.exe", r),
+		executable: Rn("powershell.exe", r),
 		args: [
 			"-NoProfile",
 			"-NonInteractive",
@@ -9151,7 +9171,7 @@ function ci(e, t = {}) {
 		return {
 			name: t,
 			filename: n,
-			contents: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${t}</string><key>ProgramArguments</key><array>${[i, ...s].map((e) => `<string>${Z(e)}</string>`).join("")}</array><key>WorkingDirectory</key><string>${Z(e)}</string><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${Z(f.join(e, "service.log"))}</string><key>StandardErrorPath</key><string>${Z(f.join(e, "service.log"))}</string></dict></plist>\n`,
+			contents: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${t}</string><key>ProgramArguments</key><array>${[i, ...s].map((e) => `<string>${ni(e)}</string>`).join("")}</array><key>WorkingDirectory</key><string>${ni(e)}</string><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${ni(f.join(e, "service.log"))}</string><key>StandardErrorPath</key><string>${ni(f.join(e, "service.log"))}</string></dict></plist>\n`,
 			commands: [{
 				executable: "launchctl",
 				args: [
@@ -9169,9 +9189,9 @@ function ci(e, t = {}) {
 			name: o,
 			filename: n,
 			windowsAction: a,
-			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${Z(t.user)}</UserId></LogonTrigger><TimeTrigger><Enabled>true</Enabled><StartBoundary>${r}</StartBoundary><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></TimeTrigger></Triggers><Principals><Principal id="Author"><UserId>${Z(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${Z(a.executable)}</Command><Arguments>${Z(a.args.map(ii).join(" "))}</Arguments><WorkingDirectory>${Z(e)}</WorkingDirectory></Exec></Actions></Task>`,
+			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${ni(t.user)}</UserId></LogonTrigger><TimeTrigger><Enabled>true</Enabled><StartBoundary>${r}</StartBoundary><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></TimeTrigger></Triggers><Principals><Principal id="Author"><UserId>${ni(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${ni(a.executable)}</Command><Arguments>${ni(a.args.map(ii).join(" "))}</Arguments><WorkingDirectory>${ni(e)}</WorkingDirectory></Exec></Actions></Task>`,
 			commands: [{
-				executable: zn("schtasks.exe", t.env),
+				executable: Rn("schtasks.exe", t.env),
 				args: [
 					"/Create",
 					"/TN",
@@ -9181,7 +9201,7 @@ function ci(e, t = {}) {
 					"/F"
 				]
 			}, {
-				executable: zn("schtasks.exe", t.env),
+				executable: Rn("schtasks.exe", t.env),
 				args: [
 					"/Run",
 					"/TN",
@@ -9194,9 +9214,9 @@ function ci(e, t = {}) {
 }
 async function li() {
 	try {
-		if (process.platform === "linux") await ni("systemctl", ["--user", "show-environment"], { timeout: 1e4 });
-		else if (process.platform === "darwin") await ni("launchctl", ["list"], { timeout: 1e4 });
-		else if (process.platform === "win32") await ni(zn("schtasks.exe"), [
+		if (process.platform === "linux") await ti("systemctl", ["--user", "show-environment"], { timeout: 1e4 });
+		else if (process.platform === "darwin") await ti("launchctl", ["list"], { timeout: 1e4 });
+		else if (process.platform === "win32") await ti(Rn("schtasks.exe"), [
 			"/Query",
 			"/FO",
 			"CSV",
@@ -9211,9 +9231,9 @@ async function li() {
 	}
 }
 async function ui(e, t = "openclaw") {
-	await li(), await Lr(e);
+	await li(), await Ir(e);
 	let n;
-	process.platform === "win32" && (n = await Bn());
+	process.platform === "win32" && (n = await zn());
 	let i = ci(e, {
 		user: n,
 		runtime: t
@@ -9223,7 +9243,7 @@ async function ui(e, t = "openclaw") {
 		mode: 448
 	}), await u(i.filename, process.platform === "win32" ? Buffer.from(`\uFEFF${i.contents}`, "utf16le") : i.contents, { mode: 384 });
 	try {
-		for (let e of i.commands) await ni(e.executable, e.args, {
+		for (let e of i.commands) await ti(e.executable, e.args, {
 			timeout: 2e4,
 			windowsHide: !0
 		});
@@ -10233,13 +10253,13 @@ var Ji = class {
 	}
 };
 async function Yi(e, t = {}) {
-	let n = await Ur(e.stateDir, t.env ?? process.env, e);
+	let n = await Hr(e.stateDir, t.env ?? process.env, e);
 	if (n.ENVOI_SCOPED_TOOLS === "true") {
-		let r = new Vr(e.stateDir);
+		let r = new Br(e.stateDir);
 		await r.init();
 		let i = await r.load();
 		if (!i) throw Error("No connector credentials were saved. Run setup first");
-		await Wr(e.stateDir, n);
+		await Ur(e.stateDir, n);
 		let a = new Ii(e.stateDir), o = t.openClawTargetResolver ? new Ji(t.openClawTargetResolver, t.openClawTargetSelection) : void 0;
 		return {
 			connector: new Fn(e.apiUrl, r, {
@@ -10293,7 +10313,7 @@ async function Yi(e, t = {}) {
 	if (n.OPENCLAW_MCP_RELAY_PORT && !r) throw Error("OPENCLAW_MCP_RELAY_TOKEN is required when the relay port is configured");
 	if (n.OPENCLAW_MCP_WRITE_ENABLED && n.OPENCLAW_MCP_WRITE_ENABLED !== "true") throw Error("OPENCLAW_MCP_WRITE_ENABLED must be true when set");
 	if (n.OPENCLAW_MCP_WRITE_ENABLED && !r) throw Error("OPENCLAW_MCP_RELAY_TOKEN is required for MCP writes");
-	let i = new Vr(e.stateDir);
+	let i = new Br(e.stateDir);
 	if (await i.init(), !await i.load()) throw Error("No connector credentials were saved. Run setup first");
 	let a, o = await xi(n.ENVOI_ASSET_MANIFEST_PATH), s = n.OPENCLAW_MCP_WRITE_ENABLED === "true", c = ji({
 		gatewayUrl: e.gatewayUrl,
@@ -10413,27 +10433,27 @@ function ta(e, t = {}) {
 	return r;
 }
 async function na(e, n = {}) {
-	Hr(n.env ?? process.env);
+	Vr(n.env ?? process.env);
 	let r = Qi(n.fetch), i = pe(e, { allowExpired: !0 });
 	if (i.runtime !== "openclaw" || i.operation === "reconnect") throw new F("Use the unified Envoi connector for this runtime or reconnect handoff");
 	let a = n.stateDir || Xi(i.apiUrl, i.address, {
 		home: n.homeDir,
 		env: n.env,
 		platform: n.platform
-	}), o = await (n.secureDirectory ?? Un)(await er(a, n.secureDirectory)), s = await q(o);
+	}), o = await (n.secureDirectory ?? Hn)(await $n(a, n.secureDirectory)), s = await J(o);
 	try {
-		let a = new Vr(o);
+		let a = new Br(o);
 		await a.init();
 		let s = await a.load(), c;
 		if (s) {
 			if (c = await ea(o), c.apiUrl !== i.apiUrl || c.address !== i.address || s.address !== i.address) throw new F("This state directory belongs to another connection. Choose a separate private directory");
 		} else pe(e);
 		n.onProgress?.("Detecting OpenClaw");
-		let l = await Ur(o, n.env ?? process.env, c?.openclaw), u = {
+		let l = await Hr(o, n.env ?? process.env, c?.openclaw), u = {
 			...n,
 			env: l
-		}, d = await ei(c ? ta(c.openclaw, u) : u);
-		n.onProgress?.("Testing OpenClaw before enrollment"), await ti(d, {
+		}, d = await $r(c ? ta(c.openclaw, u) : u);
+		n.onProgress?.("Testing OpenClaw before enrollment"), await ei(d, {
 			fetch: r,
 			env: l
 		});
@@ -10445,7 +10465,7 @@ async function na(e, n = {}) {
 			agentName: i.agentName,
 			openclaw: d
 		};
-		if (await Wn(f.join(o, "connection.json"), p), await Wr(o, Hr(l, d)), n.executableFile) {
+		if (await Un(f.join(o, "connection.json"), p), await Ur(o, Vr(l, d)), n.executableFile) {
 			let e = f.join(o, "connector.mjs");
 			f.resolve(n.executableFile) !== f.resolve(e) && await t(n.executableFile, e);
 		}
@@ -10476,11 +10496,11 @@ async function na(e, n = {}) {
 	}
 }
 async function ra(e, t, n = {}) {
-	Hr(n.env ?? process.env), jr(n.env ?? process.env);
-	let r = await (n.secureDirectory ?? Un)(await er(e, n.secureDirectory)), i = await q(r), a = Qi(n.fetch), o, s;
+	Vr(n.env ?? process.env), Ar(n.env ?? process.env);
+	let r = await (n.secureDirectory ?? Hn)(await $n(e, n.secureDirectory)), i = await J(r), a = Qi(n.fetch), o, s;
 	try {
-		let e = await Ir(r, n.env ?? process.env), i = await ea(r), c = await Ur(r, n.env ?? process.env, i.openclaw), l = await ei(ta(i.openclaw, { env: c }));
-		if (await ti(l, {
+		let e = await Fr(r, n.env ?? process.env), i = await ea(r), c = await Hr(r, n.env ?? process.env, i.openclaw), l = await $r(ta(i.openclaw, { env: c }));
+		if (await ei(l, {
 			fetch: a,
 			signal: t,
 			env: c
@@ -10495,7 +10515,7 @@ async function ra(e, t, n = {}) {
 		}), e && o.connector.scopedWakeWorkDriver(), s = new Fn(i.apiUrl, o.store, { fetch: a }), await s.checkStatus(), e) {
 			let c = await o.store.load();
 			if (!c) throw new F("Hosted wake needs saved connector identity");
-			await Mr({
+			await jr({
 				connector: o.connector,
 				session: c,
 				stateDir: r,
@@ -10521,7 +10541,7 @@ async function ra(e, t, n = {}) {
 	}
 }
 async function ia(e) {
-	let t = await ea(f.resolve(e)), n = await new Vr(f.resolve(e)).load();
+	let t = await ea(f.resolve(e)), n = await new Br(f.resolve(e)).load();
 	if (!n) throw new F("No saved enrollment. Run setup with a fresh Envoi handoff");
 	return {
 		address: n.address,
@@ -10605,7 +10625,7 @@ async function oa(e = process.argv.slice(2)) {
 	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new F("Supply a supported command and --state-dir. Run --help");
 	let s = f.resolve(i.get("--state-dir"));
 	if (t === "configure-wake" || t === "clear-wake") {
-		await ia(s), t === "configure-wake" ? await Rr(s) : await zr(s), process.stdout.write(`${JSON.stringify({
+		await ia(s), t === "configure-wake" ? await Lr(s) : await Rr(s), process.stdout.write(`${JSON.stringify({
 			hostedWake: t === "configure-wake" ? "configured" : "disabled",
 			note: "Restart the connector service to apply this change"
 		})}\n`);
@@ -10631,6 +10651,6 @@ async function oa(e = process.argv.slice(2)) {
 	}
 }
 oa().catch((e) => {
-	let t = e instanceof F || e instanceof Y || e instanceof z ? e.message : "Setup could not finish. Check local OpenClaw configuration, connectivity and the saved Envoi connection; run --help for recovery options";
+	let t = e instanceof F || e instanceof X || e instanceof z ? e.message : "Setup could not finish. Check local OpenClaw configuration, connectivity and the saved Envoi connection; run --help for recovery options";
 	process.stderr.write(`${t}\n`), process.exitCode = 1;
 });

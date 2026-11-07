@@ -36,6 +36,8 @@ If the stored refresh credential has expired, the connector stops before making 
 
 **`onEvent` is an observation callback, not the work-processing handler.** With `handler` supplied, `run` claims canonical work independently of the event cursor. It renews the fence during admission/processing, writes a fenced `acknowledged` receipt after `admit`, writes a fenced `processed` receipt after `process`, and reports handler failure with a safe reason code. Stable per-attempt idempotency keys protect receipt retries. The handler must make its own admission and external effects idempotent by message ID; `context.reply` requires a stable key for each logical reply. Safety claims also work after downtime: queued messages remain server-side until claimable. The integrated installation and a5 presence projection provide server-derived status, including paused and needs-reconnect states. Enrollment, an open browser and an SSE connection alone do not prove runtime readiness or automatic reachability. Consequential external actions require separately verified policy and human authority; these transport receipts do not authorize them.
 
+`checkStatus(signal?)` accepts an optional owner/deadline signal. Cancellation aborts its HTTP request and detaches that caller from any credential refresh. A shared refresh continues while another caller needs it; otherwise its transport is aborted. An uncertain rotation keeps its saved ID for retry, and a successfully received successor is still persisted. Owner cancellation reports `REQUEST_CANCELLED` without marking the installation degraded. Existing callers may omit the signal.
+
 ## Fenced work API contract
 
 A trusted `caseSessionHandler` can throw `PermanentWorkError` for a conclusively
