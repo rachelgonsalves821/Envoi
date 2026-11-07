@@ -25,6 +25,13 @@ export type StoppedProgressRecovery=StoppedProgressHistory & Readonly<{
   ancestors?:readonly StoppedProgressHistory[];
   time:RecoveryTimeLink;
 }>;
+/** An actual stopped worker before any native program state was created.
+ * This restores the original interval; it cannot grant a replacement clock. */
+export type PreProgramRestore=Readonly<{
+  execution:ProgressPin;packet:ProgressPin;operatorStop:ProgressPin;localStop:ProgressPin;
+  ledgerAtStop:ProgressPin;programDirectory:string;
+  implementation:{source:string;runnerSha256:string;approval:ProgressPin};
+}>;
 const hash=(x:string|Buffer)=>createHash('sha256').update(x).digest('hex');
 const canonical=(x:any):any=>Array.isArray(x)?x.map(canonical):object(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
 const digest=(x:unknown):x is string=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
@@ -145,16 +152,21 @@ function joinAncestor(child:Awaited<ReturnType<typeof inspectHistory>>,parent:Aw
 }
 /** Read-only historical format/provenance inspection. This grants no start
  * handle, current inventory credit, source adoption, time or model authority. */
-export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number}){
+export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ContinuationReceipt){
   const {recovery:r,ledger}=input,filename=path.join(path.resolve(input.releaseRoot),'phase-c-cumulative-requests.jsonl'),current=await fs.readFile(filename),prefix=await pinned(r.priorLedger,false);
-  if(path.resolve(ledger.filename)!==filename||!prefix.raw.equals(current)||!current.toString().endsWith('\n')||hash(current)!==ledger.contentSha256)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
+  if(path.resolve(ledger.filename)!==filename||(!restoreReceipt&&!prefix.raw.equals(current))||!current.subarray(0,prefix.raw.length).equals(prefix.raw)||!current.toString().endsWith('\n')||hash(current)!==ledger.contentSha256)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
   const rows=current.toString().trimEnd().split('\n').map(line=>JSON.parse(line));
+  if(restoreReceipt){
+    const suffix=current.subarray(prefix.raw.length).toString().trimEnd().split('\n').map(line=>JSON.parse(line)),window=hash(JSON.stringify(restoreReceipt));
+    if(suffix.length!==2||suffix[0].kind!=='window'||suffix[0].window!==window||suffix[1].kind!=='plan'||suffix[1].window!==window
+      ||ledger.window!==window||ledger.hasNativeHistorySinceWindow(window))refuse('ZERO_NATIVE_PREPROGRAM_WINDOW_REQUIRED');
+  }
   if(r.ancestors!==undefined&&(!Array.isArray(r.ancestors)||r.ancestors.length>8))refuse('EXACT_PROGRESS_ANCESTRY_REQUIRED');
   const histories=[r,...r.ancestors??[]],runs=[],now=Date.now(),nextStart=input.nextStart??now;
   if(!Number.isFinite(nextStart)||nextStart>now)refuse('PRIOR_PROGRESS_STOP_REQUIRED');
   for(let i=0;i<histories.length;i++){
     const run=await inspectHistory(histories[i],{releaseRoot:input.releaseRoot,rows,current,now,nextStart:i?Date.parse(runs[i-1].receipt.startUtc):nextStart});
-    if(i===0&&run.window!==ledger.window)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
+    if(i===0&&!restoreReceipt&&run.window!==ledger.window)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
     if(i)joinAncestor(runs[i-1],run,histories[i]);
     if((run.packet.purpose==='phase-c-prepared-stopped-progress-session')!==(i<histories.length-1))refuse('EXACT_PROGRESS_ANCESTRY_REQUIRED');
     runs.push(run);
@@ -180,7 +192,7 @@ export function assertStoppedProgressPreflight(p:StoppedProgressPreflight,ledger
 }
 export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;
   expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string};
-  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger}){
+  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger;restore?:PreProgramRestore}){
   const {recovery:r,ledger,receipt,expected,preflight}=input,now=Date.now(),start=Date.parse(receipt.startUtc),stop=Date.parse(receipt.hardStopUtc);
   if(r?.purpose!=='phase-c-stopped-native-progress'||!Array.isArray(r.completed)||!Array.isArray(r.failed))refuse('EXACT_STOPPED_PROGRESS_REQUIRED');
   if(receipt.version!==1||receipt.ownerApproved!==true||receipt.modelCap!==64||!digest(receipt.approvalReceiptSha256)||!digest(receipt.packetSha256)
@@ -208,7 +220,52 @@ export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:C
     ||inventory.canonicalMessageEffects!==preflight.canonicalEffects||inventory.plannedCasesPresent!==preflight.cases
     ||inventory.pendingWakeDeliveries!==0||inventory.nonEndedSubscriptions!==0||inventory.originalRecordCount!==786||inventory.approvedRemovedOriginals!==3
     ||!Array.isArray(inventory.unexpectedOriginalDifferences)||inventory.unexpectedOriginalDifferences.length)refuse('CURRENT_CANONICAL_PROGRESS_INVENTORY_REQUIRED');
-  const historicalProof=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r,ledger,nextStart:start}),snapshot=ledger.snapshot();
+  const historicalProof=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r,ledger,nextStart:start},input.restore?receipt:undefined),snapshot=ledger.snapshot();
+  if(input.restore)await inspectPreProgramRestore(input.restore,input,historicalProof);
   return {...historicalProof,
     accounting:{models:snapshot.chargedAttempts,operations:preflight.conservativeMessages,canonicalMessages:preflight.canonicalEffects}};
+}
+async function inspectPreProgramRestore(r:PreProgramRestore,input:{releaseRoot:string;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;ledger:RequestBudgetLedger;recovery:StoppedProgressRecovery},history:{priorWindow:string}){
+  const window=hash(JSON.stringify(input.receipt)),execution=(await pinned(r.execution)).value,packet=(await pinned(r.packet)).value,
+    stop=(await pinned(r.operatorStop)).value,local=(await pinned(r.localStop)).value,approval=(await pinned(r.implementation.approval)).value,
+    snapshot=await pinned(r.ledgerAtStop,false),now=Date.now(),end=Date.parse(input.receipt.hardStopUtc);
+  if(execution.window!==window||JSON.stringify(execution.receipt)!==JSON.stringify(input.receipt)||execution.approvalSha256!==input.receipt.approvalReceiptSha256
+    ||execution.graphApprovalRaw!==input.ledger.reviewedGraphApprovalRaw||r.packet.sha256!==input.receipt.packetSha256
+    ||packet.clientSource!==input.receipt.clientSource||packet.serverSource!==input.receipt.serverSource||packet.library?.sha256!==input.receipt.runnerSha256
+    ||packet.purpose!=='phase-c-prepared-stopped-progress-session'||typeof packet.oldKitRoot!=='string'
+    ||path.resolve(input.releaseRoot)!==path.resolve(packet.oldKitRoot))refuse('ORIGINAL_PREPROGRAM_EXECUTION_REQUIRED');
+  const h=(await pinned(packet.resumption?.history)).value,{actionLedger:_,currentInventory:__,time:___,...historical}=input.recovery;
+  if(JSON.stringify(canonical(h))!==JSON.stringify(canonical(historical))||history.priorWindow===window)refuse('EXACT_PREPROGRAM_ANCESTRY_REQUIRED');
+  if(!snapshot.raw.equals(await fs.readFile(input.ledger.filename))||hash(snapshot.raw)!==input.ledger.contentSha256)refuse('PREPROGRAM_LEDGER_CHANGED');
+  const observed=Date.parse(stop.observedAtUtc),checked=Date.parse(local.checkedAtUtc);
+  if(stop.state!=='operator_stopped_no_further_task_release'||!Number.isFinite(observed)||observed<Date.parse(input.receipt.startUtc)||observed>now
+    ||stop.gateComplete!==false||local.source!==input.receipt.clientSource||JSON.stringify(canonical(local.operatorStop))!==JSON.stringify(canonical(stop))
+    ||local.purpose!=='actual-v2-poststop-readonly-observation'||local.window!==window||!Number.isFinite(checked)||checked<observed||checked>now||now-checked>300000
+    ||local.modelsAdded!==0||local.chargedAttempts!==input.ledger.snapshot().chargedAttempts||local.pending!==0||local.unresolvedDispatches!==0
+    ||local.conservativeOperations!==input.preflight.conservativeMessages||local.assets!==input.preflight.assets
+    ||local.emptyNativeProgramDirectoryObserved!==true||local.conductorStateCreated!==false
+    ||!Array.isArray(local.selectedHermesStopped)||local.selectedHermesStopped.length!==3
+    ||!['je1','je2','testowner'].every(role=>local.selectedHermesStopped.filter((x:any)=>x.role===role&&x.selectedCanonicalPipeUnavailable===true).length===1)
+    ||!Array.isArray(local.originalJournalHashesVerified)||!local.originalJournalHashesVerified.length
+    ||local.originalJournalHashesVerified.some((x:any)=>x.originalHashMatches!==true)
+    ||stop.packetSha256!==input.receipt.packetSha256)refuse('ACTUAL_PREPROGRAM_STOP_REQUIRED');
+  const journals=packet.program?.originalJournalHashes;
+  if(!Array.isArray(journals)||journals.length!==9||local.originalJournalHashesVerified.length!==journals.length
+    ||new Set(journals.map((x:any)=>x.role+'/'+x.file)).size!==journals.length)refuse('EXACT_ORIGINAL_JOURNALS_REQUIRED');
+  for(const j of journals){
+    if(!['je1','je2','testowner'].includes(j.role)||typeof j.file!=='string'||path.basename(j.file)!==j.file||!digest(j.sha256)
+      ||typeof packet.states?.[j.role]!=='string'||!path.isAbsolute(packet.states[j.role])
+      ||local.originalJournalHashesVerified.filter((x:any)=>x.role===j.role&&x.file===j.file&&x.sha256===j.sha256&&x.originalHashMatches===true).length!==1)refuse('EXACT_ORIGINAL_JOURNALS_REQUIRED');
+    await pinned({path:path.join(packet.states[j.role],'scoped-runs',j.file),sha256:j.sha256},false);
+  }
+  if(!path.isAbsolute(r.programDirectory)||typeof packet.directory!=='string'||path.resolve(r.programDirectory)!==path.resolve(packet.directory,'native-program'))refuse('EMPTY_REAL_PROGRAM_DIRECTORY_REQUIRED');
+  const directory=await fs.lstat(r.programDirectory);
+  if(!directory.isDirectory()||directory.isSymbolicLink()||(await fs.readdir(r.programDirectory)).length)refuse('EMPTY_REAL_PROGRAM_DIRECTORY_REQUIRED');
+  if(!/^[a-f0-9]{40}$/.test(r.implementation.source)||!digest(r.implementation.runnerSha256)
+    ||approval.purpose!=='phase-c-same-window-preprogram-restoration'||approval.ownerApproved!==true||approval.window!==window
+    ||approval.startUtc!==input.receipt.startUtc||approval.hardStopUtc!==input.receipt.hardStopUtc
+    ||approval.originalClientSource!==input.receipt.clientSource||approval.originalPacketSha256!==input.receipt.packetSha256
+    ||approval.recoverySource!==r.implementation.source||approval.recoveryRunnerSha256!==r.implementation.runnerSha256
+    ||approval.ciHead!==r.implementation.source||approval.ciPassed!==true
+    ||approval.modelCap!==64||approval.newInterval!==false||now>=end)refuse('EXACT_RECOVERY_IMPLEMENTATION_APPROVAL_REQUIRED');
 }
