@@ -11,6 +11,7 @@ import { assertScopedHermes, hermesHost, selectScopedHermes, type HermesRuntimeC
 import { connectHermesHost } from './scoped-host';
 
 interface RelayState { version: 1; port: number; token: string; serverName: string }
+const cachedProofLimit = 6;
 
 async function availablePort(): Promise<number> {
   const server = createServer();
@@ -99,7 +100,7 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
       hermesUrl: '', hermesKey: '', runtime: scoped }, context);
     const relay = await relayState(context);
     let observedInfo = 0;
-    let discovery = 0, lastProofDiscovery = -1;
+    let discoveredIdentity = false, proofAttempted = false, proofMisses = 0, activeProofs = 0;
     let bridge: Awaited<ReturnType<typeof createHermesBridge>>;
     try {
       bridge = await createHermesBridge({
@@ -107,7 +108,13 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
         relayToken: relay.token, relayPort: relay.port, writeEnabled: true
       }, { env: { ...(context.env ?? process.env), ENVOI_ASSET_MANIFEST_PATH: config.assetManifestPath }, fetch: context.fetch, pollIntervalMs: context.pollIntervalMs,
         onSuccessfulToolCall(name) { if (name === 'envoi_agent_info') observedInfo++; },
-        onToolDiscovery(names) { if (names.includes('envoi_agent_info')) discovery++; }
+        onToolDiscovery(names) {
+          if (names.includes('envoi_agent_info')) {
+            discoveredIdentity = true;
+            // A proof may itself trigger tools/list. It cannot refill its own budget.
+            if (!activeProofs) proofMisses = 0;
+          }
+        }
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') throw new ConnectorSetupError('RELAY_UNAVAILABLE', 'This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.');
@@ -121,13 +128,27 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
       await bridge.close();
       throw error;
     }
-    return { connector: bridge.connector, close: bridge.close, readyToVerify: () => discovery > lastProofDiscovery, async verify(signal) {
+    // A Gateway can retain this catalog without listing it again. A completed
+    // model run that missed the invocation must not consume discovery forever.
+    return { connector: bridge.connector, close: bridge.close,
+      readyToVerify: () => !proofAttempted || discoveredIdentity && proofMisses <= cachedProofLimit, async verify(signal) {
       const before = observedInfo;
-      lastProofDiscovery = discovery;
-      await boundedHermesRun(config,
+      proofAttempted = true;
+      activeProofs++;
+      try { await boundedHermesRun(config,
         `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`,
         { ...context, ...(signal ? { signal } : {}) });
-      if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.');
+      } finally { activeProofs--; }
+      if (observedInfo <= before) {
+        // A cached catalog allows recovery, not unlimited provider-billed proofs.
+        proofMisses++;
+        const parked = proofMisses > cachedProofLimit;
+        throw new ConnectorSetupError(parked ? 'TOOLS_PROOF_PARKED' : 'TOOLS_NOT_READY', discoveredIdentity
+          ? parked
+            ? 'Hermes identity proof retries reached their cached-catalog limit. Check model tool use and approvals; waiting for fresh Gateway discovery. Saved enrollment is unchanged.'
+            : 'Hermes loaded the Envoi tools but did not invoke the identity check. Start or keep the saved connector running for a backed-off proof retry; saved enrollment is unchanged.'
+          : 'Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.');
+      }
     } };
   },
   describe(config) { return { runtime: 'hermes', profile: config.profile, gatewayUrl: config.apiUrl, configPath: config.configPath }; }

@@ -11,6 +11,7 @@ import { checkEnvoi, connectionDirectory, connectionStatus, doctorConnection, pr
 import { startControl, queryControl, queryOwnedControl } from './control';
 import { connectorService } from './service';
 import * as serviceModule from './service';
+import { readRuntimeDiagnostic } from './runtime-diagnostics';
 import { connectorMain } from './cli';
 
 const directories: string[] = [];
@@ -164,6 +165,91 @@ describe('read-only setup retries against the existing Hermes owner', () => {
 });
 
 describe('shared connector lifecycle', () => {
+  it('shows parked proof guidance and clears it after new discovery permits verification', async () => {
+    const f = await fixture();
+    await setupConnection(f.handoff, f.resolver, f.options);
+    let recovered = false, parked!: () => void, ready!: () => void;
+    const parkedSignal = new Promise<void>(resolve => { parked = resolve; });
+    const readySignal = new Promise<void>(resolve => { ready = resolve; });
+    const create = f.adapter.createBridge;
+    f.adapter.createBridge = async (configuration, context) => {
+      const bridge = await create(configuration, context);
+      bridge.readyToVerify = () => recovered;
+      bridge.verify = async () => { if (!recovered) throw new ConnectorSetupError('TOOLS_PROOF_PARKED', 'Budget exhausted'); };
+      bridge.connector.run = async signal => { if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); };
+      return bridge;
+    };
+    const owner = new AbortController();
+    const running = startConnection(f.options.stateDir, owner.signal, f.resolver, { ...f.options, toolRecoveryRetryMs: 5,
+      onWaiting: code => { if (code === 'TOOLS_PROOF_PARKED') parked(); }, onReady: ready });
+    void running.catch(() => {});
+    try {
+      await Promise.race([parkedSignal, running.then(() => { throw new Error('Stopped before parking'); })]);
+      expect(await queryControl(f.options.stateDir, 'status')).toMatchObject({ errorCode: 'TOOLS_PROOF_PARKED', runtimeChecks: 'pending', guidance: expect.stringMatching(/paused.*model tool use/i) });
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({
+        runtimeDiagnostic: { errorCode: 'TOOLS_PROOF_PARKED' },
+        guidance: expect.stringMatching(/paused.*model tool use/i),
+        nextAction: expect.stringMatching(/paused.*approvals/i)
+      });
+      recovered = true;
+      await Promise.race([readySignal, running.then(() => { throw new Error('Stopped before readiness'); })]);
+      const status = await queryControl(f.options.stateDir, 'status');
+      expect(status.runtimeChecks).toBe('passed');
+      expect(status.errorCode).toBeUndefined();
+      expect(status.guidance).toBeUndefined();
+      expect((await connectionStatus(f.options.stateDir)).guidance).toBeUndefined();
+    } finally { owner.abort(); await running; }
+  });
+  it('preserves enrollment and skips the error report when setup status is cancelled', async () => {
+    const f = await fixture();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const fetcher: typeof fetch = async (input, init) => {
+      if (!String(input).endsWith('/api/agent/status')) return f.options.fetch(input, init);
+      return new Promise<Response>((resolve, reject) => {
+        release = () => resolve(Response.json({ state: 'active', agent: { id: 'agent_hermes' }, inboxId: 'inbox_hermes' }));
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+        entered();
+      });
+    };
+    const owner = new AbortController();
+    const pending = setupConnection(f.handoff, f.resolver, { ...f.options, fetch: fetcher, signal: owner.signal }).catch(error => error);
+    await started; owner.abort();
+    try {
+      const outcome = await Promise.race([pending, new Promise(resolve => setTimeout(() => resolve('still pending'), 250))]);
+      expect(outcome).toMatchObject({ code: 'REQUEST_CANCELLED' });
+      expect(f.requests.some(request => request.url.endsWith('/api/agent/connection-status'))).toBe(false);
+      expect(await new FileBridgeStore(f.options.stateDir).load()).toMatchObject({ agentId: 'agent_hermes' });
+      expect(f.counts()).toMatchObject({ enrollmentCount: 1, closes: 1 });
+    } finally { release(); await pending; }
+  });
+  it('cancels the startup status pre-check before entering runtime tool recovery', async () => {
+    const f = await fixture();
+    await setupConnection(f.handoff, f.resolver, f.options);
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    let requestSignal: AbortSignal | null | undefined;
+    const fetcher: typeof fetch = async (input, init) => {
+      if (!String(input).endsWith('/api/agent/status')) return f.options.fetch(input, init);
+      requestSignal = init?.signal;
+      return new Promise<Response>((resolve, reject) => {
+        release = () => resolve(Response.json({ state: 'active', agent: { id: 'agent_hermes' }, inboxId: 'inbox_hermes' }));
+        requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true });
+        entered();
+      });
+    };
+    const stop = new AbortController(), ready = vi.fn();
+    const running = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, fetch: fetcher, onReady: ready, control: false });
+    await started; stop.abort();
+    try {
+      const outcome = await Promise.race([running.then(() => 'stopped'), new Promise(resolve => setTimeout(() => resolve('still pending'), 250))]);
+      expect(outcome).toBe('stopped');
+      expect(requestSignal?.aborted).toBe(true);
+      expect(ready).not.toHaveBeenCalled();
+      expect(f.counts().closes).toBe(2); // Successful setup, then cancelled startup.
+      expect(await readRuntimeDiagnostic(f.options.stateDir)).toMatchObject({ phase: 'stopped' });
+    } finally { release(); await running; }
+  });
   it('accepts the Envoi service health response used by the local server', async () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true, service: 'envoi',
       time: '2026-10-09T18:16:14.005Z', mode: 'development', configurationValidated: false,

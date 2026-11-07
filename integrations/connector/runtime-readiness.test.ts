@@ -19,6 +19,32 @@ function fixture() {
 }
 
 describe('runtime tool recovery without tearing down the relay', () => {
+  it('backs off missed proofs against a cached catalog without requiring rediscovery', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.bridge.readyToVerify = () => true;
+    let runs = 0;
+    f.verify.mockImplementation(async () => { if (++runs <= 4) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Missed invocation'); });
+    const result = waitForRuntimeTools(f.bridge, new AbortController().signal, { timeoutMs: null });
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(runs).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runs).toBe(2);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(runs).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runs).toBe(3);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(runs).toBe(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runs).toBe(4);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(runs).toBe(4);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toBeUndefined();
+    expect(runs).toBe(5);
+    expect(f.connector.processWorkOnce).not.toHaveBeenCalled();
+  });
   it('waits beyond six minutes without repeating a model proof before new tool discovery', async () => {
     vi.useFakeTimers();
     vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
