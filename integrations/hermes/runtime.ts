@@ -26,6 +26,7 @@ export async function createHermesBridge(config: HermesBridgeConfiguration,
     timeoutMs?: number; pollMs?: number; onRuntimeEvent?: ScopedRuntimeObserver; onToolDiscovery?: (names: string[]) => void;
     beforeNativeSubmit?: import('./native-binding').NativeSubmissionGuard;
     beforeScopedTurn?: import('./native-binding').ScopedPreparationGuard;
+    scopedReadOnlyWork?: (workId: string) => boolean;
     nativeRequestGate?: import('./request-gate-attestation').NativeRequestGateExpectation } = {}) {
   const env = options.env ?? process.env;
   const scoped = await selectScopedHermes({ env, stateDir: config.stateDir }, config.runtime);

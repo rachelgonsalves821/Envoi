@@ -29,7 +29,7 @@ function fixture(name: string): Fixture {
     ? new Date(Date.parse(value) + offset).toISOString() : value);
 }
 
-async function setup(options:{declinedDecision?:boolean}={}) {
+async function setup(options:{declinedDecision?:boolean;readOnly?:boolean}={}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'envoi-hermes-scoped-'));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const home = path.join(directory, 'profile'); await mkdir(home);
@@ -125,7 +125,9 @@ async function setup(options:{declinedDecision?:boolean}={}) {
         await mcp('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'inert-daemon', version: '1' } });
         await mcp('notifications/initialized');
         const listed = await mcp('tools/list');
-        expect(listed.result.tools.map((tool: { name: string }) => tool.name)).toEqual(minted.body.session.allowedTools);
+        expect(listed.result.tools.map((tool: { name: string }) => tool.name)).toEqual(options.readOnly
+          ? minted.body.session.allowedTools.filter((name:string)=>['envoi_case_snapshot','envoi_case_list_assets'].includes(name))
+          : minted.body.session.allowedTools);
         return { session_id: 'hermes_session_fixture', subscription_id: 'subscription_fixture' };
       }
       if (request.method === 'session.resume') return { session_id: 'hermes_session_fixture', subscription_id: 'subscription_fixture',
@@ -212,10 +214,11 @@ async function setup(options:{declinedDecision?:boolean}={}) {
   const open = async (requestedEnv: NodeJS.ProcessEnv = {}, timeoutMs = 1000,
     guard?: import('./native-binding').NativeSubmissionGuard,
     gate?: import('./request-gate-attestation').NativeRequestGateExpectation,
-    beforeScopedTurn?:import('./native-binding').ScopedPreparationGuard) => {
+    beforeScopedTurn?:import('./native-binding').ScopedPreparationGuard,
+    scopedReadOnlyWork?:(workId:string)=>boolean) => {
     const bridge = await createHermesBridge({ apiUrl: origin, stateDir: directory, hermesUrl: '', hermesKey: '', runtime: config! },
       { env: requestedEnv, fetch: fetcher, pollMs: 1, timeoutMs, onRuntimeEvent: event => { runtimeEvents.push(event); },
-        beforeNativeSubmit: guard, nativeRequestGate: gate,beforeScopedTurn });
+        beforeNativeSubmit: guard, nativeRequestGate: gate,beforeScopedTurn,scopedReadOnlyWork });
     cleanups.push(bridge.close); return bridge;
   };
   return { directory, home, config: config!, env, store, fetcher, minted, work, toolRequests, rpcRequests, modelText, bootstrap, sockets,
@@ -244,6 +247,21 @@ async function setup(options:{declinedDecision?:boolean}={}) {
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('production Hermes scoped composition with inert authenticated daemon transport', () => {
+  it('presents a read-only receipt through the real bridge and MCP discovery without an echo write',async()=>{
+    const scenario=await setup({readOnly:true}),readOnlyWork=vi.fn((workId:string)=>workId===scenario.work.workId);
+    scenario.onPrompt(async()=>{
+      expect(scenario.modelText.at(-1)).toContain('This work is a read-only review');
+      const listed=await scenario.mcp('tools/list');
+      expect(listed.result.tools.map((tool:{name:string})=>tool.name)).not.toContain('envoi_case_reply');
+      const echo=await scenario.mcp('tools/call',{name:'envoi_case_reply',arguments:scenario.replyArgs});
+      expect(echo.error.code).toBe(-32602);
+    });
+    const bridge=await scenario.open({},10000,undefined,undefined,undefined,readOnlyWork);
+    expect(await bridge.connector.scopedWakeWorkDriver().processWorkOnce()).toBe(true);
+    expect(readOnlyWork).toHaveBeenCalledExactlyOnceWith(scenario.work.workId);
+    expect(scenario.toolRequests.map(r=>r.params.name)).toEqual(['envoi_case_snapshot']);
+    expect((await scenario.journal())?.completed).toBe(true);
+  });
   it('holds a real scoped snapshot for controls before creating any native session or journal',async()=>{
     const scenario=await setup();let reached=false;
     const bridge=await scenario.open({},10000,undefined,undefined,async(workId)=>{

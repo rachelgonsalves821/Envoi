@@ -139,8 +139,8 @@ async function setup() {
     return Response.json({ workId: work.workId, status: state, receipt: { messageId: work.workId, state } });
   });
   const config = { apiUrl: origin, stateDir: directory, gatewayUrl: gateway, gatewayToken, agentId: 'main' };
-  const open = async (beforeScopedTurn?:import('../hermes/native-binding').ScopedPreparationGuard) => {
-    const bridge = await createOpenClawBridge(config, { env: { ENVOI_SCOPED_TOOLS: 'true' }, fetch: fetcher,beforeScopedTurn });
+  const open = async (beforeScopedTurn?:import('../hermes/native-binding').ScopedPreparationGuard,scopedReadOnlyWork?:(workId:string)=>boolean) => {
+    const bridge = await createOpenClawBridge(config, { env: { ENVOI_SCOPED_TOOLS: 'true' }, fetch: fetcher,beforeScopedTurn,scopedReadOnlyWork });
     closers.push(bridge.close);
     return bridge;
   };
@@ -163,6 +163,21 @@ afterEach(async () => {
 });
 
 describe('production OpenClaw scoped bridge composition', () => {
+  it('passes trusted read-only review policy into the actual Responses model payload',async()=>{
+    const scenario=await setup(),readOnlyWork=vi.fn((workId:string)=>workId===scenario.work.workId);
+    scenario.model(async()=>{
+      const body=scenario.modelRequests.at(-1)!;
+      expect(body.tools.every((tool:{name:string})=>['envoi_case_snapshot','envoi_case_list_assets'].includes(tool.name))).toBe(true);
+      expect(JSON.stringify(body.input)).toContain('This work is a read-only review');
+      return Response.json({status:'completed',output:[textOutput('Reviewed without replying')]});
+    });
+    const bridge=await scenario.open(undefined,readOnlyWork);
+    expect(await bridge.connector.scopedWakeWorkDriver().processWorkOnce()).toBe(true);
+    expect(readOnlyWork).toHaveBeenCalledExactlyOnceWith(scenario.work.workId);
+    expect(scenario.toolRequests.map(r=>r.params.name)).toEqual(['envoi_case_snapshot']);
+    expect(scenario.effects.size).toBe(0);
+    expect((await scenario.journal())?.completed).toBe(true);
+  });
   it('holds canonical control work before any real gateway request or native journal',async()=>{
     const s=await setup();let reached=false;
     const bridge=await s.open(async workId=>{expect(workId).toBe(s.work.workId);expect(s.toolRequests.map(r=>r.params.name)).toEqual(['envoi_case_snapshot']);
