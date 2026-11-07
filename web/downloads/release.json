@@ -8,8 +8,8 @@
       "size": 427375
     },
     "envoi-connector.mjs": {
-      "sha256": "0c2acb6f066c8d90536985852f324651c3a046666bc1c00a4ea4ef1370492ec0",
-      "size": 545439
+      "sha256": "ddf4cc1c4d1e66dcced609c8ec217c4ae3ffcafb69a1d75c4b6e00fde45b17a6",
+      "size": 545530
     }
   },
   "runtimes": [

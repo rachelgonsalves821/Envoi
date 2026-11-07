@@ -186,12 +186,18 @@ describe('shared connector lifecycle', () => {
     try {
       await Promise.race([parkedSignal, running.then(() => { throw new Error('Stopped before parking'); })]);
       expect(await queryControl(f.options.stateDir, 'status')).toMatchObject({ errorCode: 'TOOLS_PROOF_PARKED', runtimeChecks: 'pending', guidance: expect.stringMatching(/paused.*model tool use/i) });
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({
+        runtimeDiagnostic: { errorCode: 'TOOLS_PROOF_PARKED' },
+        guidance: expect.stringMatching(/paused.*model tool use/i),
+        nextAction: expect.stringMatching(/paused.*approvals/i)
+      });
       recovered = true;
       await Promise.race([readySignal, running.then(() => { throw new Error('Stopped before readiness'); })]);
       const status = await queryControl(f.options.stateDir, 'status');
       expect(status.runtimeChecks).toBe('passed');
       expect(status.errorCode).toBeUndefined();
       expect(status.guidance).toBeUndefined();
+      expect((await connectionStatus(f.options.stateDir)).guidance).toBeUndefined();
     } finally { owner.abort(); await running; }
   });
   it('preserves enrollment and skips the error report when setup status is cancelled', async () => {

@@ -21,6 +21,8 @@ import { createHostTaskSender, HostTaskError } from './host-task';
 import { readRuntimeDiagnostic, writeRuntimeDiagnostic, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
 import { inspectHermesHost, type HermesHostObservation } from '../hermes/scoped-host';
 
+const hermesProofParkedGuidance = 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.';
+
 export interface InstalledConnection {
   version: 1;
   runtime: ConnectorRuntime;
@@ -406,7 +408,7 @@ export async function adoptActivatedConnection(apiUrl: string, runtime: Connecto
       if (runtime === 'hermes') await waitForRuntimeTools(bridge, options.signal ?? new AbortController().signal, {
         timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
         onWaiting(code) { options.onProgress?.(code === 'TOOLS_PROOF_PARKED'
-          ? 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.'
+          ? hermesProofParkedGuidance
           : 'Waiting for Hermes Gateway tools and identity verification; keep this connector running.'); }
       });
       else await bridge.verify?.(options.signal);
@@ -572,7 +574,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
             onWaiting(code) {
               diagnostics = { ...diagnostics, status: 'waiting', runtimeChecks: 'pending', errorCode: code,
                 guidance: code === 'TOOLS_PROOF_PARKED'
-                  ? 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.'
+                  ? hermesProofParkedGuidance
                   : 'Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged.' };
               options.onWaiting?.(code);
             }
@@ -669,6 +671,7 @@ export async function connectionStatus(stateDir: string) {
     : 'enabled' in startupService && startupService.enabled === false ? 'Ask the owner to enable the existing startup service.'
     : 'managerState' in startupService && startupService.managerState === 'failed' ? 'Inspect the startup service failure; preserve enrollment and credentials.'
     : errorCode === 'GATEWAY_UNREACHABLE' ? 'Restore the selected Gateway; the connector will retry its saved connection.'
+    : errorCode === 'TOOLS_PROOF_PARKED' ? hermesProofParkedGuidance
     : phase === 'failed' ? 'Inspect the saved runtime error code and repair the selected runtime before restarting.'
     : 'recoveryPolicy' in startupService && startupService.recoveryPolicy === 'outdated' ? 'Ask the owner to reinstall the existing connector startup service with this build; preserve its saved profile and enrollment.'
     : status === 'stopped' && startupService.registration === 'not_installed' ? 'Start the existing connector or ask the owner to install its startup service.'
@@ -676,7 +679,8 @@ export async function connectionStatus(stateDir: string) {
     : status === 'waiting' ? 'Wait for the saved retry, then verify a real agent exchange.'
     : undefined;
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
-    credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle, guidance: session?.lifecycle?.guidance, ...(enrollmentError ? { enrollmentError } : {}),
+    credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle,
+    guidance: session?.lifecycle?.guidance ?? (errorCode === 'TOOLS_PROOF_PARKED' ? hermesProofParkedGuidance : undefined), ...(enrollmentError ? { enrollmentError } : {}),
     stateDir: directory, status, controlChannel, startupService, ...(selectedGateway ? { selectedGateway } : {}),
     ...(nextAction ? { nextAction } : {}), checkedAt: live?.checkedAt ?? checks?.checkedAt,
     runtimeDiagnostic: live ? { phase: live.phase, runtimeChecks: live.runtimeChecks,
