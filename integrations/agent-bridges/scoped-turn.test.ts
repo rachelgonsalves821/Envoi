@@ -88,6 +88,17 @@ describe('trusted scoped adapter turn boundary', () => {
     expect(test.requests.map(request=>request.params.name)).toEqual(['envoi_case_snapshot']);
   });
 
+  it('preserves the two-party reply schema and refuses group-only arguments before transport', async () => {
+    const test = harness(async turn => {
+      const reply = turn.tools.find(tool => tool.name === 'envoi_case_reply')!;
+      expect(reply.inputSchema.properties).not.toHaveProperty('assigneeAgentIds');
+      await expect(turn.callTool('envoi_case_reply', {text:'Bound reply',idempotencyKey:'two-party',assigneeAgentIds:['agent_third']}))
+        .rejects.toMatchObject({code:'TOOL_ARGUMENTS_INVALID'});
+    });
+    await test.process();
+    expect(test.requests.map(request=>request.params.name)).toEqual(['envoi_case_snapshot']);
+  });
+
   it('binds restrictions to each trusted work rather than leaking them to a concurrent ordinary task', async () => {
     const readOnlyWork = (workId: string) => workId === 'msg_readonly_review';
     const review = harness(async turn => { expect(turn.tools.map(tool => tool.name)).not.toContain('envoi_case_reply'); }, 'Receipt', { readOnlyWork });

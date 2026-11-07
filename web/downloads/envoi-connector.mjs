@@ -6366,7 +6366,8 @@ var Zn = class {
 		if (!n.input(r)) return Promise.reject(new I("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
 		if ("terms" in r && Wn(JSON.stringify(r.terms)) > 1024) return Promise.reject(new I("Case terms exceed the byte limit", void 0, "TOOL_ARGUMENTS_INVALID"));
 		let i = this.#i.then(async () => {
-			if (this.signal.throwIfAborted(), this.#r) throw new I("End this turn and wait for the human decision", void 0, "TURN_END_REQUIRED");
+			if (this.signal.throwIfAborted(), e === "envoi_case_reply" && Object.hasOwn(r, "assigneeAgentIds") && !this.#e.modelContext().groupMemberAgentIds) throw new I("Group assignment requires a bound group case", void 0, "TOOL_ARGUMENTS_INVALID");
+			if (this.#r) throw new I("End this turn and wait for the human decision", void 0, "TURN_END_REQUIRED");
 			return !this.#n && (e !== "envoi_case_snapshot" || Object.hasOwn(r, "eventsBefore")) && await this.#a("envoi_case_snapshot", {}), this.#a(e, r);
 		});
 		return this.#i = i.catch(() => {}), i;
@@ -8672,10 +8673,13 @@ function zr(e) {
 			let c = e.readOnlyWork?.(s.workId) === !0, l = t.modelContext(), u = c ? Object.freeze({
 				...l,
 				allowedTools: Object.freeze(l.allowedTools.filter((e) => Lr.has(e)))
-			}) : l, d = Object.freeze(In.tools.filter((e) => u.allowedTools.includes(e.name)).map((e) => Object.freeze({
-				name: e.name,
-				inputSchema: Object.freeze(structuredClone(e.inputSchema))
-			}))), f = new I("Turn ended for human input", void 0, "TURN_END_REQUIRED"), p = 0, m = Promise.resolve(), h, g = new Promise((e, t) => {
+			}) : l, d = Object.freeze(In.tools.filter((e) => u.allowedTools.includes(e.name)).map((e) => {
+				let t = structuredClone(e.inputSchema);
+				return e.name === "envoi_case_reply" && !u.groupMemberAgentIds && delete t.properties.assigneeAgentIds, Object.freeze({
+					name: e.name,
+					inputSchema: Object.freeze(t)
+				});
+			})), f = new I("Turn ended for human input", void 0, "TURN_END_REQUIRED"), p = 0, m = Promise.resolve(), h, g = new Promise((e, t) => {
 				h = () => t(o.reason), o.addEventListener("abort", h, { once: !0 }), o.aborted && h();
 			});
 			try {
