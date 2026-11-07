@@ -69,6 +69,7 @@ async function setup(options:{declinedDecision?:boolean;readOnly?:boolean}={}) {
   let instanceId = 'instance_fixture', replaceInstanceOnDrop = false;
   let gateAnswer: ((params: Record<string, any>) => unknown) | undefined;
   let sendCloses = false;
+  let unknownResolution={status:'terminal',outcome:'interrupted'};
   let sourceCapabilities = ['acp-editor-policy-v1', 'acp-session-mcp-v1'];
   let controlCapabilities = ['session-authority-v1', 'durable-admission-v1', 'event-replay-v1'];
   const netTarget = process.platform === 'win32' ? `\\\\.\\pipe\\hermes-gateway-${createHash('sha256').update(path.resolve(home).toLowerCase()).digest('hex').slice(0, 16)}` : path.join(home, 'gateway.sock');
@@ -180,6 +181,11 @@ async function setup(options:{declinedDecision?:boolean;readOnly?:boolean}={}) {
       if (request.method === 'session.interrupt') {
         expect(params.execution_generation).toBe(1); currentStatus = 'terminal'; outcome = 'interrupted'; return {};
       }
+      if(request.method==='prompt.resolve_unknown'){
+        expect(currentStatus).toBe('unknown');
+        expect(params).toEqual({session_id:'hermes_session_fixture',admission_id:admissionId,execution_generation:1});
+        currentStatus=unknownResolution.status;outcome=unknownResolution.outcome;return receipt();
+      }
       if (request.method === 'session.detach') return { detached: true };
       throw new Error('Unexpected Hermes RPC ' + request.method);
     }
@@ -232,6 +238,7 @@ async function setup(options:{declinedDecision?:boolean;readOnly?:boolean}={}) {
     toolTransport: (transport: typeof toolTransport) => { toolTransport = transport; },
     addTool: (value: Fixture) => { extra.set(value.request!.body!.params.name, value); },
     setStatus: (status: string, result = 'completed') => { currentStatus = status; outcome = result; },
+    unknownResolution: (status:string,result:string)=>{unknownResolution={status,outcome:result};},
     loseSubmit: () => { lostSubmit = true; }, loseReceipt: () => { loseReceipt = true; },
     dropReceipts: (count: number) => { receiptDrops = count; }, faultReceipt: (fault: string) => { receiptFault = fault; },
     replaceInstanceOnReceiptDrop: () => { replaceInstanceOnDrop = true; },
@@ -248,6 +255,41 @@ async function setup(options:{declinedDecision?:boolean;readOnly?:boolean}={}) {
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('production Hermes scoped composition with inert authenticated daemon transport', () => {
+  it.each(['interrupted','completed','unknown','invalid'])('requires exact discard authority and re-reads the actual %s resolution without replay',async result=>{
+    const scenario=await setup();scenario.setStatus('unknown');const bridge=await scenario.open();
+    await expect(bridge.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toThrow();await bridge.close();
+    const filename=path.join(scenario.directory,'scoped-runs',scenario.work.workId+'.json'),journalRawBytes=await readFile(filename,'utf8');
+    const state=JSON.parse(journalRawBytes).input[0];
+    scenario.unknownResolution(result==='unknown'?'unknown':'terminal',result);
+    const before=scenario.rpcRequests.length;
+    const operation=cancelRetainedHermesAdmission({home:scenario.home,origin:daemon,cwd:scenario.home},{workId:scenario.work.workId,journalRawBytes,
+      journalSha256:createHash('sha256').update(journalRawBytes).digest('hex'),discardUnknown:{operatorDecisionSha256:'a'.repeat(64),
+        sessionId:state.sessionId,admissionId:state.admissionId,inputId:state.inputId,profileId:scenario.home,executionGeneration:1}},AbortSignal.timeout(5000));
+    if(result==='unknown')await expect(operation).rejects.toMatchObject({code:'HERMES_EXECUTION_UNCERTAIN'});
+    else if(result==='invalid')await expect(operation).rejects.toMatchObject({code:'HERMES_TURN_RECOVERY_REQUIRED'});
+    else{const proof=await operation;expect(proof).toMatchObject({outcome:result,unknownDiscardRequested:true,cancellationRequested:false,
+      operatorDecisionSha256:'a'.repeat(64),modelPromptsSubmitted:0,journalModified:false});expect(JSON.parse(proof.receiptRawBytes).result.outcome).toBe(result);}
+    const delta=scenario.rpcRequests.slice(before).map(r=>r.method);
+    expect(delta).toEqual(['runtime.describe','session.resume','prompt.receipt','prompt.resolve_unknown','prompt.receipt','session.detach']);
+    expect(await readFile(filename,'utf8')).toBe(journalRawBytes);
+    expect(scenario.rpcRequests.filter(r=>r.method==='prompt.submit')).toHaveLength(1);
+  });
+  it.each(['decision','session','admission','input','profile','generation'])('refuses mismatched %s discard authority before resolving or cancelling',async field=>{
+    const scenario=await setup();scenario.setStatus('unknown');const bridge=await scenario.open();
+    await expect(bridge.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toThrow();await bridge.close();
+    const journalRawBytes=await readFile(path.join(scenario.directory,'scoped-runs',scenario.work.workId+'.json'),'utf8'),state=JSON.parse(journalRawBytes).input[0];
+    const discardUnknown={operatorDecisionSha256:'a'.repeat(64),sessionId:state.sessionId,admissionId:state.admissionId,inputId:state.inputId,
+      profileId:scenario.home,executionGeneration:1};
+    if(field==='decision')discardUnknown.operatorDecisionSha256='missing';
+    if(field==='session')discardUnknown.sessionId='foreign';if(field==='admission')discardUnknown.admissionId='foreign';
+    if(field==='input')discardUnknown.inputId='foreign';if(field==='profile')discardUnknown.profileId='foreign';
+    if(field==='generation')discardUnknown.executionGeneration=2;
+    const before=scenario.rpcRequests.length;
+    await expect(cancelRetainedHermesAdmission({home:scenario.home,origin:daemon,cwd:scenario.home},{workId:scenario.work.workId,journalRawBytes,
+      journalSha256:createHash('sha256').update(journalRawBytes).digest('hex'),discardUnknown},AbortSignal.timeout(5000)))
+      .rejects.toMatchObject({code:'EXACT_UNKNOWN_DISCARD_DECISION_REQUIRED'});
+    expect(scenario.rpcRequests.slice(before).some(r=>['prompt.resolve_unknown','prompt.cancel','session.interrupt','session.create','prompt.submit'].includes(r.method))).toBe(false);
+  });
   it.each(['started','completed','unknown'])('cleans up only a pinned original %s admission, without creating or prompting any work',async status=>{
     const scenario=await setup();scenario.setStatus('unknown');
     const bridge=await scenario.open();await expect(bridge.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toThrow();await bridge.close();
