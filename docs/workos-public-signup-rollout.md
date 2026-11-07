@@ -24,3 +24,11 @@
 The supported cohort is at most **131 beta accounts**, plus the one preserved internal owner outside the waitlist. No additional organic user should be promised admission after the 100 public slots fill. Product and operations should watch new accounts, workspace creation failures, request errors, database load and support volume during the first 24–48 hours. Support is scoped to the admitted beta cohort; pause public admission and return new visitors to the waitlist if the team cannot serve them. The beta does not promise a response time to people beyond this cohort.
 
 To close admission, return `ENVOI_HUMAN_SIGNUP_MODE` to `invite-only` on a reviewed Worker/image release and verify `/api/auth/config` returns `inviteOnly: true`. Existing public data remains stored, but public users outside the invite list will lose application access until public mode is restored or they are explicitly invited. Record the rollback release, reason, and user communication plan before activation. A setting flip alone does not substitute for the paired Worker/image rollback rehearsal.
+
+## Separate staging admission address
+
+`ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL` optionally admits one additional verified account only when `ENVOI_DEPLOYMENT_ENVIRONMENT` is exactly `staging`. It is a separate setting: do not replace, reconstruct or broaden the encrypted `ENVOI_BETA_INVITED_EMAILS` list. The original list retains its validation and 32-address limit. This additional address joins the in-memory invited set and does not consume a public admission slot.
+
+The value must be one literal email address, at most 254 characters; surrounding whitespace is trimmed and case is normalized. Lists, internal whitespace, wildcards and malformed nonempty values fail closed, naming the setting without disclosing its value. An absent or blank value grants nothing. Other deployments ignore the setting and gain no admission from it, even if a stray value is malformed. Email verification, current-session admission, membership and all other authorization checks remain required.
+
+The Worker must forward this setting to the Container. Its presence, change and removal participate in the existing settings fingerprint. Preparing this code does not authorize setting changes, deployment, account creation or a live acceptance run.

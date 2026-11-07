@@ -1,7 +1,7 @@
 import { scannerHealthUrl } from './dependency-readiness.js';
 import { createPostgresOptions } from './postgres-options.js';
 import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from './envoi-environment.js';
-import { isDeploymentName, uncappedAgentHumanIds } from './deployment-identity.js';
+import { isDeploymentName, uncappedAgentHumanIds, STAGING_ADDITIONAL_INVITED_EMAIL, stagingAdditionalInvitedEmail } from './deployment-identity.js';
 import { onboardingFlagErrors } from './onboarding-flags.js';
 
 const required = (env, name, errors, minimumLength = 1) => {
@@ -58,6 +58,8 @@ export function validateProductionConfiguration(env = process.env) {
   // The launch allowlist includes 31 waitlist recipients and one existing internal owner
   // whose Production WorkOS email is not on that list. The extra address is not an invite.
   if (new Set(invitedEmails).size > 32) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 32 distinct addresses for the first beta');
+  try { stagingAdditionalInvitedEmail(env[STAGING_ADDITIONAL_INVITED_EMAIL], deploymentEnvironment); }
+  catch (error) { errors.push(error.message); }
   try { uncappedAgentHumanIds(env, deploymentEnvironment); }
   catch (error) { errors.push(error.message); }
   const signupMode = env.ENVOI_HUMAN_SIGNUP_MODE || 'invite-only';

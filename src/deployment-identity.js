@@ -11,6 +11,21 @@ const DEVELOPMENT_ENVIRONMENT = 'development';
 
 export const isDeploymentName = value => typeof value === 'string' && DEPLOYMENT_NAME.test(value);
 
+// One additional exact address for staging, kept separate from the encrypted base
+// invite list. Other deployments ignore it; malformed staging values fail closed.
+export const STAGING_ADDITIONAL_INVITED_EMAIL = 'ENVOI_STAGING_ADDITIONAL_INVITED_EMAIL';
+const SINGLE_EMAIL = /^[^\s@,;*]+@[^\s@,;*]+\.[^\s@,;*]+$/;
+
+export function stagingAdditionalInvitedEmail(value, environment) {
+  if (environment !== 'staging') return null;
+  const trimmed = typeof value === 'string' ? value.trim() : value;
+  if (trimmed === undefined || trimmed === null || trimmed === '') return null;
+  if (typeof trimmed !== 'string' || trimmed.length > 254 || !SINGLE_EMAIL.test(trimmed)) {
+    throw new Error(`${STAGING_ADDITIONAL_INVITED_EMAIL} must be one exact email address`);
+  }
+  return trimmed.toLowerCase();
+}
+
 export const STAGING_UNCAPPED_AGENT_HUMAN_IDS = 'ENVOI_STAGING_UNCAPPED_AGENT_HUMAN_IDS';
 export const UNCAPPED_AGENT_HUMAN_IDS = 'ENVOI_UNCAPPED_AGENT_HUMAN_IDS';
 const HUMAN_ID = /^human_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
