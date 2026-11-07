@@ -10396,32 +10396,32 @@ function ea(e, t, n, r) {
 	].includes(e.status) || e.status === "started" && (!Number.isSafeInteger(e.execution_generation) || e.execution_generation < 1)) throw Z();
 	return e;
 }
-async function ta(e, t, n) {
-	let r = AbortSignal.timeout(5e3);
+async function ta(e, t, n, r) {
+	let i = AbortSignal.any([AbortSignal.timeout(5e3), ...r ? [r] : []]);
 	try {
 		await e.rpc("prompt.cancel", {
 			session_id: t,
 			admission_id: n
-		}, r);
+		}, i);
 	} catch (e) {
 		if (!(e instanceof I) || e.code !== "HERMES_STALE_GENERATION") throw e;
 	}
-	let i = ea(await e.rpc("prompt.receipt", {
+	let a = ea(await e.rpc("prompt.receipt", {
 		session_id: t,
 		admission_id: n
-	}, r), t, n, e.profileId);
-	if (i.status === "started") try {
+	}, i), t, n, e.profileId);
+	if (a.status === "started") try {
 		await e.rpc("session.interrupt", {
 			session_id: t,
-			execution_generation: i.execution_generation
-		}, r);
+			execution_generation: a.execution_generation
+		}, i);
 	} catch (e) {
 		if (!(e instanceof I) || e.code !== "HERMES_STALE_GENERATION") throw e;
 	}
-	for (; i.status !== "terminal" && i.status !== "unknown";) await T(50, void 0, { signal: r }), i = ea(await e.rpc("prompt.receipt", {
+	for (; a.status !== "terminal" && a.status !== "unknown";) await T(50, void 0, { signal: i }), a = ea(await e.rpc("prompt.receipt", {
 		session_id: t,
 		admission_id: n
-	}, r), t, n, e.profileId);
+	}, i), t, n, e.profileId);
 }
 async function na(e, t, n, r) {
 	let i = await Ji(e.home, "identify", {}, n);

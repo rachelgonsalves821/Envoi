@@ -12,7 +12,7 @@ import { createHermesBridge } from './runtime';
 import { hermesAdapter } from './adapter';
 import { prepareHermesRun } from './run';
 import { selectScopedHermes } from './scoped-runtime';
-import { currentHermesHost, hermesProfileIdentity, inspectHermesTerminalTurn,inspectHermesTerminalEvidence } from './scoped-host';
+import { currentHermesHost, hermesProfileIdentity, inspectHermesTerminalTurn,inspectHermesTerminalEvidence,cancelRetainedHermesAdmission } from './scoped-host';
 
 interface Fixture { request?: { path?: string; body?: Record<string, any> }; response?: { status: number; body: Record<string, any> }; steps?: Fixture[] }
 const cleanups: Array<() => Promise<unknown>> = [];
@@ -167,6 +167,7 @@ async function setup(options:{declinedDecision?:boolean;readOnly?:boolean}={}) {
           if (fault === 'wrong-session') result.ref.session_id = 'foreign_session';
           if (fault === 'wrong-profile') result.ref.profile_id = 'foreign_profile';
           if (fault === 'wrong-admission') result.admission_id = 'foreign_admission';
+          if (fault === 'wrong-input') result.input_id = 'foreign_input';
           if (fault === 'unknown') result.status = 'unknown';
           return result;
         }
@@ -247,6 +248,35 @@ async function setup(options:{declinedDecision?:boolean;readOnly?:boolean}={}) {
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('production Hermes scoped composition with inert authenticated daemon transport', () => {
+  it.each(['started','completed','unknown'])('cleans up only a pinned original %s admission, without creating or prompting any work',async status=>{
+    const scenario=await setup();scenario.setStatus('unknown');
+    const bridge=await scenario.open();await expect(bridge.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toThrow();await bridge.close();
+    const filename=path.join(scenario.directory,'scoped-runs',scenario.work.workId+'.json'),journalRawBytes=await readFile(filename,'utf8'),journalSha256=createHash('sha256').update(journalRawBytes).digest('hex');
+    scenario.setStatus(status==='completed'?'terminal':status,'completed');const before=scenario.rpcRequests.length;
+    const operation=cancelRetainedHermesAdmission({home:scenario.home,origin:daemon,cwd:scenario.home},{workId:scenario.work.workId,journalRawBytes,journalSha256},AbortSignal.timeout(5000));
+    if(status==='unknown')await expect(operation).rejects.toMatchObject({code:'HERMES_EXECUTION_UNCERTAIN'});
+    else{const result=await operation;expect(result).toMatchObject({outcome:status==='started'?'interrupted':'completed',cancellationRequested:status==='started',modelPromptsSubmitted:0,journalModified:false,journalSha256});expect(JSON.parse(result.receiptRawBytes).result.admission_id).toBe(JSON.parse(journalRawBytes).input[0].admissionId);}
+    const delta=scenario.rpcRequests.slice(before).map(r=>r.method);
+    expect(delta.every(method=>['runtime.describe','session.resume','prompt.receipt','prompt.cancel','session.interrupt','session.detach'].includes(method))).toBe(true);
+    expect(delta.includes('prompt.cancel')).toBe(status==='started');
+    expect(await readFile(filename,'utf8')).toBe(journalRawBytes);
+    expect(scenario.rpcRequests.filter(r=>r.method==='session.create')).toHaveLength(1);
+    expect(scenario.rpcRequests.filter(r=>r.method==='prompt.submit')).toHaveLength(1);
+  });
+  it('refuses a changed journal or different work before opening a native control connection',async()=>{
+    const scenario=await setup(),before=scenario.bootstrap.length;
+    const input={workId:scenario.work.workId,journalRawBytes:'{}',journalSha256:'0'.repeat(64)};
+    await expect(cancelRetainedHermesAdmission({home:scenario.home,origin:daemon,cwd:scenario.home},input,AbortSignal.timeout(1000))).rejects.toMatchObject({code:'EXACT_RETAINED_JOURNAL_REQUIRED'});
+    expect(scenario.bootstrap).toHaveLength(before);
+  });
+  it('refuses a different native input identity before cancelling the pinned admission',async()=>{
+    const scenario=await setup();scenario.setStatus('unknown');const bridge=await scenario.open();
+    await expect(bridge.connector.scopedWakeWorkDriver().processWorkOnce()).rejects.toThrow();await bridge.close();
+    const journalRawBytes=await readFile(path.join(scenario.directory,'scoped-runs',scenario.work.workId+'.json'),'utf8');
+    scenario.setStatus('started');scenario.faultReceipt('wrong-input');const before=scenario.rpcRequests.length;
+    await expect(cancelRetainedHermesAdmission({home:scenario.home,origin:daemon,cwd:scenario.home},{workId:scenario.work.workId,journalRawBytes,journalSha256:createHash('sha256').update(journalRawBytes).digest('hex')},AbortSignal.timeout(5000))).rejects.toMatchObject({code:'HERMES_TURN_RECOVERY_REQUIRED'});
+    expect(scenario.rpcRequests.slice(before).some(r=>['prompt.cancel','session.interrupt','session.create','prompt.submit'].includes(r.method))).toBe(false);
+  });
   it('presents a read-only receipt through the real bridge and MCP discovery without an echo write',async()=>{
     const scenario=await setup({readOnly:true}),readOnlyWork=vi.fn((workId:string)=>workId===scenario.work.workId);
     scenario.onPrompt(async()=>{

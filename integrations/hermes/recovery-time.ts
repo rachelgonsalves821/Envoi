@@ -6,7 +6,8 @@ function refuse(code:string):never{throw Object.assign(Error(code),{code});}
 async function read(file:string,pin:string){if(!path.isAbsolute(file)||!digest(pin))refuse('PINNED_RECOVERY_TIME_DECISION_REQUIRED');const s=await fs.lstat(file);if(!s.isFile()||s.isSymbolicLink()||s.size<=0||s.size>32768)refuse('BOUNDED_RECOVERY_TIME_DECISION_REQUIRED');const raw=await fs.readFile(file);if(hash(raw)!==pin)refuse('RECOVERY_TIME_DECISION_CHANGED');return JSON.parse(raw.toString('utf8'));}
 /** No host/model start. A new clock needs a separate, exact decision and a one-use marker.
  * The historical receipt is read only and never gets a different deadline. */
-type RecoveryTimeInput={link:RecoveryTimeLink;original:ContinuationReceipt;receipt:ContinuationReceipt;priorWindow:string;priorPacketSha256:string;stateSha256:string;programSha256:string;amendmentSha256:string;releaseRoot:string};
+type RecoveryTimeInput={link:RecoveryTimeLink;original:ContinuationReceipt;receipt:ContinuationReceipt;priorWindow:string;priorPacketSha256:string;stateSha256:string;programSha256:string;amendmentSha256:string;releaseRoot:string;
+  currentAccounting?:Readonly<{models:number;operations:number;canonicalMessages:number}>};
 export async function validateRecoveryTime(input:RecoveryTimeInput){await authorizeRecoveryTime(input);}
 export async function authorizeRecoveryTime(input:RecoveryTimeInput){
  const {link,original,receipt:r}=input;
@@ -17,7 +18,9 @@ export async function authorizeRecoveryTime(input:RecoveryTimeInput){
  if(r.approvalReceiptSha256!==input.amendmentSha256)refuse('RECOVERY_TIME_NOT_BOUND_TO_AMENDMENT');
  const d=await read(link.decisionPath,link.decisionSha256),a=await read(link.amendmentPath,input.amendmentSha256);
  if(a.recovery?.timeMode!=='new-interval'||a.recovery?.timeDecisionSha256!==link.decisionSha256||a.recovery?.timeDecisionId!==d.decisionId)refuse('RECOVERY_TIME_NOT_BOUND_TO_AMENDMENT');
- const exact={purpose:'phase-c-explicit-new-recovery-interval',version:1,owner:'pjsk02',ownerApproved:true,clientSource:r.clientSource,serverSource:r.serverSource,runnerSha256:r.runnerSha256,packetSha256:r.packetSha256,priorWindow:input.priorWindow,priorPacketSha256:input.priorPacketSha256,priorStateSha256:input.stateSha256,priorProgramSha256:input.programSha256,modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,currentModels:30,currentOperations:24,currentCanonicalMessages:11,repeatOnboarding:false,replayAcceptedSends:false,pauseFailureWaived:false};
+ const accounting=input.currentAccounting??{models:30,operations:24,canonicalMessages:11};
+ if(!Number.isSafeInteger(accounting.models)||accounting.models<30||accounting.models>64||!Number.isSafeInteger(accounting.operations)||accounting.operations<22||accounting.operations>60||!Number.isSafeInteger(accounting.canonicalMessages)||accounting.canonicalMessages<9||accounting.canonicalMessages>accounting.operations)refuse('EXACT_RECOVERY_ACCOUNTING_REQUIRED');
+ const exact={purpose:'phase-c-explicit-new-recovery-interval',version:1,owner:'pjsk02',ownerApproved:true,clientSource:r.clientSource,serverSource:r.serverSource,runnerSha256:r.runnerSha256,packetSha256:r.packetSha256,priorWindow:input.priorWindow,priorPacketSha256:input.priorPacketSha256,priorStateSha256:input.stateSha256,priorProgramSha256:input.programSha256,modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,currentModels:accounting.models,currentOperations:accounting.operations,currentCanonicalMessages:accounting.canonicalMessages,repeatOnboarding:false,replayAcceptedSends:false,pauseFailureWaived:false};
  for(const[k,v]of Object.entries(exact))if(d[k]!==v)refuse('EXACT_NEW_RECOVERY_TIME_DECISION_REQUIRED');
  const keys=[...Object.keys(exact),'decisionId','receivedAtUtc','maximumIntervalMs'].sort().join();
  const start=Date.parse(r.startUtc),stop=Date.parse(r.hardStopUtc),received=Date.parse(d.receivedAtUtc);
