@@ -111,6 +111,12 @@ it('requires genuine negative native and canonical failure, never an unfinished 
  const s=await setup(),p=s.options.recovery.failed[0];
  for(const outcome of ['completed','unknown']){p.nativeTerminal=await s.pin('failed-terminal.json',{status:outcome==='unknown'?'started':'terminal',outcome,ref:{session_id:'session_private-receipt-review'},admission_id:'admission_private-receipt-review'});await expect(ContinuationController.prepareStoppedProgress(s.options)).rejects.toThrow('GENUINE_PRIOR_NATIVE_TERMINAL_REQUIRED');}
 });
+it('binds prior terminal evidence to the original input identity before any progress mutation',async()=>{
+ const s=await setup(),p=s.options.recovery.failed[0],before=await fs.readFile(s.filename);
+ p.nativeTerminal=await s.pin('wrong-input-terminal.json',{status:'terminal',outcome:'interrupted',ref:{session_id:'session_private-receipt-review'},admission_id:'admission_private-receipt-review',input_id:'foreign-input'});
+ await expect(ContinuationController.prepareStoppedProgress(s.options)).rejects.toThrow('GENUINE_PRIOR_NATIVE_TERMINAL_REQUIRED');
+ expect(await fs.readFile(s.filename)).toEqual(before);
+});
 it('refuses expired time or forged preparation handles without modifying the ledger',async()=>{
  const s=await setup(),before=await fs.readFile(s.filename);
  await expect(ContinuationController.prepareStoppedProgress({...s.options,receipt:{...s.options.receipt,hardStopUtc:new Date(Date.now()-1).toISOString()}})).rejects.toThrow('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
