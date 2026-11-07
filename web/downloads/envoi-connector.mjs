@@ -6874,79 +6874,99 @@ var ur = class {
 			guidance: e.paused ? Ve("wait_for_resume") : void 0
 		});
 	}
-	async freshSession(e = !1) {
-		if (await this.guard(), this.refreshInFlight) return this.refreshInFlight;
-		this.refreshInFlight = (async () => {
-			let t = q(await this.store.load());
-			if (!e && !t.pendingRotation && Date.parse(t.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return t;
-			if (Date.parse(t.agentRefreshTokenExpiresAt) <= Date.now()) throw new ar();
-			let n = await sr(t.agentRefreshToken);
-			if (t.pendingRotation && t.pendingRotation.refreshTokenFingerprint !== n) throw new ar();
-			let r = t.pendingRotation || {
-				rotationId: crypto.randomUUID(),
-				refreshTokenFingerprint: n,
-				startedAt: (/* @__PURE__ */ new Date()).toISOString()
+	async freshSession(e = !1, t) {
+		if (t?.throwIfAborted(), await this.guard(), t?.throwIfAborted(), this.refreshInFlight?.controller.signal.aborted) {
+			let n = this.refreshInFlight.promise.catch(() => void 0);
+			return t ? await dr(() => n, t) : await n, this.freshSession(e, t);
+		}
+		if (!this.refreshInFlight) {
+			let t = {
+				controller: new AbortController(),
+				waiters: /* @__PURE__ */ new Set(),
+				promise: null
 			};
-			t.pendingRotation || await this.mutate((e) => ({
-				...e,
-				pendingRotation: r
-			})), await this.guard();
-			let i = new AbortController();
-			this.activeRefresh.add(i);
-			let a;
-			try {
-				a = await ge(this.origin, t.agentRefreshToken, r.rotationId, {
-					...this.options,
-					fetch: (e, t) => (this.options.fetch || fetch)(e, {
-						...t,
-						signal: t?.signal ? AbortSignal.any([t.signal, i.signal]) : i.signal
-					})
+			this.refreshInFlight = t, t.promise = (async () => {
+				let n = q(await this.store.load());
+				if (t.controller.signal.throwIfAborted(), !e && !n.pendingRotation && Date.parse(n.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return n;
+				if (Date.parse(n.agentRefreshTokenExpiresAt) <= Date.now()) throw new ar();
+				let r = await sr(n.agentRefreshToken);
+				if (n.pendingRotation && n.pendingRotation.refreshTokenFingerprint !== r) throw new ar();
+				let i = n.pendingRotation || {
+					rotationId: crypto.randomUUID(),
+					refreshTokenFingerprint: r,
+					startedAt: (/* @__PURE__ */ new Date()).toISOString()
+				};
+				n.pendingRotation || await this.mutate((e) => ({
+					...e,
+					pendingRotation: i
+				})), await this.guard();
+				let a = t.controller;
+				this.activeRefresh.add(a);
+				let o;
+				try {
+					o = await ge(this.origin, n.agentRefreshToken, i.rotationId, {
+						...this.options,
+						fetch: (e, t) => (this.options.fetch || fetch)(e, {
+							...t,
+							signal: t?.signal ? AbortSignal.any([t.signal, a.signal]) : a.signal
+						})
+					});
+				} finally {
+					this.activeRefresh.delete(a);
+				}
+				return await this.guard(), this.mutate((e) => {
+					if (["REVOKED", "NEEDS_RECONNECT"].includes(e.lifecycle?.state ?? "")) throw new I(e.lifecycle?.guidance ?? "Credential ended", void 0, e.lifecycle?.code);
+					let { pendingRotation: t, ...n } = e;
+					return q({
+						...n,
+						...o
+					});
 				});
-			} finally {
-				this.activeRefresh.delete(i);
-			}
-			return await this.guard(), this.mutate((e) => {
-				if (["REVOKED", "NEEDS_RECONNECT"].includes(e.lifecycle?.state ?? "")) throw new I(e.lifecycle?.guidance ?? "Credential ended", void 0, e.lifecycle?.code);
-				let { pendingRotation: t, ...n } = e;
-				return q({
-					...n,
-					...a
-				});
+			})().catch(async (e) => {
+				throw t.controller.signal.aborted || await this.observeError(e), e;
+			}).finally(() => {
+				this.refreshInFlight === t && (this.refreshInFlight = null);
 			});
-		})();
+		}
+		let n = this.refreshInFlight, r = Symbol();
+		n.waiters.add(r);
 		try {
-			return await this.refreshInFlight;
-		} catch (e) {
-			throw await this.observeError(e), e;
+			return await (t ? dr(() => n.promise, t) : n.promise);
 		} finally {
-			this.refreshInFlight = null;
+			n.waiters.delete(r), !n.waiters.size && this.refreshInFlight === n && n.controller.abort();
 		}
 	}
-	async withFreshSession(e, t = !1, n = !1) {
+	async withFreshSession(e, t = !1, n = !1, r) {
+		if (r?.aborted) throw new I("Connector request was cancelled", void 0, "REQUEST_CANCELLED");
 		await this.guard(t);
-		let r = await this.freshSession();
+		let i;
+		try {
+			i = await this.freshSession(!1, r);
+		} catch (e) {
+			throw r?.aborted ? new I("Connector request was cancelled", void 0, "REQUEST_CANCELLED") : e;
+		}
 		await this.guard(t);
-		let i = this.actionEpoch, a = new AbortController();
-		t && this.activeActions.add(a);
-		let o = async (n) => {
-			if (await this.guard(t), t && i !== this.actionEpoch) throw new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
-			let r = await e(n, a.signal);
-			if (await this.guard(t), t && i !== this.actionEpoch) throw new I("Connector action was interrupted");
-			return await this.healthy(), r;
+		let a = this.actionEpoch, o = new AbortController();
+		t && this.activeActions.add(o);
+		let s = async (n) => {
+			if (r?.throwIfAborted(), await this.guard(t), t && a !== this.actionEpoch) throw new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
+			let i = await e(n, r ? AbortSignal.any([o.signal, r]) : o.signal);
+			if (r?.throwIfAborted(), await this.guard(t), t && a !== this.actionEpoch) throw new I("Connector action was interrupted");
+			return await this.healthy(), i;
 		};
 		try {
 			try {
-				return await o(r);
+				return await s(i);
 			} catch (e) {
 				if (!(e instanceof I) || ze(e).retry !== "refresh_then_retry_once") throw e;
 				await this.guard(t);
 				let n = q(await this.store.load());
-				return await o(n.agentApiToken === r.agentApiToken ? await this.freshSession(!0) : n);
+				return await s(n.agentApiToken === i.agentApiToken ? await this.freshSession(!0, r) : n);
 			}
 		} catch (e) {
-			throw t && a.signal.aborted ? (await this.guard(t), new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof I && ze(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
+			throw r?.aborted ? new I("Connector request was cancelled", void 0, "REQUEST_CANCELLED") : t && o.signal.aborted ? (await this.guard(t), new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof I && ze(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
 		} finally {
-			this.activeActions.delete(a);
+			this.activeActions.delete(o);
 		}
 	}
 	withFreshClient(e, t = !0) {
@@ -7833,31 +7853,31 @@ var ur = class {
 			};
 		});
 	}
-	async checkStatus() {
-		let e = this.actionEpoch, t = await this.withFreshSession(async (e) => {
-			let t;
+	async checkStatus(e) {
+		let t = this.actionEpoch, n = await this.withFreshSession(async (e, t) => {
+			let n;
 			try {
-				t = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
+				n = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
 					headers: { authorization: `Bearer ${e.agentApiToken}` },
 					credentials: "omit",
 					redirect: "error",
-					signal: AbortSignal.timeout(this.options.timeoutMs ?? 3e4)
+					signal: AbortSignal.any([AbortSignal.timeout(this.options.timeoutMs ?? 3e4), t])
 				});
 			} catch {
 				throw new I("Envoi status could not be reached", void 0, "NETWORK_ERROR");
 			}
-			let n = await L(t, "Envoi status failed");
-			if (!["active", "paused"].includes(n.state) || n.inboxId !== e.inboxId || n.agent?.id !== e.agentId) throw new I("Envoi returned an invalid agent status");
-			return n;
-		});
-		e === this.actionEpoch && (this.caseSessionsAvailable = t.caseSessions?.available === !0 && t.caseSessions.version === 1, t.state === "paused" ? await this.observeError(new I("Paused", void 0, "AGENT_PAUSED"), e) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
+			let r = await L(n, "Envoi status failed");
+			if (!["active", "paused"].includes(r.state) || r.inboxId !== e.inboxId || r.agent?.id !== e.agentId) throw new I("Envoi returned an invalid agent status");
+			return r;
+		}, !1, !1, e);
+		t === this.actionEpoch && (this.caseSessionsAvailable = n.caseSessions?.available === !0 && n.caseSessions.version === 1, n.state === "paused" ? await this.observeError(new I("Paused", void 0, "AGENT_PAUSED"), t) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
 			paused: !1,
 			code: void 0,
 			reason: void 0,
 			guidance: void 0,
 			failures: 0,
 			retryAt: void 0
-		}, e), this.wakeTrigger?.()));
+		}, t), this.wakeTrigger?.()));
 	}
 	async run(e) {
 		await this.start();
@@ -10909,7 +10929,7 @@ var ga = {
 			hermesKey: "",
 			runtime: n
 		}, t);
-		let r = await ma(t), i = 0, a = 0, o = -1, s;
+		let r = await ma(t), i = 0, a = !1, o = !1, s;
 		try {
 			s = await fa({
 				apiUrl: t.apiUrl,
@@ -10930,7 +10950,7 @@ var ga = {
 					e === "envoi_agent_info" && i++;
 				},
 				onToolDiscovery(e) {
-					e.includes("envoi_agent_info") && a++;
+					e.includes("envoi_agent_info") && (a = !0);
 				}
 			});
 		} catch (e) {
@@ -10944,13 +10964,13 @@ var ga = {
 		return {
 			connector: s.connector,
 			close: s.close,
-			readyToVerify: () => a > o,
+			readyToVerify: () => !o || a,
 			async verify(n) {
 				let s = i;
-				if (o = a, await gi(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${r.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
+				if (o = !0, await gi(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${r.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
 					...t,
 					...n ? { signal: n } : {}
-				}), i <= s) throw new F("TOOLS_NOT_READY", "Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.");
+				}), i <= s) throw new F("TOOLS_NOT_READY", a ? "Hermes loaded the Envoi tools but did not invoke the identity check. Retrying the proof with backoff; saved enrollment is unchanged." : "Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.");
 			}
 		};
 	},
@@ -12780,27 +12800,27 @@ function Xo(e, t) {
 }
 async function Zo(e, t, n = {}) {
 	if (!e.verify) return;
-	let r = n.timeoutMs === null ? void 0 : AbortSignal.timeout(n.timeoutMs ?? 36e4), i = r ? AbortSignal.any([t, r]) : t, a = !1, o = 0;
+	let r = n.timeoutMs === null ? void 0 : AbortSignal.timeout(n.timeoutMs ?? 36e4), i = r ? AbortSignal.any([t, r]) : t, a = !1, o = 0, s = 0;
 	for (; !i.aborted;) try {
-		if (await e.connector.checkStatus(), (await e.connector.lifecycle()).paused) return;
+		if (await e.connector.checkStatus(i), i.throwIfAborted(), (await e.connector.lifecycle()).paused) return;
 		if (a && e.readyToVerify && !e.readyToVerify()) {
 			n.onWaiting?.("TOOLS_NOT_READY"), await Xo(n.retryMs ?? 15e3, i);
 			continue;
 		}
 		a = !1, await e.verify(i), i.throwIfAborted();
 		return;
-	} catch (e) {
+	} catch (c) {
 		if (t.aborted) throw new F("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.");
 		if (r?.aborted) break;
-		if (!(e instanceof F && [
+		if (!(c instanceof F && [
 			"TOOLS_NOT_READY",
 			"GATEWAY_UNREACHABLE",
 			"PROVIDER_UNREACHABLE",
 			"ENVOI_UNREACHABLE"
-		].includes(e.code) || e instanceof I && ze(e).lifecycle === "DEGRADED")) throw e;
-		e instanceof F && e.code === "TOOLS_NOT_READY" && (a = !0), n.onWaiting?.(e instanceof F || e instanceof I ? e.code ?? "CONNECTION_TEMPORARILY_UNAVAILABLE" : "CONNECTION_TEMPORARILY_UNAVAILABLE");
-		let s = e instanceof I ? e.retryAfterSeconds ?? 0 : 0, c = e instanceof F && e.code === "TOOLS_NOT_READY" ? n.retryMs ?? 15e3 : n.retryMs ?? Be(++o, Math.random(), s);
-		await Xo(Math.max(c, s * 1e3), i);
+		].includes(c.code) || c instanceof I && ze(c).lifecycle === "DEGRADED")) throw c;
+		c instanceof F && c.code === "TOOLS_NOT_READY" && (a = !0), n.onWaiting?.(c instanceof F || c instanceof I ? c.code ?? "CONNECTION_TEMPORARILY_UNAVAILABLE" : "CONNECTION_TEMPORARILY_UNAVAILABLE");
+		let l = c instanceof I ? c.retryAfterSeconds ?? 0 : 0, u = c instanceof F && c.code === "TOOLS_NOT_READY" && e.readyToVerify?.() ? Math.min(6e4, 15e3 * 2 ** Math.min(s++, 2)) : 15e3, d = c instanceof F && c.code === "TOOLS_NOT_READY" ? n.retryMs ?? u : n.retryMs ?? Be(++o, Math.random(), l);
+		await Xo(Math.max(d, l * 1e3), i);
 	}
 	throw t.aborted ? new F("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new F("TOOLS_NOT_READY", "Runtime tools did not recover within the setup check deadline. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
 }

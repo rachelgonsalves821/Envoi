@@ -99,7 +99,7 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
       hermesUrl: '', hermesKey: '', runtime: scoped }, context);
     const relay = await relayState(context);
     let observedInfo = 0;
-    let discovery = 0, lastProofDiscovery = -1;
+    let discoveredIdentity = false, proofAttempted = false;
     let bridge: Awaited<ReturnType<typeof createHermesBridge>>;
     try {
       bridge = await createHermesBridge({
@@ -107,7 +107,7 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
         relayToken: relay.token, relayPort: relay.port, writeEnabled: true
       }, { env: { ...(context.env ?? process.env), ENVOI_ASSET_MANIFEST_PATH: config.assetManifestPath }, fetch: context.fetch, pollIntervalMs: context.pollIntervalMs,
         onSuccessfulToolCall(name) { if (name === 'envoi_agent_info') observedInfo++; },
-        onToolDiscovery(names) { if (names.includes('envoi_agent_info')) discovery++; }
+        onToolDiscovery(names) { if (names.includes('envoi_agent_info')) discoveredIdentity = true; }
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') throw new ConnectorSetupError('RELAY_UNAVAILABLE', 'This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.');
@@ -121,13 +121,17 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
       await bridge.close();
       throw error;
     }
-    return { connector: bridge.connector, close: bridge.close, readyToVerify: () => discovery > lastProofDiscovery, async verify(signal) {
+    // A Gateway can retain this catalog without listing it again. A completed
+    // model run that missed the invocation must not consume discovery forever.
+    return { connector: bridge.connector, close: bridge.close, readyToVerify: () => !proofAttempted || discoveredIdentity, async verify(signal) {
       const before = observedInfo;
-      lastProofDiscovery = discovery;
+      proofAttempted = true;
       await boundedHermesRun(config,
         `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`,
         { ...context, ...(signal ? { signal } : {}) });
-      if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.');
+      if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', discoveredIdentity
+        ? 'Hermes loaded the Envoi tools but did not invoke the identity check. Retrying the proof with backoff; saved enrollment is unchanged.'
+        : 'Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.');
     } };
   },
   describe(config) { return { runtime: 'hermes', profile: config.profile, gatewayUrl: config.apiUrl, configPath: config.configPath }; }
