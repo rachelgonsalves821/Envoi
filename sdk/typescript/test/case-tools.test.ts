@@ -50,6 +50,12 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:
 afterEach(() => { for (const channel of channels.splice(0)) channel.invalidate(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('typed case tools under private session custody', () => {
+  it('refuses group assignment arguments on a two-party session before any HTTP request', async () => {
+    const test = harness(toolFixture('reply-agent-work'));
+    await expect(test.client.reply({text:'Two-party reply',idempotencyKey:'no-assignment',assigneeAgentIds:['agent_other']}))
+      .rejects.toMatchObject({code:'TOOL_ARGUMENTS_INVALID'});
+    expect(test.fetcher).not.toHaveBeenCalled();
+  });
   const successes = fixtures.filter(fixture => fixture.response?.toolResult && fixture.response.body.result.isError === false
     && fixture.request.body.params.name !== 'envoi_case_snapshot');
   it.each(successes)('$id validates the canonical result after taking a snapshot first', async fixture => {

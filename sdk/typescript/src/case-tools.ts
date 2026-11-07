@@ -124,6 +124,8 @@ export class CaseToolsClient {
     if ('terms' in saved && bytes(JSON.stringify(saved.terms)) > 1024) return Promise.reject(new EnvoiError('Case terms exceed the byte limit', undefined, 'TOOL_ARGUMENTS_INVALID'));
     const run = this.#tail.then(async () => {
       this.signal.throwIfAborted();
+      if (name === 'envoi_case_reply' && Object.hasOwn(saved, 'assigneeAgentIds') && !this.#channel.modelContext().groupMemberAgentIds)
+        throw new EnvoiError('Group assignment requires a bound group case', undefined, 'TOOL_ARGUMENTS_INVALID');
       if (this.#endRequired) throw new EnvoiError('End this turn and wait for the human decision', undefined, 'TURN_END_REQUIRED');
       if (!this.#initialized && (name !== 'envoi_case_snapshot' || Object.hasOwn(saved, 'eventsBefore'))) await this.#perform('envoi_case_snapshot', {});
       return this.#perform(name, saved);

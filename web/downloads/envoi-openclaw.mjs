@@ -9266,7 +9266,8 @@ var Ti = class extends I {
 		if (!n.input(r)) return Promise.reject(new I("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
 		if ("terms" in r && bi(JSON.stringify(r.terms)) > 1024) return Promise.reject(new I("Case terms exceed the byte limit", void 0, "TOOL_ARGUMENTS_INVALID"));
 		let i = this.#i.then(async () => {
-			if (this.signal.throwIfAborted(), this.#r) throw new I("End this turn and wait for the human decision", void 0, "TURN_END_REQUIRED");
+			if (this.signal.throwIfAborted(), e === "envoi_case_reply" && Object.hasOwn(r, "assigneeAgentIds") && !this.#e.modelContext().groupMemberAgentIds) throw new I("Group assignment requires a bound group case", void 0, "TOOL_ARGUMENTS_INVALID");
+			if (this.#r) throw new I("End this turn and wait for the human decision", void 0, "TURN_END_REQUIRED");
 			return !this.#n && (e !== "envoi_case_snapshot" || Object.hasOwn(r, "eventsBefore")) && await this.#a("envoi_case_snapshot", {}), this.#a(e, r);
 		});
 		return this.#i = i.catch(() => {}), i;
@@ -9400,10 +9401,13 @@ function Oi(e) {
 				n.signal,
 				t.signal,
 				a.signal
-			]), s = t.modelContext(), c = Object.freeze(fi.tools.filter((e) => s.allowedTools.includes(e.name)).map((e) => Object.freeze({
-				name: e.name,
-				inputSchema: Object.freeze(structuredClone(e.inputSchema))
-			}))), l = new I("Turn ended for human input", void 0, "TURN_END_REQUIRED"), u = 0, d = Promise.resolve(), f, p = new Promise((e, t) => {
+			]), s = t.modelContext(), c = Object.freeze(fi.tools.filter((e) => s.allowedTools.includes(e.name)).map((e) => {
+				let t = structuredClone(e.inputSchema);
+				return e.name === "envoi_case_reply" && !s.groupMemberAgentIds && delete t.properties.assigneeAgentIds, Object.freeze({
+					name: e.name,
+					inputSchema: Object.freeze(t)
+				});
+			})), l = new I("Turn ended for human input", void 0, "TURN_END_REQUIRED"), u = 0, d = Promise.resolve(), f, p = new Promise((e, t) => {
 				f = () => t(o.reason), o.addEventListener("abort", f, { once: !0 }), o.aborted && f();
 			});
 			try {
