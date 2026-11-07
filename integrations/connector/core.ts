@@ -405,7 +405,9 @@ export async function adoptActivatedConnection(apiUrl: string, runtime: Connecto
     if (!paused) {
       if (runtime === 'hermes') await waitForRuntimeTools(bridge, options.signal ?? new AbortController().signal, {
         timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
-        onWaiting() { options.onProgress?.('Waiting for Hermes Gateway tools and identity verification; keep this connector running.'); }
+        onWaiting(code) { options.onProgress?.(code === 'TOOLS_PROOF_PARKED'
+          ? 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.'
+          : 'Waiting for Hermes Gateway tools and identity verification; keep this connector running.'); }
       });
       else await bridge.verify?.(options.signal);
       // The owner may pause while recovery waits. Never report ready in that case.
@@ -568,8 +570,10 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
           if (saved.runtime === 'hermes') await waitForRuntimeTools(bridge, stop.signal, {
             timeoutMs: options.toolRecoveryTimeoutMs ?? null, retryMs: options.toolRecoveryRetryMs,
             onWaiting(code) {
-              diagnostics = { status: 'waiting', runtimeChecks: 'pending', errorCode: code,
-                guidance: 'Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged.' };
+              diagnostics = { ...diagnostics, status: 'waiting', runtimeChecks: 'pending', errorCode: code,
+                guidance: code === 'TOOLS_PROOF_PARKED'
+                  ? 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.'
+                  : 'Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged.' };
               options.onWaiting?.(code);
             }
           });

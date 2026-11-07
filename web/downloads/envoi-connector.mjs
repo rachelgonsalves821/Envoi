@@ -10867,9 +10867,9 @@ var _a = {
 			hermesKey: "",
 			runtime: n
 		}, t);
-		let r = await ha(t), i = 0, a = 0, o = -1, s = 0, c;
+		let r = await ha(t), i = 0, a = !1, o = !1, s = 0, c = 0, l;
 		try {
-			c = await fa({
+			l = await fa({
 				apiUrl: t.apiUrl,
 				stateDir: t.stateDir,
 				hermesUrl: e.apiUrl,
@@ -10888,7 +10888,7 @@ var _a = {
 					e === "envoi_agent_info" && i++;
 				},
 				onToolDiscovery(e) {
-					e.includes("envoi_agent_info") && (a++, s = 0);
+					e.includes("envoi_agent_info") && (a = !0, c || (s = 0));
 				}
 			});
 		} catch (e) {
@@ -10897,18 +10897,28 @@ var _a = {
 		try {
 			await ga(e, t);
 		} catch (e) {
-			throw await c.close(), e;
+			throw await l.close(), e;
 		}
 		return {
-			connector: c.connector,
-			close: c.close,
-			readyToVerify: () => a > o || a > 0 && s < pa,
+			connector: l.connector,
+			close: l.close,
+			readyToVerify: () => !o || a && s <= pa,
 			async verify(n) {
-				let c = i, l = a, u = l === o;
-				if (o = l, await gi(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${r.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
-					...t,
-					...n ? { signal: n } : {}
-				}), i <= c) throw a === l && (s = u ? s + 1 : 0), new I("TOOLS_NOT_READY", a > 0 ? s >= pa ? "Hermes identity proof retries reached their cached-catalog limit. Check model tool use and approvals; waiting for fresh Gateway discovery. Saved enrollment is unchanged." : "Hermes loaded the Envoi tools but did not invoke the identity check. Start or keep the saved connector running for a backed-off proof retry; saved enrollment is unchanged." : "Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.");
+				let l = i;
+				o = !0, c++;
+				try {
+					await gi(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${r.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
+						...t,
+						...n ? { signal: n } : {}
+					});
+				} finally {
+					c--;
+				}
+				if (i <= l) {
+					s++;
+					let e = s > pa;
+					throw new I(e ? "TOOLS_PROOF_PARKED" : "TOOLS_NOT_READY", a ? e ? "Hermes identity proof retries reached their cached-catalog limit. Check model tool use and approvals; waiting for fresh Gateway discovery. Saved enrollment is unchanged." : "Hermes loaded the Envoi tools but did not invoke the identity check. Start or keep the saved connector running for a backed-off proof retry; saved enrollment is unchanged." : "Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.");
+				}
 			}
 		};
 	},
@@ -12738,27 +12748,27 @@ function Zo(e, t) {
 }
 async function Qo(e, t, n = {}) {
 	if (!e.verify) return;
-	let r = n.timeoutMs === null ? void 0 : AbortSignal.timeout(n.timeoutMs ?? 36e4), i = r ? AbortSignal.any([t, r]) : t, a = !1, o = 0, s = 0;
+	let r = n.timeoutMs === null ? void 0 : AbortSignal.timeout(n.timeoutMs ?? 36e4), i = r ? AbortSignal.any([t, r]) : t, a = !1, o = "TOOLS_NOT_READY", s = 0, c = 0;
 	for (; !i.aborted;) try {
 		if (await e.connector.checkStatus(i), i.throwIfAborted(), (await e.connector.lifecycle()).paused) return;
 		if (a && e.readyToVerify && !e.readyToVerify()) {
-			n.onWaiting?.("TOOLS_NOT_READY"), await Zo(n.retryMs ?? 15e3, i);
+			n.onWaiting?.(o), await Zo(n.retryMs ?? 15e3, i);
 			continue;
 		}
-		a = !1, await e.verify(i), i.throwIfAborted();
+		a && o === "TOOLS_PROOF_PARKED" && n.onWaiting?.("TOOLS_NOT_READY"), a = !1, await e.verify(i), i.throwIfAborted();
 		return;
-	} catch (c) {
+	} catch (l) {
 		if (t.aborted) throw new I("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.");
 		if (r?.aborted) break;
-		if (!(c instanceof I && [
-			"TOOLS_NOT_READY",
+		let u = l instanceof I && ["TOOLS_NOT_READY", "TOOLS_PROOF_PARKED"].includes(l.code);
+		if (!(l instanceof I && (u || [
 			"GATEWAY_UNREACHABLE",
 			"PROVIDER_UNREACHABLE",
 			"ENVOI_UNREACHABLE"
-		].includes(c.code) || c instanceof L && ze(c).lifecycle === "DEGRADED")) throw c;
-		c instanceof I && c.code === "TOOLS_NOT_READY" && (a = !0), n.onWaiting?.(c instanceof I || c instanceof L ? c.code ?? "CONNECTION_TEMPORARILY_UNAVAILABLE" : "CONNECTION_TEMPORARILY_UNAVAILABLE");
-		let l = c instanceof L ? c.retryAfterSeconds ?? 0 : 0, u = c instanceof I && c.code === "TOOLS_NOT_READY" && e.readyToVerify?.() ? Math.min(6e4, 15e3 * 2 ** Math.min(s++, 2)) : 15e3, d = c instanceof I && c.code === "TOOLS_NOT_READY" ? n.retryMs ?? u : n.retryMs ?? Be(++o, Math.random(), l);
-		await Zo(Math.max(d, l * 1e3), i);
+		].includes(l.code)) || l instanceof L && ze(l).lifecycle === "DEGRADED")) throw l;
+		u && (a = !0, o = l.code), n.onWaiting?.(l instanceof I || l instanceof L ? l.code ?? "CONNECTION_TEMPORARILY_UNAVAILABLE" : "CONNECTION_TEMPORARILY_UNAVAILABLE");
+		let d = l instanceof L ? l.retryAfterSeconds ?? 0 : 0, f = u && e.readyToVerify?.() ? Math.min(6e4, 15e3 * 2 ** Math.min(c++, 2)) : 15e3, p = u ? n.retryMs ?? f : n.retryMs ?? Be(++s, Math.random(), d);
+		await Zo(Math.max(p, d * 1e3), i);
 	}
 	throw t.aborted ? new I("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new I("TOOLS_NOT_READY", "Runtime tools did not recover within the setup check deadline. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
 }
@@ -13148,10 +13158,11 @@ async function gs(e, t, n, r = {}) {
 				retryMs: r.toolRecoveryRetryMs,
 				onWaiting(e) {
 					p = {
+						...p,
 						status: "waiting",
 						runtimeChecks: "pending",
 						errorCode: e,
-						guidance: "Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged."
+						guidance: e === "TOOLS_PROOF_PARKED" ? "Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged." : "Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged."
 					}, r.onWaiting?.(e);
 				}
 			}) : await l.verify?.(s.signal), (await l.connector.lifecycle()).paused || await fs(f, l.connector, "ready", o));

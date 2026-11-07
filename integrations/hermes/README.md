@@ -109,7 +109,10 @@ additional cached-catalog attempts after the discovery-backed proof. If all miss
 the invocation, model proofs pause until the Gateway lists the identity tool
 again; the same relay and status checks remain alive. Check model tool use and
 approval prompts before retrying. Fresh Gateway discovery replenishes the retry
-budget. Recovery within the budget does not require reloading the cached catalog.
+budget only when no identity proof is in flight. Tool listings caused by a proof
+do not refill its own budget. Recovery within the budget does not require reloading the cached catalog.
+Status reports `TOOLS_PROOF_PARKED` with model/tool-approval guidance while proofs
+are paused, then clears that guidance when discovery permits recovery.
 Discovery only permits a new proof; an
 actual successful identity-tool invocation is still required. Status remains
 waiting with runtime checks pending, with no claims or ready report during recovery.
