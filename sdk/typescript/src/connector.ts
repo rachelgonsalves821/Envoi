@@ -370,7 +370,7 @@ export class EnvoiConnector {
   private readonly activeRefresh = new Set<AbortController>();
   private readonly activeWork = new Set<AbortController>();
   private stateObserver?: (lifecycle: ConnectorLifecycle) => void;
-  private refreshInFlight: Promise<ConnectorSession> | null = null;
+  private refreshInFlight: { promise: Promise<ConnectorSession>; controller: AbortController; waiters: Set<symbol> } | null = null;
   private workInFlight: Promise<boolean> | null = null;
   private explicitScopedBatch = false;
   private workFollowup = false;
@@ -535,51 +535,84 @@ export class EnvoiConnector {
         guidance: current.paused ? guidanceText('wait_for_resume') : undefined });
   }
 
-  private async freshSession(force = false): Promise<ConnectorSession> {
+  private async freshSession(force = false, signal?: AbortSignal): Promise<ConnectorSession> {
+    signal?.throwIfAborted();
     await this.guard();
-    if (this.refreshInFlight) return this.refreshInFlight;
-    this.refreshInFlight = (async () => {
-      const current = validSession(await this.store.load());
-      if (!force && !current.pendingRotation && Date.parse(current.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return current;
-      if (Date.parse(current.agentRefreshTokenExpiresAt) <= Date.now()) throw new ConnectorCredentialsError();
-      const fingerprint = await refreshFingerprint(current.agentRefreshToken);
-      if (current.pendingRotation && current.pendingRotation.refreshTokenFingerprint !== fingerprint) throw new ConnectorCredentialsError();
-      const pendingRotation = current.pendingRotation || { rotationId: crypto.randomUUID(), refreshTokenFingerprint: fingerprint, startedAt: new Date().toISOString() };
-      if (!current.pendingRotation) await this.mutate(latest => ({ ...latest, pendingRotation }));
-      await this.guard();
-      const controller = new AbortController();
-      this.activeRefresh.add(controller);
-      let rotated: AgentTokens;
-      try {
-        rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, pendingRotation.rotationId, {
-          ...this.options, fetch: (input, init) => (this.options.fetch || fetch)(input, { ...init,
-            signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal }) });
-      } finally { this.activeRefresh.delete(controller); }
-      await this.guard();
-      // Read the latest record under the write queue: late rotations cannot erase a pause or cursor.
-      return this.mutate(latest => {
-        if (['REVOKED', 'NEEDS_RECONNECT'].includes(latest.lifecycle?.state ?? ''))
-          throw new EnvoiError(latest.lifecycle?.guidance ?? 'Credential ended', undefined, latest.lifecycle?.code);
-        const { pendingRotation: _completed, ...saved } = latest;
-        return validSession({ ...saved, ...rotated });
-      });
-    })();
-    try { return await this.refreshInFlight; }
-    catch (error) { await this.observeError(error); throw error; }
-    finally { this.refreshInFlight = null; }
+    signal?.throwIfAborted();
+    // Drain a cancelled rotation before retrying its persisted rotation ID.
+    if (this.refreshInFlight?.controller.signal.aborted) {
+      const draining = this.refreshInFlight.promise.catch(() => undefined);
+      if (signal) await abortableTurn(() => draining, signal); else await draining;
+      return this.freshSession(force, signal);
+    }
+    if (!this.refreshInFlight) {
+      const flight = { controller: new AbortController(), waiters: new Set<symbol>(), promise: null! as Promise<ConnectorSession> };
+      this.refreshInFlight = flight;
+      flight.promise = (async () => {
+        const current = validSession(await this.store.load());
+        flight.controller.signal.throwIfAborted();
+        if (!force && !current.pendingRotation && Date.parse(current.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return current;
+        if (Date.parse(current.agentRefreshTokenExpiresAt) <= Date.now()) throw new ConnectorCredentialsError();
+        const fingerprint = await refreshFingerprint(current.agentRefreshToken);
+        if (current.pendingRotation && current.pendingRotation.refreshTokenFingerprint !== fingerprint) throw new ConnectorCredentialsError();
+        const pendingRotation = current.pendingRotation || { rotationId: crypto.randomUUID(), refreshTokenFingerprint: fingerprint, startedAt: new Date().toISOString() };
+        if (!current.pendingRotation) await this.mutate(latest => ({ ...latest, pendingRotation }));
+        await this.guard();
+        const controller = flight.controller;
+        this.activeRefresh.add(controller);
+        let rotated: AgentTokens;
+        try {
+          rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, pendingRotation.rotationId, {
+            ...this.options, fetch: (input, init) => (this.options.fetch || fetch)(input, { ...init,
+              signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal }) });
+        } finally { this.activeRefresh.delete(controller); }
+        await this.guard();
+        // Persist a received successor even if its last waiter just cancelled.
+        // Late rotations still cannot erase a pause or cursor.
+        return this.mutate(latest => {
+          if (['REVOKED', 'NEEDS_RECONNECT'].includes(latest.lifecycle?.state ?? ''))
+            throw new EnvoiError(latest.lifecycle?.guidance ?? 'Credential ended', undefined, latest.lifecycle?.code);
+          const { pendingRotation: _completed, ...saved } = latest;
+          return validSession({ ...saved, ...rotated });
+        });
+      })().catch(async error => {
+        // Owner cancellation is not a network/lifecycle failure. The pending
+        // rotation remains durable in case the server committed before abort.
+        if (!flight.controller.signal.aborted) await this.observeError(error);
+        throw error;
+      }).finally(() => { if (this.refreshInFlight === flight) this.refreshInFlight = null; });
+    }
+    const flight = this.refreshInFlight;
+    const waiter = Symbol();
+    flight.waiters.add(waiter);
+    try { return await (signal ? abortableTurn(() => flight.promise, signal) : flight.promise); }
+    finally {
+      flight.waiters.delete(waiter);
+      // Other callers retain their shared refresh; the last cancelled waiter
+      // aborts the actual transport rather than merely abandoning its promise.
+      if (!flight.waiters.size && this.refreshInFlight === flight) flight.controller.abort();
+    }
   }
 
-  private async withFreshSession<T>(run: (session: ConnectorSession, signal?: AbortSignal) => Promise<T>, action = false, independentStream = false): Promise<T> {
+  private async withFreshSession<T>(run: (session: ConnectorSession, signal?: AbortSignal) => Promise<T>, action = false, independentStream = false, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw new EnvoiError('Connector request was cancelled', undefined, 'REQUEST_CANCELLED');
     await this.guard(action);
-    const session = await this.freshSession();
+    let session: ConnectorSession;
+    try { session = await this.freshSession(false, signal); }
+    catch (error) {
+      if (signal?.aborted) throw new EnvoiError('Connector request was cancelled', undefined, 'REQUEST_CANCELLED');
+      throw error;
+    }
     await this.guard(action);
     const epoch = this.actionEpoch;
     const controller = new AbortController();
     if (action) this.activeActions.add(controller);
     const invoke = async (current: ConnectorSession) => {
+      signal?.throwIfAborted();
       await this.guard(action);
       if (action && epoch !== this.actionEpoch) throw new EnvoiError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
-      const result = await run(current, controller.signal);
+      const result = await run(current, signal ? AbortSignal.any([controller.signal, signal]) : controller.signal);
+      signal?.throwIfAborted();
       await this.guard(action);
       if (action && epoch !== this.actionEpoch) throw new EnvoiError('Connector action was interrupted');
       await this.healthy();
@@ -591,9 +624,10 @@ export class EnvoiConnector {
         if (!(error instanceof EnvoiError) || lifecyclePolicy(error).retry !== 'refresh_then_retry_once') throw error;
         await this.guard(action);
         const current = validSession(await this.store.load());
-        return await invoke(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
+        return await invoke(current.agentApiToken === session.agentApiToken ? await this.freshSession(true, signal) : current);
       }
     } catch (error) {
+      if (signal?.aborted) throw new EnvoiError('Connector request was cancelled', undefined, 'REQUEST_CANCELLED');
       if (action && controller.signal.aborted) {
         await this.guard(action);
         throw new EnvoiError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
@@ -992,7 +1026,7 @@ export class EnvoiConnector {
     if (isHumanDecisionMessage(work.message)) assertHumanDecisionMessage(work.message);
     if (!/^msg_[A-Za-z0-9_-]+$/.test(work.workId) || typeof work.leaseToken !== 'string' || work.leaseToken.length < 1 || work.leaseToken.length > 256
       || !work.message.caseId || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || Date.parse(work.leaseExpiresAt) <= Date.now()) throw new TypeError('A live case-bound work lease is required');
-    await this.checkStatus();
+    await this.checkStatus(options.signal);
     options.signal?.throwIfAborted();
     if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable; update the server before processing', 404, 'FEATURE_DISABLED');
     const identity = validSession(await this.store.load());
@@ -1080,7 +1114,7 @@ export class EnvoiConnector {
         const leases = [...this.activeLeaseChecks];
         const checks = leases.map(([renew]) => renew().catch(error => { if (!localCancellation(error)) throw error; }));
         try {
-          await Promise.all([this.checkStatus().then(async () => {
+          await Promise.all([this.checkStatus(signal).then(async () => {
             await this.guard(true);
             if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
           }), ...checks]);
@@ -1157,7 +1191,7 @@ export class EnvoiConnector {
     await this.guard();
     if ((await this.lifecycle()).paused) return null;
     if (scoped) {
-      await this.checkStatus();
+      await this.checkStatus(signal);
       if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
       if ((await this.lifecycle()).paused) return null;
     }
@@ -1446,19 +1480,19 @@ export class EnvoiConnector {
   }
 
   /** Status is available while paused and is the recovery path for a missed resume. */
-  async checkStatus(): Promise<void> {
+  async checkStatus(signal?: AbortSignal): Promise<void> {
     const epoch = this.actionEpoch;
-    const result = await this.withFreshSession(async session => {
+    const result = await this.withFreshSession(async (session, requestSignal) => {
       let response: Response;
       try { response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
         headers: { authorization: `Bearer ${session.agentApiToken}` }, credentials: 'omit', redirect: 'error',
-        signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000)
+        signal: AbortSignal.any([AbortSignal.timeout(this.options.timeoutMs ?? 30_000), requestSignal!])
       }); } catch { throw new EnvoiError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
       const status = await responsePayload<{ state: string; inboxId: string; agent: { id: string }; caseSessions?: { available: boolean; version: number } }>(response, 'Envoi status failed');
       if (!['active', 'paused'].includes(status.state) || status.inboxId !== session.inboxId || status.agent?.id !== session.agentId)
         throw new EnvoiError('Envoi returned an invalid agent status');
       return status;
-    });
+    }, false, false, signal);
     if (epoch !== this.actionEpoch) return;
     this.caseSessionsAvailable = result.caseSessions?.available === true && result.caseSessions.version === 1;
     if (result.state === 'paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'), epoch);
@@ -1502,7 +1536,7 @@ export class EnvoiConnector {
         safetyAt = Math.min(safetyAt, toolRetryAt);
       }
       if (this.options.caseSessionHandler && error instanceof EnvoiError && error.code === 'CASE_SESSION_ENDED' && error.reason === 'credential_ended') {
-        try { await this.checkStatus(); }
+        try { await this.checkStatus(stopped); }
         catch (statusError) { error = statusError; await this.observeError(error); }
       }
       const state = await this.lifecycle();
@@ -1535,7 +1569,7 @@ export class EnvoiConnector {
         const activity = () => { clearTimeout(idle); idle = setTimeout(() => stream.abort(), 60_000); };
         try {
           // A failed connection still counts as a reconnect for paused recovery.
-          if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+          if ((await this.lifecycle()).paused) { await this.checkStatus(streamSignal); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
           if (streamSignal.aborted) break;
           const response = await this.withFreshSession(async current => {
             if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new EnvoiError('Connector session changed while connecting');
@@ -1576,7 +1610,7 @@ export class EnvoiConnector {
                 if (baseline && !this.cursorFor(validSession(await this.store.load()))) await this.saveCursor(session, frame.data.cursor as string | null);
                 connected = true; safetyAt = Date.now() + safetyDelay();
                 this.wakeTransport = 'connected'; this.lastWakeReadyAt = new Date().toISOString(); this.lastWakeErrorCode = undefined;
-                if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+                if ((await this.lifecycle()).paused) { await this.checkStatus(streamSignal); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
                 trigger();
               } else if (frame.type === 'replay_required') { recovery = true; break; }
               else if (frame.type === 'replay_error') throw new EnvoiError('Envoi event replay failed', undefined, 'NETWORK_ERROR');
@@ -1623,7 +1657,7 @@ export class EnvoiConnector {
         const retryAt = Math.max(state.retryAt ? Date.parse(state.retryAt) : 0, toolRetryAt);
         if (state.paused) {
           pending = false; this.nextClaimAt = Infinity;
-          if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(); } catch (error) { await failure(error); } }
+          if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(stopped); } catch (error) { await failure(error); } }
         } else if (hasHandler) {
           if (now >= Math.min(safetyAt, this.nextClaimAt)) { pending = true; safetyAt = now + safetyDelay(state); this.nextClaimAt = Infinity; }
           if (pending && !flight && now >= retryAt) {
