@@ -31,6 +31,7 @@ export type PreProgramRestore=Readonly<{
   execution:ProgressPin;packet:ProgressPin;operatorStop:ProgressPin;localStop:ProgressPin;
   ledgerAtStop:ProgressPin;programDirectory:string;
   implementation:{source:string;runnerSha256:string;approval:ProgressPin};
+  next?:Readonly<{receipt:ContinuationReceipt;graphApprovalRaw:string;timeDecision:ProgressPin}>;
 }>;
 const hash=(x:string|Buffer)=>createHash('sha256').update(x).digest('hex');
 const canonical=(x:any):any=>Array.isArray(x)?x.map(canonical):object(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
@@ -199,7 +200,7 @@ export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:C
     ||!(/^[a-f0-9]{40}$/.test(receipt.clientSource))||!(/^[a-f0-9]{40}$/.test(receipt.serverSource))||!digest(receipt.runnerSha256)
     ||receipt.clientSource!==expected.clientSource||receipt.serverSource!==expected.serverSource||receipt.runnerSha256!==expected.runnerSha256
     ||receipt.packetSha256!==expected.packetSha256||receipt.ciHead!==receipt.clientSource||receipt.ciPassed!==true
-    ||!Number.isFinite(start)||!Number.isFinite(stop)||start>now||stop<=now||stop<=start||stop-start>5400000)refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
+    ||!Number.isFinite(start)||!Number.isFinite(stop)||start>now||!input.restore?.next&&stop<=now||stop<=start||stop-start>5400000)refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
   assertStoppedProgressPreflight(preflight,ledger,now);
   const history=await fs.readFile(path.join(input.releaseRoot,'budget-7c522b08c11f.terminal-dd4debf.json'));
   if(!digest(expected.priorLedgerSha256)||hash(history)!==expected.priorLedgerSha256)refuse('PRIOR_LEDGER_CHANGED');
@@ -267,5 +268,30 @@ async function inspectPreProgramRestore(r:PreProgramRestore,input:{releaseRoot:s
     ||approval.originalClientSource!==input.receipt.clientSource||approval.originalPacketSha256!==input.receipt.packetSha256
     ||approval.recoverySource!==r.implementation.source||approval.recoveryRunnerSha256!==r.implementation.runnerSha256
     ||approval.ciHead!==r.implementation.source||approval.ciPassed!==true
-    ||approval.modelCap!==64||approval.newInterval!==false||now>=end)refuse('EXACT_RECOVERY_IMPLEMENTATION_APPROVAL_REQUIRED');
+    ||approval.modelCap!==64||approval.newInterval!==!!r.next||!r.next&&now>=end)refuse('EXACT_RECOVERY_IMPLEMENTATION_APPROVAL_REQUIRED');
+}
+/** Explicit future time authority for a real pre-program stop, never an
+ * invented native checkpoint. The stable human decision is consumed once. */
+export async function authorizePreProgramInterval(input:{restore:PreProgramRestore;receipt:ContinuationReceipt;releaseRoot:string;ledger:RequestBudgetLedger;preflight:StoppedProgressPreflight}){
+  const {restore:r,receipt:old,ledger,preflight:p}=input;if(!r.next)return;
+  const n=r.next.receipt,d=(await pinned(r.next.timeDecision)).value,window=hash(JSON.stringify(old)),now=Date.now();
+  const exact={purpose:'phase-c-explicit-new-preprogram-interval',version:1,owner:'pjsk02',ownerApproved:true,
+    priorWindow:window,originalExecutionSha256:r.execution.sha256,originalStopSha256:r.operatorStop.sha256,originalPacketSha256:old.packetSha256,
+    originalClientSource:old.clientSource,serverSource:old.serverSource,originalRunnerSha256:old.runnerSha256,
+    recoverySource:r.implementation.source,recoveryRunnerSha256:r.implementation.runnerSha256,
+    modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,currentModels:ledger.snapshot().chargedAttempts,
+    currentOperations:p.conservativeMessages,currentCanonicalMessages:p.canonicalEffects,currentCases:p.cases,currentAssets:p.assets,
+    repeatOnboarding:false,replayAcceptedSends:false};
+  if(Object.keys(d).sort().join()!==[...Object.keys(exact),'decisionId','receivedAtUtc','maximumIntervalMs'].sort().join()
+    ||Object.entries(exact).some(([k,v])=>d[k]!==v)||typeof d.decisionId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/.test(d.decisionId))refuse('EXACT_NEW_PREPROGRAM_TIME_DECISION_REQUIRED');
+  const start=Date.parse(n.startUtc),end=Date.parse(n.hardStopUtc),received=Date.parse(d.receivedAtUtc);
+  if(!Number.isSafeInteger(d.maximumIntervalMs)||d.maximumIntervalMs<=0||d.maximumIntervalMs>5400000
+    ||!Number.isFinite(received)||!Number.isFinite(start)||!Number.isFinite(end)||received>start||start<Date.parse(old.startUtc)||start>now||end<=now||end<=start||end-start>d.maximumIntervalMs
+    ||n.approvalReceiptSha256!==r.next.timeDecision.sha256||Object.keys(n).sort().join()!==Object.keys(old).sort().join()
+    ||Object.entries(old).some(([k,v])=>!['startUtc','hardStopUtc','approvalReceiptSha256'].includes(k)&&n[k as keyof ContinuationReceipt]!==v)
+    ||hash(JSON.stringify(n))===window)refuse('BOUNDED_NEW_PREPROGRAM_INTERVAL_REQUIRED');
+  const marker=path.join(path.resolve(input.releaseRoot),'phase-c-recovery-time-'+hash('pjsk02\0'+d.decisionId)+'.used.json');
+  try{await fs.lstat(marker);refuse('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+  return{async consume(){const file=await fs.open(marker,'wx',0o600);try{await file.writeFile(JSON.stringify({purpose:'phase-c-one-use-preprogram-time',decisionId:d.decisionId,
+    decisionSha256:r.next!.timeDecision.sha256,window:hash(JSON.stringify(n)),originalWindow:window,originalHardStopUtc:old.hardStopUtc}));await file.sync();}finally{await file.close();}}};
 }

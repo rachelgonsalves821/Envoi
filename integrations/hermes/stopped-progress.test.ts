@@ -4,7 +4,7 @@ import {ContinuationController,type ContinuationReceipt} from './continuation-co
 import {RequestBudgetLedger} from './request-budget';
 import {continuationAllocation,defaultContinuationFlowPolicy,hashReviewedContinuationPlan,type ReviewedContinuationPlan} from './continuation-plan';
 import {authorizeRecoveryTime} from './recovery-time';
-import {inspectStoppedProgressHistory} from './stopped-progress';
+import {inspectStoppedProgressHistory,authorizePreProgramInterval} from './stopped-progress';
 const hash=(v:string|Buffer)=>createHash('sha256').update(v).digest('hex'),h=(v:string)=>hash(v),dirs:string[]=[];
 afterEach(async()=>{vi.restoreAllMocks();for(const dir of dirs.splice(0)){if(!path.resolve(dir).startsWith(path.resolve(tmpdir())+path.sep)||!path.basename(dir).startsWith('envoi-progress-test-'))throw Error('CLEANUP_REFUSED');await fs.rm(dir,{recursive:true,force:true});}});
 async function setup(){
@@ -140,6 +140,46 @@ it.each(['native-history','program-file','foreign-directory','reachable','journa
 it('rechecks pins and freshness after preparation before consuming restoration',async()=>{
  const s=await preProgramSetup(),handle=await ContinuationController.preparePreProgramRestore(s.options);await fs.appendFile(s.options.restore.operatorStop.path,' ');
  await expect(ContinuationController.startPreProgramRestore(handle)).rejects.toThrow('STOPPED_PROGRESS_EVIDENCE_CHANGED');
+});
+async function newPreProgramInterval(){
+ const s=await preProgramSetup(),o=s.options,r=o.restore,now=Date.parse(o.receipt.hardStopUtc)+1000;vi.spyOn(Date,'now').mockReturnValue(now);
+ const inventory=JSON.parse(await fs.readFile(o.recovery.currentInventory.path,'utf8'));inventory.checkedAt=new Date(now).toISOString();o.preflight.checkedAtMs=now;o.recovery.currentInventory=await s.pin('fresh-new-inventory.json',inventory);
+ s.local.checkedAtUtc=new Date(now).toISOString();r.localStop=await s.pin('fresh-new-hosts.json',s.local);
+ const approval=JSON.parse(await fs.readFile(r.implementation.approval.path,'utf8'));approval.newInterval=true;r.implementation.approval=await s.pin('new-implementation-approval.json',approval);
+ const d={purpose:'phase-c-explicit-new-preprogram-interval',version:1,owner:'pjsk02',ownerApproved:true,priorWindow:s.window,
+  originalExecutionSha256:r.execution.sha256,originalStopSha256:r.operatorStop.sha256,originalPacketSha256:o.receipt.packetSha256,
+  originalClientSource:o.receipt.clientSource,serverSource:o.receipt.serverSource,originalRunnerSha256:o.receipt.runnerSha256,
+  recoverySource:r.implementation.source,recoveryRunnerSha256:r.implementation.runnerSha256,modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,
+  currentModels:35,currentOperations:32,currentCanonicalMessages:12,currentCases:4,currentAssets:0,repeatOnboarding:false,replayAcceptedSends:false,
+  decisionId:'inert-new-preprogram-decision',receivedAtUtc:new Date(now-1000).toISOString(),maximumIntervalMs:5400000};
+ const timeDecision=await s.pin('new-preprogram-decision.json',d),receipt={...o.receipt,approvalReceiptSha256:timeDecision.sha256,startUtc:new Date(now).toISOString(),hardStopUtc:new Date(now+5400000).toISOString()},signed=s.sign(s.nextGraph,receipt,'new preprogram interval');
+ return{...s,decision:d,options:{...o,restore:{...r,next:{receipt,graphApprovalRaw:signed.raw,timeDecision}}}};
+}
+it('uses one genuinely new time decision after an expired pre-program run, preserving original receipts and counts',async()=>{
+ const s=await newPreProgramInterval(),before=await fs.readFile(s.filename),old=await fs.readFile(s.options.restore.execution.path),handle=await ContinuationController.preparePreProgramRestore(s.options);
+ expect(await fs.readFile(s.filename)).toEqual(before);const c=await ContinuationController.startPreProgramRestore(handle);
+ expect(c.receipt).toEqual(s.options.restore.next.receipt);expect(c.ledger.snapshot().chargedAttempts).toBe(35);
+ expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);expect(await fs.readFile(s.options.restore.execution.path)).toEqual(old);
+ for(const id of s.used)expect(()=>c.releaseGroup([id])).toThrow();c.stop();
+ const decisionFile=(await fs.readdir(s.root)).find(f=>f.startsWith('phase-c-recovery-time-'));expect(decisionFile).toBeTruthy();
+ await expect(authorizePreProgramInterval({...s.options,ledger:c.ledger})).rejects.toThrow('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');
+ const reencoded=await s.pin('same-decision-reencoded.json',JSON.stringify(s.decision,null,2));
+ s.options.restore.next.timeDecision=reencoded;s.options.restore.next.receipt.approvalReceiptSha256=reencoded.sha256;
+ await expect(authorizePreProgramInterval({...s.options,ledger:c.ledger})).rejects.toThrow('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');
+ await expect(ContinuationController.preparePreProgramRestore(s.options)).rejects.toThrow();
+});
+it.each(['no-time-decision','wrong-stop','cap-reset','extra-time','new-runtime','changed-graph','unsigned-interval','decision-after-start'] as const)('refuses new pre-program time with %s before any metadata write',async fault=>{
+ const s=await newPreProgramInterval(),o=s.options,n=o.restore.next;
+ if(fault==='no-time-decision')n.timeDecision={...n.timeDecision,sha256:h('absent decision')};
+ if(fault==='wrong-stop')s.decision.originalStopSha256=h('other stopped run');
+ if(fault==='cap-reset')s.decision.currentModels=30;
+ if(fault==='extra-time')n.receipt.hardStopUtc=new Date(Date.parse(n.receipt.startUtc)+5400001).toISOString();
+ if(fault==='new-runtime')n.receipt.clientSource='2'.repeat(40);
+ if(fault==='changed-graph')n.graphApprovalRaw=JSON.stringify({...JSON.parse(n.graphApprovalRaw),planSha256:h('different graph')});
+ if(fault==='unsigned-interval'){const a=JSON.parse(await fs.readFile(o.restore.implementation.approval.path,'utf8'));a.newInterval=false;o.restore.implementation.approval=await s.pin('unsigned-interval.json',a);}
+ if(fault==='decision-after-start')s.decision.receivedAtUtc=new Date(Date.parse(n.receipt.startUtc)+1).toISOString();
+ if(['wrong-stop','cap-reset','decision-after-start'].includes(fault)){n.timeDecision=await s.pin('wrong-time.json',s.decision);n.receipt.approvalReceiptSha256=n.timeDecision.sha256;n.graphApprovalRaw=s.sign(s.nextGraph,n.receipt,'wrong signed time').raw;}
+ const before=await fs.readFile(s.filename);await expect(ContinuationController.preparePreProgramRestore(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
 });
 it('reads actual stopped-progress packet/execution formats and verifies ancestral outcomes without replay',async()=>{
  const s=await secondGeneration(),before=await fs.readFile(s.filename),journal=await fs.readFile(s.parent.failed[0].journal.path);
