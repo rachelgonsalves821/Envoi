@@ -317,6 +317,11 @@ describe('Hermes profile MCP configuration', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 'discovery', method: 'tools/list' }) });
       expect(catalog.status).toBe(200);
       expect(bridge.readyToVerify!()).toBe(true);
+      const missed = await bridge.verify!().catch(error => error);
+      expect(missed).toMatchObject({ code: 'TOOLS_NOT_READY' });
+      expect(missed.message).toMatch(/start.*saved connector/i);
+      expect(missed.message).not.toContain('Retrying the proof');
+      expect(bridge.readyToVerify!()).toBe(true);
       invoke = true;
       await expect(bridge.verify!()).resolves.toBeUndefined();
     } finally { await bridge.close(); }
