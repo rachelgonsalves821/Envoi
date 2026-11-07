@@ -6,7 +6,7 @@ import { continuationAllocation,defaultContinuationFlowPolicy,validateReviewedCo
 import { RequestBudgetLedger, nativeWorkToken } from './request-budget';
 import { guardNativeSubmission, type NativeSubmissionGuard } from './native-binding';
 import {authorizeRecoveryTime,type RecoveryTimeLink}from'./recovery-time';
-import {inspectStoppedProgress,assertStoppedProgressPreflight,type StoppedProgressPreflight,type StoppedProgressRecovery}from'./stopped-progress';
+import {inspectStoppedProgress,assertStoppedProgressPreflight,authorizePreProgramInterval,type StoppedProgressPreflight,type StoppedProgressRecovery,type PreProgramRestore}from'./stopped-progress';
 
 type Role=RequestBudgetLedger['flows'][number]['role'];
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
@@ -48,6 +48,9 @@ type StoppedProgressOptions=Omit<ControllerOptions,'preflight'|'reviewedPlan'> &
 };
 export type PreparedStoppedProgress=Readonly<{kind:'verified-stopped-progress';currentModels:number;window:string;priorWindow:string;ledgerSha256:string}>;
 const stoppedProgressHandles=new WeakMap<PreparedStoppedProgress,StoppedProgressOptions>();
+type PreProgramRestoreOptions=StoppedProgressOptions&{restore:PreProgramRestore};
+export type PreparedPreProgramRestore=Readonly<{kind:'verified-preprogram-restore';window:string;ledgerSha256:string;recoverySource:string}>;
+const preProgramRestoreHandles=new WeakMap<PreparedPreProgramRestore,PreProgramRestoreOptions>();
 const deferred=():Deferred=>{let resolve!:()=>void,reject!:(reason:unknown)=>void;const promise=new Promise<void>((a,b)=>{resolve=a;reject=b;});void promise.catch(()=>{});return {promise,resolve,reject};};
 
 /** Trusted local execution controller. No model-facing API, startup, enrollment or send operation. */
@@ -65,6 +68,72 @@ export class ContinuationController {
 
   static async open(options:ControllerOptions) {
     return this.openChecked(options);
+  }
+  /** Read-only validation of an actually stopped, metadata-only current run.
+   * Retains its original receipt, deadline, graph, counts and ancestry. */
+  static async preparePreProgramRestore(input:PreProgramRestoreOptions):Promise<PreparedPreProgramRestore>{
+    const {sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    const {inspection}=await this.inspectRestoreOptions(options);
+    const handle=Object.freeze({kind:'verified-preprogram-restore' as const,window:hash(JSON.stringify(options.receipt)),
+      ledgerSha256:inspection.currentLedgerSha256,recoverySource:options.restore.implementation.source});
+    preProgramRestoreHandles.set(handle,options);return handle;
+  }
+  private static async inspectRestoreOptions(options:PreProgramRestoreOptions){
+    if(options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
+    const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl'));
+    const inspection=await inspectStoppedProgress({...options,ledger});
+    if(options.restore.next){
+      if(JSON.stringify(ledger.reviewedPlan)!==JSON.stringify(options.reviewedPlan)||ledger.reviewedGraphApprovalRaw!==options.graphApprovalRaw)refuse('ORIGINAL_PREPROGRAM_GRAPH_REQUIRED');
+      const next=options.restore.next,window=hash(JSON.stringify(next.receipt));
+      const plan=validateReviewedContinuationPlan({...options.reviewedPlan,ownerApprovalHash:hash(next.graphApprovalRaw)});
+      if(Object.keys(options.flowCases).length!==plan.flows.length||plan.flows.some(f=>options.flowCases[f.id]!==plan.flowCases[f.id])
+        ||Object.keys(options.actorIds).sort().join()!==Object.keys(plan.actorIds).sort().join()
+        ||Object.entries(plan.actorIds).some(([role,id])=>options.actorIds[role as Role]!==id))refuse('REVIEWED_GRAPH_CANONICAL_SCOPE_CHANGED');
+      const proof={expectedWindow:window,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,
+        chargedAttempts:inspection.accounting.models,graphApprovalRaw:next.graphApprovalRaw,clientSource:next.receipt.clientSource,
+        serverSource:next.receipt.serverSource,packetSha256:next.receipt.packetSha256};
+      ledger.inspectReviewedPlanAmendment(plan,proof);
+      const time=await authorizePreProgramInterval({...options,ledger});
+      return{ledger,inspection,next:{receipt:next.receipt,plan,proof,time}};
+    }
+    // Reuse the complete original receipt/graph/fresh-preflight checks; no
+    // window or graph metadata is appended on this path.
+    const controller=await this.openChecked(options,false,true);
+    controller.stop('READ_ONLY_RESTORE_INSPECTION');
+    return {ledger,inspection,next:undefined};
+  }
+  /** Single restoration per original interval. A durable marker prevents a
+   * later process from replaying preparation after this handle is consumed. */
+  static async startPreProgramRestore(handle:PreparedPreProgramRestore){
+    const options=preProgramRestoreHandles.get(handle);if(!options)refuse('PREPARED_PREPROGRAM_RESTORE_REQUIRED');
+    preProgramRestoreHandles.delete(handle);
+    const checked=await this.inspectRestoreOptions(options),{inspection}=checked;
+    if(inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('PREPROGRAM_LEDGER_CHANGED');
+    const filename=path.join(options.releaseRoot,`phase-c-preprogram-restore-${handle.window}.used.json`);
+    const file=await fs.open(filename,'wx',0o600);
+    try{await file.writeFile(JSON.stringify({purpose:'phase-c-one-use-preprogram-restoration',window:handle.window,
+      originalReceipt:options.receipt,recoveryImplementation:options.restore.implementation,ledgerSha256:handle.ledgerSha256}));await file.sync();}finally{await file.close();}
+    if(checked.next){
+      // The new decision and metadata are distinct from the preserved old run.
+      // Any partial I/O remains visible and fails closed; nothing is refunded.
+      const verified=await this.inspectRestoreOptions(options);
+      if(!verified.next||verified.inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('PREPROGRAM_LEDGER_CHANGED');
+      await verified.next.time!.consume();
+      await verified.ledger.bindApprovedWindow(verified.next.proof.expectedWindow,{approvalReceiptHash:verified.next.receipt.approvalReceiptSha256,
+        allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:inspection.accounting.models});
+      await verified.ledger.amendReviewedPlan(verified.next.plan,verified.next.proof);
+      const controller=await this.openChecked({...options,receipt:verified.next.receipt,reviewedPlan:verified.next.plan},false,true);
+      for(const id of inspection.blockedFlows)controller.released.add(id);
+      for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
+      return controller;
+    }
+    // An I/O/check failure keeps the marker and remains fail closed.
+    const {inspection:again}=await this.inspectRestoreOptions(options);
+    if(again.currentLedgerSha256!==handle.ledgerSha256)refuse('PREPROGRAM_LEDGER_CHANGED');
+    const controller=await this.openChecked(options,false,true);
+    for(const id of inspection.blockedFlows)controller.released.add(id);
+    for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
+    return controller;
   }
   /** Read-only verification of all prior outcomes and the exact proposed graph.
    * Creates no ledger record, one-use marker, host, timer, claim or model call. */

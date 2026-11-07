@@ -4,7 +4,7 @@ import {ContinuationController,type ContinuationReceipt} from './continuation-co
 import {RequestBudgetLedger} from './request-budget';
 import {continuationAllocation,defaultContinuationFlowPolicy,hashReviewedContinuationPlan,type ReviewedContinuationPlan} from './continuation-plan';
 import {authorizeRecoveryTime} from './recovery-time';
-import {inspectStoppedProgressHistory} from './stopped-progress';
+import {inspectStoppedProgressHistory,authorizePreProgramInterval} from './stopped-progress';
 const hash=(v:string|Buffer)=>createHash('sha256').update(v).digest('hex'),h=(v:string)=>hash(v),dirs:string[]=[];
 afterEach(async()=>{vi.restoreAllMocks();for(const dir of dirs.splice(0)){if(!path.resolve(dir).startsWith(path.resolve(tmpdir())+path.sep)||!path.basename(dir).startsWith('envoi-progress-test-'))throw Error('CLEANUP_REFUSED');await fs.rm(dir,{recursive:true,force:true});}});
 async function setup(){
@@ -85,6 +85,102 @@ async function secondGeneration(postExpiry=false){
  const options={...s.options,receipt:nextReceipt,expected:{...s.options.expected,clientSource:nextReceipt.clientSource,runnerSha256:nextReceipt.runnerSha256,packetSha256:nextReceipt.packetSha256},preflight:{...s.options.preflight,checkedAtMs:now},reviewedPlan:nextSigned.plan,graphApprovalRaw:nextSigned.raw,recovery};
  return{...s,options,parent,state,window};
 }
+async function preProgramSetup(){
+ const s=await setup(),directory=path.join(s.root,'session');await fs.mkdir(directory);const programDirectory=path.join(directory,'native-program');await fs.mkdir(programDirectory);
+ const p=s.options.recovery,{actionLedger,currentInventory,time,...historical}=p,historyPin=await s.pin('restore-history.json',historical),journals=[];
+ const states={je1:path.join(s.root,'je1'),je2:path.join(s.root,'je2'),testowner:path.join(s.root,'testowner')};
+ for(const role of ['je1','je2','testowner'] as const){await fs.mkdir(path.join(states[role],'scoped-runs'),{recursive:true});for(let i=0;i<3;i++){const file=`journal-${i}.json`,bytes=JSON.stringify({inert:true,role,i});await fs.writeFile(path.join(states[role],'scoped-runs',file),bytes);journals.push({role,file,sha256:hash(bytes)});}}
+ const packet=await s.pin('restore-packet.json',{purpose:'phase-c-prepared-stopped-progress-session',version:1,directory,states,program:{originalJournalHashes:journals},resumption:{history:historyPin},
+  clientSource:s.options.receipt.clientSource,serverSource:s.options.receipt.serverSource,oldKitRoot:s.root,library:{sha256:s.options.receipt.runnerSha256},
+  historyPins:{priorExecution:p.priorExecution,priorPacket:p.priorPacket,priorState:p.priorState,priorLedger:p.priorLedger,stop:p.stop,completed:p.completed,failed:p.failed}});
+ const receipt={...s.options.receipt,packetSha256:packet.sha256},signed=s.sign(s.nextGraph,receipt,'preprogram'),options={...s.options,receipt,
+  expected:{...s.options.expected,packetSha256:packet.sha256},reviewedPlan:signed.plan,graphApprovalRaw:signed.raw};
+ const controller=await ContinuationController.startStoppedProgress(await ContinuationController.prepareStoppedProgress(options));controller.stop();
+ const window=hash(JSON.stringify(receipt)),source='f'.repeat(40),runnerSha256=h('restore implementation');
+ const stop={state:'operator_stopped_no_further_task_release',packetSha256:packet.sha256,observedAtUtc:new Date().toISOString(),gateComplete:false};
+ const local={purpose:'actual-v2-poststop-readonly-observation',source:receipt.clientSource,operatorStop:stop,window,checkedAtUtc:new Date().toISOString(),modelsAdded:0,chargedAttempts:35,pending:0,unresolvedDispatches:0,
+  conservativeOperations:32,assets:0,emptyNativeProgramDirectoryObserved:true,conductorStateCreated:false,
+  selectedHermesStopped:['je1','je2','testowner'].map(role=>({role,selectedCanonicalPipeUnavailable:true})),originalJournalHashesVerified:journals.map(j=>({...j,originalHashMatches:true}))};
+ const restore={execution:await s.pin('restore-execution.json',{receipt,window,approvalSha256:receipt.approvalReceiptSha256,graphApprovalRaw:signed.raw}),packet,
+  operatorStop:await s.pin('restore-stop.json',stop),
+  localStop:await s.pin('restore-local.json',local),ledgerAtStop:await s.pin('restore-ledger.jsonl',await fs.readFile(s.filename,'utf8')),programDirectory,
+  implementation:{source,runnerSha256,approval:await s.pin('restore-approval.json',{purpose:'phase-c-same-window-preprogram-restoration',ownerApproved:true,window,
+   startUtc:receipt.startUtc,hardStopUtc:receipt.hardStopUtc,originalClientSource:receipt.clientSource,originalPacketSha256:packet.sha256,
+   recoverySource:source,recoveryRunnerSha256:runnerSha256,ciHead:source,ciPassed:true,modelCap:64,newInterval:false})}};
+ return{...s,options:{...options,restore},local,window};
+}
+it('restores a real empty pre-program run once with the original clock and complete replay fences, without changing the ledger',async()=>{
+ const s=await preProgramSetup(),before=await fs.readFile(s.filename),handle=await ContinuationController.preparePreProgramRestore(s.options);
+ expect(await fs.readFile(s.filename)).toEqual(before);const c=await ContinuationController.startPreProgramRestore(handle);
+ expect(c.receipt).toEqual(s.options.receipt);expect(c.summary().budget.chargedAttempts).toBe(35);
+ for(const id of s.used)expect(()=>c.releaseGroup([id])).toThrow();
+ c.releaseGroup(['new-private-review']);expect(()=>c.expectWork('new-private-review','msg_private-followup',h('evidence'))).toThrow('PRIOR_NATIVE_WORK_MUST_NOT_REPEAT');
+ expect(await fs.readFile(s.filename)).toEqual(before);c.stop();
+ await expect(ContinuationController.startPreProgramRestore(handle)).rejects.toThrow('PREPARED_PREPROGRAM_RESTORE_REQUIRED');
+ const next=await ContinuationController.preparePreProgramRestore(s.options);await expect(ContinuationController.startPreProgramRestore(next)).rejects.toThrow();
+});
+it.each(['native-history','program-file','foreign-directory','reachable','journal-changed','late-stop','new-clock','wrong-implementation','dropped-history','ledger-change','foreign-root','stale-local','unrelated-stop','missing-journal'] as const)('refuses unsafe pre-program restoration: %s',async fault=>{
+ const s=await preProgramSetup(),o=s.options,r=o.restore;
+ if(fault==='native-history'){const l=await RequestBudgetLedger.open(s.filename);await l.bindWork('new-private-review',{canonicalWorkHash:h('msg_added'),nativeToken:h('token'),evidenceHash:h('evidence')});r.ledgerAtStop=await s.pin('changed-ledger.jsonl',await fs.readFile(s.filename,'utf8'));}
+ if(fault==='program-file')await fs.writeFile(path.join(r.programDirectory,'state.json'),'{}');
+ if(fault==='foreign-directory'){r.programDirectory=path.join(s.root,'foreign');await fs.mkdir(r.programDirectory);}
+ if(fault==='reachable'){s.local.selectedHermesStopped[0].selectedCanonicalPipeUnavailable=false;r.localStop=await s.pin('bad-local.json',s.local);}
+ if(fault==='journal-changed'){s.local.originalJournalHashesVerified[0].originalHashMatches=false;r.localStop=await s.pin('bad-local.json',s.local);}
+ if(fault==='late-stop'){r.operatorStop=await s.pin('late-stop.json',{state:'operator_stopped_no_further_task_release',packetSha256:r.packet.sha256,observedAtUtc:new Date(Date.now()+60000).toISOString()});}
+ if(fault==='new-clock')o.receipt={...o.receipt,hardStopUtc:new Date(Date.parse(o.receipt.hardStopUtc)+1).toISOString()};
+ if(fault==='wrong-implementation')r.implementation.source='1'.repeat(40);
+ if(fault==='dropped-history')o.recovery={...o.recovery,failed:[]};
+ if(fault==='ledger-change')await fs.appendFile(r.ledgerAtStop.path,' ');
+ if(fault==='foreign-root'){const clone=path.join(s.root,'clone');await fs.mkdir(clone);for(const name of await fs.readdir(s.root)){const stat=await fs.lstat(path.join(s.root,name));if(stat.isFile())await fs.copyFile(path.join(s.root,name),path.join(clone,name));}o.releaseRoot=clone;}
+ if(fault==='stale-local'){s.local.checkedAtUtc=new Date(Date.now()-300001).toISOString();r.localStop=await s.pin('bad-local.json',s.local);}
+ if(fault==='unrelated-stop'){s.local.operatorStop={...s.local.operatorStop,observedAtUtc:new Date(Date.now()-1).toISOString()};r.localStop=await s.pin('bad-local.json',s.local);}
+ if(fault==='missing-journal'){s.local.originalJournalHashesVerified.pop();r.localStop=await s.pin('bad-local.json',s.local);}
+ const before=await fs.readFile(s.filename);await expect(ContinuationController.preparePreProgramRestore(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
+});
+it('rechecks pins and freshness after preparation before consuming restoration',async()=>{
+ const s=await preProgramSetup(),handle=await ContinuationController.preparePreProgramRestore(s.options);await fs.appendFile(s.options.restore.operatorStop.path,' ');
+ await expect(ContinuationController.startPreProgramRestore(handle)).rejects.toThrow('STOPPED_PROGRESS_EVIDENCE_CHANGED');
+});
+async function newPreProgramInterval(){
+ const s=await preProgramSetup(),o=s.options,r=o.restore,now=Date.parse(o.receipt.hardStopUtc)+1000;vi.spyOn(Date,'now').mockReturnValue(now);
+ const inventory=JSON.parse(await fs.readFile(o.recovery.currentInventory.path,'utf8'));inventory.checkedAt=new Date(now).toISOString();o.preflight.checkedAtMs=now;o.recovery.currentInventory=await s.pin('fresh-new-inventory.json',inventory);
+ s.local.checkedAtUtc=new Date(now).toISOString();r.localStop=await s.pin('fresh-new-hosts.json',s.local);
+ const approval=JSON.parse(await fs.readFile(r.implementation.approval.path,'utf8'));approval.newInterval=true;r.implementation.approval=await s.pin('new-implementation-approval.json',approval);
+ const d={purpose:'phase-c-explicit-new-preprogram-interval',version:1,owner:'pjsk02',ownerApproved:true,priorWindow:s.window,
+  originalExecutionSha256:r.execution.sha256,originalStopSha256:r.operatorStop.sha256,originalPacketSha256:o.receipt.packetSha256,
+  originalClientSource:o.receipt.clientSource,serverSource:o.receipt.serverSource,originalRunnerSha256:o.receipt.runnerSha256,
+  recoverySource:r.implementation.source,recoveryRunnerSha256:r.implementation.runnerSha256,modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,
+  currentModels:35,currentOperations:32,currentCanonicalMessages:12,currentCases:4,currentAssets:0,repeatOnboarding:false,replayAcceptedSends:false,
+  decisionId:'inert-new-preprogram-decision',receivedAtUtc:new Date(now-1000).toISOString(),maximumIntervalMs:5400000};
+ const timeDecision=await s.pin('new-preprogram-decision.json',d),receipt={...o.receipt,approvalReceiptSha256:timeDecision.sha256,startUtc:new Date(now).toISOString(),hardStopUtc:new Date(now+5400000).toISOString()},signed=s.sign(s.nextGraph,receipt,'new preprogram interval');
+ return{...s,decision:d,options:{...o,restore:{...r,next:{receipt,graphApprovalRaw:signed.raw,timeDecision}}}};
+}
+it('uses one genuinely new time decision after an expired pre-program run, preserving original receipts and counts',async()=>{
+ const s=await newPreProgramInterval(),before=await fs.readFile(s.filename),old=await fs.readFile(s.options.restore.execution.path),handle=await ContinuationController.preparePreProgramRestore(s.options);
+ expect(await fs.readFile(s.filename)).toEqual(before);const c=await ContinuationController.startPreProgramRestore(handle);
+ expect(c.receipt).toEqual(s.options.restore.next.receipt);expect(c.ledger.snapshot().chargedAttempts).toBe(35);
+ expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);expect(await fs.readFile(s.options.restore.execution.path)).toEqual(old);
+ for(const id of s.used)expect(()=>c.releaseGroup([id])).toThrow();c.stop();
+ const decisionFile=(await fs.readdir(s.root)).find(f=>f.startsWith('phase-c-recovery-time-'));expect(decisionFile).toBeTruthy();
+ await expect(authorizePreProgramInterval({...s.options,ledger:c.ledger})).rejects.toThrow('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');
+ const reencoded=await s.pin('same-decision-reencoded.json',JSON.stringify(s.decision,null,2));
+ s.options.restore.next.timeDecision=reencoded;s.options.restore.next.receipt.approvalReceiptSha256=reencoded.sha256;
+ await expect(authorizePreProgramInterval({...s.options,ledger:c.ledger})).rejects.toThrow('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');
+ await expect(ContinuationController.preparePreProgramRestore(s.options)).rejects.toThrow();
+});
+it.each(['no-time-decision','wrong-stop','cap-reset','extra-time','new-runtime','changed-graph','unsigned-interval','decision-after-start'] as const)('refuses new pre-program time with %s before any metadata write',async fault=>{
+ const s=await newPreProgramInterval(),o=s.options,n=o.restore.next;
+ if(fault==='no-time-decision')n.timeDecision={...n.timeDecision,sha256:h('absent decision')};
+ if(fault==='wrong-stop')s.decision.originalStopSha256=h('other stopped run');
+ if(fault==='cap-reset')s.decision.currentModels=30;
+ if(fault==='extra-time')n.receipt.hardStopUtc=new Date(Date.parse(n.receipt.startUtc)+5400001).toISOString();
+ if(fault==='new-runtime')n.receipt.clientSource='2'.repeat(40);
+ if(fault==='changed-graph')n.graphApprovalRaw=JSON.stringify({...JSON.parse(n.graphApprovalRaw),planSha256:h('different graph')});
+ if(fault==='unsigned-interval'){const a=JSON.parse(await fs.readFile(o.restore.implementation.approval.path,'utf8'));a.newInterval=false;o.restore.implementation.approval=await s.pin('unsigned-interval.json',a);}
+ if(fault==='decision-after-start')s.decision.receivedAtUtc=new Date(Date.parse(n.receipt.startUtc)+1).toISOString();
+ if(['wrong-stop','cap-reset','decision-after-start'].includes(fault)){n.timeDecision=await s.pin('wrong-time.json',s.decision);n.receipt.approvalReceiptSha256=n.timeDecision.sha256;n.graphApprovalRaw=s.sign(s.nextGraph,n.receipt,'wrong signed time').raw;}
+ const before=await fs.readFile(s.filename);await expect(ContinuationController.preparePreProgramRestore(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
+});
 it('reads actual stopped-progress packet/execution formats and verifies ancestral outcomes without replay',async()=>{
  const s=await secondGeneration(),before=await fs.readFile(s.filename),journal=await fs.readFile(s.parent.failed[0].journal.path);
  const prepared=await ContinuationController.prepareStoppedProgress(s.options);expect(prepared).toMatchObject({currentModels:35,priorWindow:s.window});expect(await fs.readFile(s.filename)).toEqual(before);
