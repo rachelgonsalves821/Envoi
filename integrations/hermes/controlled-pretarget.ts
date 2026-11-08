@@ -61,7 +61,7 @@ export async function inspectControlledPreTarget(input:{proof:ControlledStartupS
  const one=(kind:string)=>{const found=events.filter(v=>v.kind===kind);if(found.length!==1)refuse('EXACT_PRETARGET_EVENT_SEQUENCE_REQUIRED');return found[0];};
  const gateways=events.filter(v=>v.kind==='actual_hermes_gateway_ready'),receivers=events.filter(v=>v.kind==='existing_receiver_ready');
  if(gateways.length!==2||!['je1','testowner'].every(role=>gateways.filter(v=>v.role===role&&v.modelRequestsAdded===0).length===1)
-   ||receivers.length!==3||!['je1','testowner','openclaw'].every(role=>receivers.filter(v=>v.role===role&&v.receivingStarted===true&&v.newEnrollment===false).length===1))refuse('EXACT_PRETARGET_RECEIVER_HISTORY_REQUIRED');
+   ||receivers.length!==3||!['je1','testowner','openclaw'].every(role=>receivers.filter(v=>v.role===role&&v.receivingStarted===false&&v.newEnrollment===false).length===1))refuse('EXACT_PRETARGET_RECEIVER_HISTORY_REQUIRED');
  const session=one('actual_session_started_awaiting_personal_gateway_addresses'),factory=one('owned_native_factory_ready');
  if(session.modelCalls!==c.usage.chargedAttempts||session.onboardingRepeated!==false||session.acceptedSendsRepeated!==false||factory.nativeGatewayStarted!==false||factory.modelPromptsSubmitted!==0)refuse('ZERO_NATIVE_PRETARGET_EVENTS_REQUIRED');
  for(const[kind,flag]of [['prior_openclaw_controls_carried_without_repetition','newControlRun'],['prior_openclaw_poll_gap_carried_without_repetition','newPollInterruption']]){

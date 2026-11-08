@@ -490,7 +490,7 @@ async function controlledPreTargetSetup(){
  const contextFile=path.join(p.directory,'owner-gateway-context.private.json');await fs.writeFile(contextFile,JSON.stringify(context));
  const atUtc=new Date(Date.parse(s.checkpoint.stopState.observedAtUtc)-1).toISOString(),row=(kind:string,fields:any={})=>({atUtc,window:e.window,kind,...fields});
  const events:any[]=[...['je1','testowner'].map(role=>row('actual_hermes_gateway_ready',{role,modelRequestsAdded:0})),row('actual_session_started_awaiting_personal_gateway_addresses',{modelCalls:35,onboardingRepeated:false,acceptedSendsRepeated:false}),
-  ...['je1','testowner','openclaw'].map(role=>row('existing_receiver_ready',{role,receivingStarted:true,newEnrollment:false})),row('owned_native_factory_ready',{nativeGatewayStarted:false,modelPromptsSubmitted:0}),
+  ...['je1','testowner','openclaw'].map(role=>row('existing_receiver_ready',{role,receivingStarted:false,newEnrollment:false})),row('owned_native_factory_ready',{nativeGatewayStarted:false,modelPromptsSubmitted:0}),
   row('prior_openclaw_controls_carried_without_repetition',{priorSource:oldSource,priorWindow:oldWindow,workId:s.workId,descriptorSha256:r.carry.sha256,newControlRun:false}),
   row('prior_openclaw_poll_gap_carried_without_repetition',{priorSource:oldSource,priorWindow:oldWindow,workId:s.workId,descriptorSha256:r.carry.sha256,newPollInterruption:false}),
   row('actual_canonical_context',{flowId:'openclaw',role:'openclaw',workId:s.workId,caseId:s.caseId,session:{id:'scope_retry',fence:4,agentId:p.actors.openclaw.agentId,installationId:p.actors.openclaw.installationId}}),
