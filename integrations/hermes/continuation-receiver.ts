@@ -95,7 +95,7 @@ export async function createContinuationReceiver(options:{
     return current.flowPolicy?current.flowPolicy.call(controller,flowId):{noAction:['declined-resume','private-receipt-review'].includes(flowId),decisionOutcome:flowId==='declined-resume'?'declined':null,allowHumanEnd:['accept-authority','asset-decline'].includes(flowId)};
   };
   const workForToken=(init:RequestInit):ActiveWork=>{const token=new Headers(init.headers).get('authorization'),workId=token&&scopedTokens.get(token),state=workId&&active.get(workId);if(!state||state.settled||state.failed)refuse('EXACT_SCOPED_WORK_TOKEN_REQUIRED');return state;};
-  const forget=(workId:string)=>{targets?.close(workId);active.delete(workId);for(const [token,id]of scopedTokens)if(id===workId)scopedTokens.delete(token);};
+  const forget=(workId:string)=>{if(active.get(workId)?.held)targets?.closeIfSelected(workId);else targets?.close(workId);active.delete(workId);for(const [token,id]of scopedTokens)if(id===workId)scopedTokens.delete(token);};
   const scopedFacts=(workId:string):ScopedWorkFacts=>{
     ensure();const state=active.get(workId);if(!state?.workSafe||!state.sessionSafe||!state.claimRedactedBytes||!state.sessionRedactedBytes||!state.caseSession)refuse('ACTUAL_CONTROL_SCOPE_REQUIRED');
     return Object.freeze({window:controller.ledger.window,clientSource:controller.receipt.clientSource,serverSource:controller.receipt.serverSource,role,flowId:state.flowId,workId,caseId:state.caseId,toolChannelSha256:state.caseSession.toolChannelSha256,work:state.workSafe,session:state.sessionSafe,claimRedactedBytes:state.claimRedactedBytes,sessionRedactedBytes:state.sessionRedactedBytes,

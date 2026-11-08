@@ -5,6 +5,7 @@ import {RequestBudgetLedger} from './request-budget';
 import {continuationAllocation,defaultContinuationFlowPolicy,hashReviewedContinuationPlan,type ReviewedContinuationPlan} from './continuation-plan';
 import {authorizeRecoveryTime} from './recovery-time';
 import {inspectStoppedProgressHistory,authorizePreProgramInterval} from './stopped-progress';
+import {inspectControlledProgressHistory} from './controlled-progress';
 const hash=(v:string|Buffer)=>createHash('sha256').update(v).digest('hex'),h=(v:string)=>hash(v),dirs:string[]=[];
 afterEach(async()=>{vi.restoreAllMocks();for(const dir of dirs.splice(0)){if(!path.resolve(dir).startsWith(path.resolve(tmpdir())+path.sep)||!path.basename(dir).startsWith('envoi-progress-test-'))throw Error('CLEANUP_REFUSED');await fs.rm(dir,{recursive:true,force:true});}});
 async function setup(){
@@ -342,4 +343,90 @@ it('binds a new one-use time decision to current35/32/12 without consuming it du
  const prepared=await ContinuationController.prepareStoppedProgress(input);await expect(fs.stat(marker)).rejects.toMatchObject({code:'ENOENT'});
  const c=await ContinuationController.startStoppedProgress(prepared);expect(JSON.parse(await fs.readFile(marker,'utf8')).decisionId).toBe(decisionId);expect(c.ledger.snapshot().chargedAttempts).toBe(35);
  await expect(authorizeRecoveryTime({link:time,original:old,receipt,priorWindow:decision.priorWindow,priorPacketSha256:old.packetSha256,stateSha256:decision.priorStateSha256,programSha256:s.state.planSha256,amendmentSha256:a.sha256,releaseRoot:s.root,currentAccounting:{models:35,operations:32,canonicalMessages:12}})).rejects.toThrow('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');c.stop();
+});
+
+// Actual post-control shape with inert identities, files and zero network activity.
+async function controlledSetup(){
+ const s=await secondGeneration(true),r:any=s.options.recovery,t0=Date.now(),now=t0+1200000;
+ vi.spyOn(Date,'now').mockReturnValue(now);
+ const canonical=(v:any):any=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
+ const workId='msg_retained_shared',caseId=s.options.flowCases.openclaw,agentId=s.options.actorIds.openclaw;
+ s.state.taskReceipts.shared={state:'accepted',messageId:workId,caseId};r.priorState=await s.pin('ancestor-with-shared.json',s.state);
+ const states:any={},journals:any[]=[];
+ for(const role of ['je1','je2','testowner','openclaw']){states[role]=path.join(s.root,role);await fs.mkdir(path.join(states[role],'scoped-runs'),{recursive:true});
+  if(role!=='openclaw')for(let i=0;i<3;i++){const file='original-'+i+'.json',j=await s.pin('journal-'+role+i,JSON.stringify({role,i,inert:true}));await fs.copyFile(j.path,path.join(states[role],'scoped-runs',file));journals.push({role,file,sha256:j.sha256});}}
+ const {actionLedger,currentInventory,time,...ancestry}=r,history=await s.pin('control-history.json',ancestry);
+ const program={originalJournalHashes:journals,windowId:'unstarted'},actors={...s.options.actorIds,openclaw:{agentId,installationId:'installation_inert'}};
+ const packet:any={clientSource:s.options.receipt.clientSource,serverSource:s.options.receipt.serverSource,library:{sha256:s.options.receipt.runnerSha256},oldKitRoot:s.root,states,actors,program,resumption:{history}};
+ const packetPin=await s.pin('control-runtime.json',packet),ledger=await RequestBudgetLedger.open(s.filename);
+ const executions:any[]=[];
+ for(let i=0;i<2;i++){const receipt={...s.options.receipt,packetSha256:packetPin.sha256,startUtc:new Date(t0+i*100).toISOString(),hardStopUtc:new Date(t0+5400000+i*100).toISOString()},signed=s.sign(s.nextGraph,receipt,'controlled-'+i),window=hash(JSON.stringify(receipt));
+  await ledger.bindApprovedWindow(window,{approvalReceiptHash:receipt.approvalReceiptSha256,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:35});await ledger.amendReviewedPlan(signed.plan,s.proof(receipt,signed.raw,35));
+  executions.push({receipt,window,approvalSha256:receipt.approvalReceiptSha256,graphApprovalRaw:signed.raw});}
+ const [first,current]=executions;current.original=first;
+ const operator=await s.pin('control-operator.json',{original:{packet:packetPin},recovery:{source:'f'.repeat(40),library:{sha256:h('recovery library')}}});
+ const seal=await s.pin('control-seal.json',{original:{packet:packetPin},packet:operator});current.sealSha256=seal.sha256;current.recoveryImplementation={source:'f'.repeat(40),library:{sha256:h('recovery library')}};
+ const stop=await s.pin('control-stopped.json',{packetSha256:operator.sha256,phase:'remaining-native-program',gateComplete:false,observedAtUtc:new Date(now-100).toISOString()});
+ const controls:any={},controlPins:any={};
+ for(const mode of ['pause','expiry']){const fence=mode==='pause'?2:3,session={id:'scope_'+mode,fence,agentId,installationId:'installation_inert',createdAt:new Date(t0+1000).toISOString(),expiresAt:new Date(t0+901000).toISOString()};
+  const scope=await s.pin(mode+'-scope.json',{window:current.window,workId,caseId,session});
+  const actions=[];
+  if(mode==='pause')for(const action of ['pause','resume']){const receipt={window:current.window,humanConfirmed:true,agentId,installationId:'installation_inert',action};const pin=await s.pin(action+'-owner.json',receipt);actions.push({receiptPath:pin.path,sha256:pin.sha256,receipt});}
+  const probes=mode==='pause'?[{stage:'paused',settlement:{code:'AGENT_PAUSED',status:{raw:JSON.stringify({state:'paused'})}}},{stage:'resumed',settlement:{code:'WORK_LEASE_STALE',status:{raw:JSON.stringify({state:'active'})}}}]:[{stage:'expired',scope:{code:'CASE_SESSION_EXPIRED'},settlement:{code:'WORK_LEASE_STALE'},frozenLeaseExpiresAt:new Date(t0+950000).toISOString()}];
+  const observed={kind:'control-observed',mode,window:current.window,workId,caseId,sessionId:session.id,fence,observedAtUtc:new Date(now-200).toISOString(),modelCallsAdded:0,canonicalProcessed:false,probes,stopped:{status:'stopped_before_native',modelPrompts:0,journalAbsent:true,modelChargedAttemptsBefore:35,modelChargedAttemptsAfter:35}};
+  const op=await s.pin(mode+'-observed.json',observed);controlPins[mode]={scope,observed:op};controls[mode]={...observed,hostId:'openclaw',classification:'control_observed_awaiting_final_inventory',actions,evidence:{file:op.path,sha256:op.sha256}};}
+ controls.classification='controls_observed_awaiting_final_inventory';
+ const state:any={window:current.window,planSha256:hash(JSON.stringify(canonical({...program,windowId:current.window}))),started:{openclaw:{workId,caseId,beforeSha256:h('before')}},results:{},effects:{},controlProofs:{openclaw:controls},taskReceipts:s.state.taskReceipts,carriedProgress:s.state.carriedProgress,carriedTaskReceipts:{shared:{acceptedSendRepeated:false,receiptDigest:hash(JSON.stringify(canonical(s.state.taskReceipts.shared)))}}};
+ const statePin=await s.pin('actual-controlled-state.json',state),execution=await s.pin('actual-controlled-execution.json',current),initialExecution=await s.pin('initial-control-execution.json',first),frozen=await s.pin('control-ledger.jsonl',await fs.readFile(s.filename,'utf8'));
+ const checkpoint:any={purpose:'actual-post-control-stop-evidence-no-recovery',checkedAtUtc:new Date(now).toISOString(),models:35,pending:0,unresolved:0,sharedNativeJournalAbsent:true,meterListening:false,nativeGatewayListening:false,nativeProxyListening:false,gatewayProxyDifferent:true,controlProofs:state.controlProofs,selected:['je1','je2','testowner'].map(role=>({role,stopped:true})),originalJournals:journals.map(j=>({...j,unchanged:true}))};
+ const checkpointPin=await s.pin('controlled-checkpoint.json',checkpoint),lost=await s.pin('poll-lost.json',{kind:'actual_sdk_poll_response_lost',window:current.window,role:'openclaw',workId,responseSha256:h('actual inert response')});
+ const poll={kind:'actual_sdk_poll_gap_recovered',window:current.window,role:'openclaw',workId,caseId,modelCallsAdded:0,lost:{responseSha256:h('actual inert response'),path:'/events',query:'cursor=1',eventIds:['event_inert']},recovered:{path:'/events',query:'cursor=1',eventIds:['event_inert']}};
+ const pollGap=await s.pin('poll-recovered.json',poll),settlement=await s.pin('retryable-settlement.json',{kind:'canonical_settlement',workId,status:'retryable',operation:'fail'});
+ const carry:any={purpose:'phase-c-post-control-no-native-checkpoint-review-only',executionAllowed:false,newAuthorityGranted:false,execution,programState:statePin,modelLedger:frozen,originalPacket:packetPin,actualStopObservation:checkpointPin,shared:{workId,caseId},controls:controlPins,events:{actual_sdk_poll_response_lost:lost,actual_sdk_poll_gap_recovered:pollGap,canonical_settlement:settlement}};
+ const inventory=JSON.parse(await fs.readFile(r.currentInventory.path,'utf8'));inventory.checkedAt=new Date(now).toISOString();r.currentInventory=await s.pin('controlled-fresh-inventory.json',inventory);
+ const preflight={...s.options.preflight,checkedAtMs:now};
+ const recovery:any={history:r,runtimePacket:packetPin,initialExecution,execution,operatorSeal:seal,state:statePin,stop,ledger:frozen,checkpoint:checkpointPin,carry:await s.pin('control-carry.json',carry),pollGap,
+  canonicalWork:await s.pin('fresh-canonical-retry.json',{database:'sinaloa_staging',readOnly:'on',checkedAt:new Date(now).toISOString(),activeWorkLeases:0,work:{workId,caseId,agentId,status:'retryable',attempts:2,sessions:[{status:'ended'}]}})};
+ const target=await s.pin('fixed-runtime-packet.json',{clientSource:'1'.repeat(40),serverSource:packet.serverSource,library:{sha256:h('fixed library')},oldKitRoot:s.root,carriedStateSha256:statePin.sha256,reviewedGraph:s.nextGraph});
+ const adoption:any={purpose:'phase-c-explicit-controlled-progress-recovery',version:1,owner:'pjsk02',ownerApproved:true,priorWindow:current.window,priorExecutionSha256:execution.sha256,priorStateSha256:statePin.sha256,priorLedgerSha256:frozen.sha256,checkpointSha256:checkpointPin.sha256,carrySha256:recovery.carry.sha256,clientSource:'1'.repeat(40),serverSource:packet.serverSource,runnerSha256:h('fixed library'),packetSha256:target.sha256,modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,currentModels:35,currentOperations:32,currentCanonicalMessages:12,currentCases:4,currentAssets:0,repeatOnboarding:false,replayAcceptedSends:false,repeatObservedControls:false,decisionId:'inert-controlled-recovery',receivedAtUtc:new Date(now-1).toISOString(),timeMode:'new-interval',maximumIntervalMs:5400000};
+ recovery.adoption=await s.pin('controlled-adoption.json',adoption);recovery.targetPacket=target;
+ const receipt={...current.receipt,clientSource:adoption.clientSource,ciHead:adoption.clientSource,runnerSha256:adoption.runnerSha256,packetSha256:target.sha256,approvalReceiptSha256:recovery.adoption.sha256,startUtc:new Date(now).toISOString(),hardStopUtc:new Date(now+5400000).toISOString()},signed=s.sign(s.nextGraph,receipt,'fixed runtime');
+ return{...s,ledger,workId,caseId,state,checkpoint,carry,poll,adoption,current,options:{...s.options,sameRoleNativeAttribution:async(value:any)=>value,preflight,recovery,receipt,reviewedPlan:signed.plan,graphApprovalRaw:signed.raw,expected:{...s.options.expected,clientSource:receipt.clientSource,runnerSha256:receipt.runnerSha256,packetSha256:receipt.packetSha256}}};
+}
+it('carries actual prior controls once with no replay, preserving the partial state and binding the same retryable work',async()=>{
+ const s=await controlledSetup(),before=await fs.readFile(s.filename),state=await fs.readFile(s.options.recovery.state.path);
+ const history=await inspectControlledProgressHistory({releaseRoot:s.root,ledger:s.ledger,recovery:s.options.recovery});expect(history.carriedControlSource).toBe(s.current.receipt.clientSource);
+ const handle=await ContinuationController.prepareControlledProgress(s.options);expect(await fs.readFile(s.filename)).toEqual(before);
+ const c=await ContinuationController.startControlledProgress(handle);expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);expect(await fs.readFile(s.options.recovery.state.path)).toEqual(state);
+ for(const id of s.used)expect(()=>c.releaseGroup([id])).toThrow();c.releaseGroup(['openclaw']);
+ expect(()=>c.expectWork('openclaw','msg_replacement',h('replacement'))).toThrow();c.stop();
+ await expect(ContinuationController.startControlledProgress(handle)).rejects.toThrow('PREPARED_CONTROLLED_PROGRESS_REQUIRED');
+});
+it.each(['state-changed','missing-control','native-result','native-journal','selected-alive','changed-journal','cap-reset','implicit-clock','future-decision','not-retryable','active-session','wrong-work','foreign-owner','fake-expiry','poll-unrelated','new-native-binding'] as const)('refuses controlled recovery without effects: %s',async fault=>{
+ const s=await controlledSetup(),o=s.options,r=o.recovery;
+ if(fault==='state-changed')await fs.appendFile(r.state.path,' ');
+ if(fault==='missing-control'){delete s.state.controlProofs.openclaw.expiry;r.state=await s.pin('missing-control.json',s.state);}
+ if(fault==='native-result'){s.state.results.openclaw={completed:true};r.state=await s.pin('native-result.json',s.state);}
+ if(fault==='native-journal')await fs.writeFile(path.join(s.root,'openclaw','scoped-runs',s.workId+'.json'),'{}');
+ if(fault==='selected-alive'){s.checkpoint.selected[0].stopped=false;r.checkpoint=await s.pin('alive-checkpoint.json',s.checkpoint);}
+ if(fault==='changed-journal')await fs.appendFile(path.join(s.root,'je1','scoped-runs','original-0.json'),' ');
+ if(fault==='cap-reset'){s.adoption.currentModels=30;r.adoption=await s.pin('reset-adoption.json',s.adoption);o.receipt.approvalReceiptSha256=r.adoption.sha256;}
+ if(fault==='implicit-clock'){s.adoption.timeMode='same-fixed';r.adoption=await s.pin('clock-adoption.json',s.adoption);o.receipt.approvalReceiptSha256=r.adoption.sha256;}
+ if(fault==='future-decision'){s.adoption.receivedAtUtc=new Date(Date.now()+1).toISOString();r.adoption=await s.pin('future-adoption.json',s.adoption);o.receipt.approvalReceiptSha256=r.adoption.sha256;}
+ if(['not-retryable','active-session','wrong-work'].includes(fault)){const v=JSON.parse(await fs.readFile(r.canonicalWork.path,'utf8'));if(fault==='not-retryable')v.work.status='failed';if(fault==='active-session')v.work.sessions[0].status='active';if(fault==='wrong-work')v.work.workId='msg_other';r.canonicalWork=await s.pin('bad-canonical.json',v);}
+ if(fault==='foreign-owner'){const v=s.state.controlProofs.openclaw.pause.actions[0];v.receipt.agentId='agent_foreign';r.state=await s.pin('bad-owner-state.json',s.state);}
+ if(fault==='fake-expiry'){const v=JSON.parse(await fs.readFile(s.carry.controls.expiry.scope.path,'utf8'));v.session.expiresAt=v.session.createdAt;s.carry.controls.expiry.scope=await s.pin('bad-expiry-scope.json',v);r.carry=await s.pin('bad-expiry-carry.json',s.carry);}
+ if(fault==='poll-unrelated'){s.poll.workId='msg_other';r.pollGap=await s.pin('bad-poll.json',s.poll);}
+ if(fault==='new-native-binding'){await s.ledger.bindWork('openclaw',{canonicalWorkHash:h(s.workId),nativeToken:h('native added'),evidenceHash:h('native evidence')});r.ledger=await s.pin('changed-native-ledger.jsonl',await fs.readFile(s.filename,'utf8'));}
+ const before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
+});
+it('retains the original fixed deadline when only source adoption is newly approved',async()=>{
+ const s=await controlledSetup(),o=s.options,r=o.recovery;s.adoption.timeMode='same-fixed';r.adoption=await s.pin('same-fixed-adoption.json',s.adoption);
+ o.receipt={...o.receipt,approvalReceiptSha256:r.adoption.sha256,startUtc:s.current.receipt.startUtc,hardStopUtc:s.current.receipt.hardStopUtc};const signed=s.sign(s.nextGraph,o.receipt,'same fixed controlled');o.reviewedPlan=signed.plan;o.graphApprovalRaw=signed.raw;
+ const c=await ContinuationController.startControlledProgress(await ContinuationController.prepareControlledProgress(o));expect(c.receipt.hardStopUtc).toBe(s.current.receipt.hardStopUtc);c.stop();
+});
+it('rechecks pinned controls after preparation and before consuming any recovery authority',async()=>{
+ const s=await controlledSetup(),before=await fs.readFile(s.filename),h=await ContinuationController.prepareControlledProgress(s.options);
+ await fs.appendFile(s.options.recovery.carry.path,' ');await expect(ContinuationController.startControlledProgress(h)).rejects.toThrow('CONTROLLED_PROGRESS_CHANGED');
+ expect(await fs.readFile(s.filename)).toEqual(before);expect((await fs.readdir(s.root)).filter(f=>f.startsWith('phase-c-controlled-progress-'))).toEqual([]);
 });

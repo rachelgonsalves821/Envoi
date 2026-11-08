@@ -2,11 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertHumanDecisionMessage, type HumanDecisionWorkMessage } from '../../sdk/typescript/src/connector';
-import { continuationAllocation,defaultContinuationFlowPolicy,validateReviewedContinuationPlan,validateReviewedGraphApproval,type ReviewedContinuationPlan } from './continuation-plan';
+import { continuationAllocation,defaultContinuationFlowPolicy,validateReviewedContinuationPlan,validateReviewedGraphApproval,hashReviewedContinuationPlan,type ReviewedContinuationPlan } from './continuation-plan';
 import { RequestBudgetLedger, nativeWorkToken } from './request-budget';
 import { guardNativeSubmission, type NativeSubmissionGuard } from './native-binding';
 import {authorizeRecoveryTime,type RecoveryTimeLink}from'./recovery-time';
 import {inspectStoppedProgress,assertStoppedProgressPreflight,authorizePreProgramInterval,type StoppedProgressPreflight,type StoppedProgressRecovery,type PreProgramRestore}from'./stopped-progress';
+import{inspectControlledProgress,type ControlledProgressRecovery}from'./controlled-progress';
 
 type Role=RequestBudgetLedger['flows'][number]['role'];
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
@@ -51,6 +52,9 @@ const stoppedProgressHandles=new WeakMap<PreparedStoppedProgress,StoppedProgress
 type PreProgramRestoreOptions=StoppedProgressOptions&{restore:PreProgramRestore};
 export type PreparedPreProgramRestore=Readonly<{kind:'verified-preprogram-restore';window:string;ledgerSha256:string;recoverySource:string}>;
 const preProgramRestoreHandles=new WeakMap<PreparedPreProgramRestore,PreProgramRestoreOptions>();
+type ControlledProgressOptions=Omit<ControllerOptions,'preflight'|'reviewedPlan'>&{preflight:StoppedProgressPreflight;recovery:ControlledProgressRecovery;reviewedPlan:ReviewedContinuationPlan;graphApprovalRaw:string};
+export type PreparedControlledProgress=Readonly<{kind:'verified-controlled-progress';window:string;priorWindow:string;ledgerSha256:string;carriedStateSha256:string}>;
+const controlledProgressHandles=new WeakMap<PreparedControlledProgress,ControlledProgressOptions>();
 const deferred=():Deferred=>{let resolve!:()=>void,reject!:(reason:unknown)=>void;const promise=new Promise<void>((a,b)=>{resolve=a;reject=b;});void promise.catch(()=>{});return {promise,resolve,reject};};
 
 /** Trusted local execution controller. No model-facing API, startup, enrollment or send operation. */
@@ -69,6 +73,35 @@ export class ContinuationController {
   static async open(options:ControllerOptions) {
     return this.openChecked(options);
   }
+  /** Carries genuine completed controls after a retryable pre-target failure.
+   * Preparation never changes the old partial state, ledger or time authority. */
+  static async prepareControlledProgress(input:ControlledProgressOptions):Promise<PreparedControlledProgress>{
+    const{sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    const{inspection}=await this.inspectControlledOptions(options);
+    const handle=Object.freeze({kind:'verified-controlled-progress' as const,window:hash(JSON.stringify(options.receipt)),priorWindow:inspection.priorWindow,ledgerSha256:inspection.currentLedgerSha256,carriedStateSha256:inspection.stateSha256});
+    controlledProgressHandles.set(handle,options);return handle;
+  }
+  private static async inspectControlledOptions(options:ControlledProgressOptions){
+    if(options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
+    const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl')),inspection=await inspectControlledProgress({...options,ledger}),plan=validateReviewedContinuationPlan(options.reviewedPlan);
+    if(Object.keys(options.flowCases).length!==plan.flows.length||plan.flows.some(f=>options.flowCases[f.id]!==plan.flowCases[f.id])
+      ||Object.keys(options.actorIds).sort().join()!==Object.keys(plan.actorIds).sort().join()||Object.entries(plan.actorIds).some(([role,id])=>options.actorIds[role as Role]!==id)
+      ||hashReviewedContinuationPlan(plan)!==ledger.reviewedPlan?.planSha256)refuse('REVIEWED_GRAPH_CANONICAL_SCOPE_CHANGED');
+    const proof={expectedWindow:hash(JSON.stringify(options.receipt)),allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:ledger.snapshot().chargedAttempts,
+      graphApprovalRaw:options.graphApprovalRaw,clientSource:options.receipt.clientSource,serverSource:options.receipt.serverSource,packetSha256:options.receipt.packetSha256};
+    ledger.inspectReviewedPlanAmendment(plan,proof);return{ledger,inspection,proof};
+  }
+  static async startControlledProgress(handle:PreparedControlledProgress){
+    const options=controlledProgressHandles.get(handle);if(!options)refuse('PREPARED_CONTROLLED_PROGRESS_REQUIRED');controlledProgressHandles.delete(handle);
+    const{ledger,inspection,proof}=await this.inspectControlledOptions(options);if(inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
+    const filename=path.join(options.releaseRoot,'phase-c-controlled-progress-'+handle.priorWindow+'.used.json'),f=await fs.open(filename,'wx',0o600);
+    try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress',priorWindow:handle.priorWindow,nextWindow:handle.window,stateSha256:handle.carriedStateSha256,ledgerSha256:handle.ledgerSha256}));await f.sync();}finally{await f.close();}
+    const verified=await this.inspectControlledOptions(options);if(verified.inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
+    await verified.inspection.consume();await ledger.bindApprovedWindow(handle.window,{approvalReceiptHash:options.receipt.approvalReceiptSha256,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:ledger.snapshot().chargedAttempts});
+    await ledger.amendReviewedPlan(options.reviewedPlan,proof);const controller=await this.openChecked(options,false,true);
+    for(const id of inspection.blockedFlows)controller.released.add(id);for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
+    controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});return controller;
+  }
   /** Read-only validation of an actually stopped, metadata-only current run.
    * Retains its original receipt, deadline, graph, counts and ancestry. */
   static async preparePreProgramRestore(input:PreProgramRestoreOptions):Promise<PreparedPreProgramRestore>{
@@ -81,7 +114,7 @@ export class ContinuationController {
   private static async inspectRestoreOptions(options:PreProgramRestoreOptions){
     if(options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
     const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl'));
-    const inspection=await inspectStoppedProgress({...options,ledger});
+    const inspection=await inspectStoppedProgress({releaseRoot:options.releaseRoot,receipt:options.receipt,preflight:options.preflight,expected:options.expected,recovery:options.recovery,restore:options.restore,ledger});
     if(options.restore.next){
       if(JSON.stringify(ledger.reviewedPlan)!==JSON.stringify(options.reviewedPlan)||ledger.reviewedGraphApprovalRaw!==options.graphApprovalRaw)refuse('ORIGINAL_PREPROGRAM_GRAPH_REQUIRED');
       const next=options.restore.next,window=hash(JSON.stringify(next.receipt));
@@ -151,7 +184,7 @@ export class ContinuationController {
       ||options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('REVIEWED_GRAPH_CANONICAL_SCOPE_CHANGED');
     const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl'));
     if(ledger.flows.some(old=>options.reviewedPlan.flows.find(f=>f.id===old.id)?.requests!==old.requests))refuse('STOPPED_PROGRESS_QUOTAS_MUST_BE_PRESERVED');
-    const inspection=await inspectStoppedProgress({...options,ledger}),window=hash(JSON.stringify(options.receipt));
+    const inspection=await inspectStoppedProgress({releaseRoot:options.releaseRoot,receipt:options.receipt,preflight:options.preflight,expected:options.expected,recovery:options.recovery,ledger}),window=hash(JSON.stringify(options.receipt));
     const graphProof={expectedWindow:window,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,
       chargedAttempts:inspection.accounting.models,graphApprovalRaw:options.graphApprovalRaw,
       clientSource:options.receipt.clientSource,serverSource:options.receipt.serverSource,packetSha256:options.receipt.packetSha256};

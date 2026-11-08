@@ -153,14 +153,15 @@ function joinAncestor(child:Awaited<ReturnType<typeof inspectHistory>>,parent:Aw
 }
 /** Read-only historical format/provenance inspection. This grants no start
  * handle, current inventory credit, source adoption, time or model authority. */
-export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ContinuationReceipt){
+export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ContinuationReceipt|readonly ContinuationReceipt[]){
   const {recovery:r,ledger}=input,filename=path.join(path.resolve(input.releaseRoot),'phase-c-cumulative-requests.jsonl'),current=await fs.readFile(filename),prefix=await pinned(r.priorLedger,false);
   if(path.resolve(ledger.filename)!==filename||(!restoreReceipt&&!prefix.raw.equals(current))||!current.subarray(0,prefix.raw.length).equals(prefix.raw)||!current.toString().endsWith('\n')||hash(current)!==ledger.contentSha256)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
   const rows=current.toString().trimEnd().split('\n').map(line=>JSON.parse(line));
   if(restoreReceipt){
-    const suffix=current.subarray(prefix.raw.length).toString().trimEnd().split('\n').map(line=>JSON.parse(line)),window=hash(JSON.stringify(restoreReceipt));
-    if(suffix.length!==2||suffix[0].kind!=='window'||suffix[0].window!==window||suffix[1].kind!=='plan'||suffix[1].window!==window
-      ||ledger.window!==window||ledger.hasNativeHistorySinceWindow(window))refuse('ZERO_NATIVE_PREPROGRAM_WINDOW_REQUIRED');
+    const suffix=current.subarray(prefix.raw.length).toString().trimEnd().split('\n').map(line=>JSON.parse(line)),receipts=Array.isArray(restoreReceipt)?restoreReceipt:[restoreReceipt],windows=receipts.map(r=>hash(JSON.stringify(r)));
+    if(!windows.length||windows.length>8||new Set(windows).size!==windows.length||suffix.length!==2*windows.length
+      ||windows.some((window,i)=>suffix[2*i].kind!=='window'||suffix[2*i].window!==window||suffix[2*i+1].kind!=='plan'||suffix[2*i+1].window!==window)
+      ||ledger.window!==windows.at(-1)||ledger.hasNativeHistorySinceWindow(windows[0]))refuse('ZERO_NATIVE_PREPROGRAM_WINDOW_REQUIRED');
   }
   if(r.ancestors!==undefined&&(!Array.isArray(r.ancestors)||r.ancestors.length>8))refuse('EXACT_PROGRESS_ANCESTRY_REQUIRED');
   const histories=[r,...r.ancestors??[]],runs=[],now=Date.now(),nextStart=input.nextStart??now;
@@ -193,14 +194,14 @@ export function assertStoppedProgressPreflight(p:StoppedProgressPreflight,ledger
 }
 export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;
   expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string};
-  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger;restore?:PreProgramRestore}){
+  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger;restore?:PreProgramRestore;metadataReceipts?:readonly ContinuationReceipt[]}){
   const {recovery:r,ledger,receipt,expected,preflight}=input,now=Date.now(),start=Date.parse(receipt.startUtc),stop=Date.parse(receipt.hardStopUtc);
   if(r?.purpose!=='phase-c-stopped-native-progress'||!Array.isArray(r.completed)||!Array.isArray(r.failed))refuse('EXACT_STOPPED_PROGRESS_REQUIRED');
   if(receipt.version!==1||receipt.ownerApproved!==true||receipt.modelCap!==64||!digest(receipt.approvalReceiptSha256)||!digest(receipt.packetSha256)
     ||!(/^[a-f0-9]{40}$/.test(receipt.clientSource))||!(/^[a-f0-9]{40}$/.test(receipt.serverSource))||!digest(receipt.runnerSha256)
     ||receipt.clientSource!==expected.clientSource||receipt.serverSource!==expected.serverSource||receipt.runnerSha256!==expected.runnerSha256
     ||receipt.packetSha256!==expected.packetSha256||receipt.ciHead!==receipt.clientSource||receipt.ciPassed!==true
-    ||!Number.isFinite(start)||!Number.isFinite(stop)||start>now||!input.restore?.next&&stop<=now||stop<=start||stop-start>5400000)refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
+    ||!Number.isFinite(start)||!Number.isFinite(stop)||start>now||!input.restore?.next&&!input.metadataReceipts&&stop<=now||stop<=start||stop-start>5400000)refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
   assertStoppedProgressPreflight(preflight,ledger,now);
   const history=await fs.readFile(path.join(input.releaseRoot,'budget-7c522b08c11f.terminal-dd4debf.json'));
   if(!digest(expected.priorLedgerSha256)||hash(history)!==expected.priorLedgerSha256)refuse('PRIOR_LEDGER_CHANGED');
@@ -221,7 +222,7 @@ export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:C
     ||inventory.canonicalMessageEffects!==preflight.canonicalEffects||inventory.plannedCasesPresent!==preflight.cases
     ||inventory.pendingWakeDeliveries!==0||inventory.nonEndedSubscriptions!==0||inventory.originalRecordCount!==786||inventory.approvedRemovedOriginals!==3
     ||!Array.isArray(inventory.unexpectedOriginalDifferences)||inventory.unexpectedOriginalDifferences.length)refuse('CURRENT_CANONICAL_PROGRESS_INVENTORY_REQUIRED');
-  const historicalProof=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r,ledger,nextStart:start},input.restore?receipt:undefined),snapshot=ledger.snapshot();
+  const historicalProof=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r,ledger,nextStart:start},input.metadataReceipts??(input.restore?receipt:undefined)),snapshot=ledger.snapshot();
   if(input.restore)await inspectPreProgramRestore(input.restore,input,historicalProof);
   return {...historicalProof,
     accounting:{models:snapshot.chargedAttempts,operations:preflight.conservativeMessages,canonicalMessages:preflight.canonicalEffects}};

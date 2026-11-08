@@ -121,6 +121,12 @@ export class OpenClawTargetRegistry {
   }
 
   get(workId: string) { return this.targets.get(workId); }
+  /** Pre-native case controls may finish without ever selecting a target.
+   * Fence any real selection, including one still pending, without inventing
+   * a closed native target for work which has not entered this registry. */
+  closeIfSelected(workId: string) {
+    if (this.targets.has(workId) || this.pending.has(workId) || this.stops.has(workId)) this.close(workId);
+  }
   close(workId: string) { this.closed.add(workId); this.stops.get(workId)?.abort(new EnvoiError('Trusted OpenClaw target ended', undefined, 'OPENCLAW_TARGET_CLOSED')); }
   closeAll() { for (const id of [...this.targets.keys(), ...this.pending.keys()]) this.close(id); }
 
