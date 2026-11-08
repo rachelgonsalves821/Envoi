@@ -10292,6 +10292,9 @@ var Xi = class {
 	get(e) {
 		return this.targets.get(e);
 	}
+	closeIfSelected(e) {
+		(this.targets.has(e) || this.pending.has(e) || this.stops.has(e)) && this.close(e);
+	}
 	close(e) {
 		this.closed.add(e), this.stops.get(e)?.abort(new F("Trusted OpenClaw target ended", void 0, "OPENCLAW_TARGET_CLOSED"));
 	}

@@ -3,6 +3,7 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {ContinuationController} from './continuation-controller';
 import {createContinuationReceiver,type TrustedScopedControlContext} from './continuation-receiver';
 import {createHash} from 'node:crypto';
+import {openClawTargetDigest,type OpenClawWorkTarget} from '../openclaw/scoped-target';
 const state=vi.hoisted(()=>({saved:{} as any,context:{} as any,bridge:{} as any,send:undefined as any,unlock:vi.fn(),startup:vi.fn()}));
 vi.mock('../connector/core',()=>({readConnection:async()=>state.saved}));
 vi.mock('../connector/store',()=>({acquireConnectorLock:async()=>state.unlock,privateJson:async()=>{throw Error('UNEXPECTED_FIXTURE_TASK_WRITE');}}));
@@ -10,13 +11,21 @@ vi.mock('../connector/adapters',()=>({adapterFor:()=>({discover:async()=>state.s
 vi.mock('../connector/control',()=>({startControl:async(_d:unknown,_i:unknown,_s:unknown,_q:unknown,send:unknown)=>{state.send=send;return {close:async()=>{}};}}));
 const cleanups:Array<()=>Promise<unknown>>=[];
 afterEach(async()=>{for(const f of cleanups.splice(0).reverse())await f();vi.clearAllMocks();});
-async function setup({held=false,role='je1',flowId='green',trustedControl,observeTransport,observeNativeEnd,beforeFirstScopedSnapshot}:{held?:boolean;role?:'je1'|'testowner'|'openclaw';flowId?:string;trustedControl?:(context:TrustedScopedControlContext,signal:AbortSignal)=>Promise<never>;observeTransport?:Parameters<typeof createContinuationReceiver>[0]['observeTransport'];observeNativeEnd?:Parameters<typeof createContinuationReceiver>[0]['observeNativeEnd'];beforeFirstScopedSnapshot?:Parameters<typeof createContinuationReceiver>[0]['beforeFirstScopedSnapshot']}={}){
+async function setup({held=false,nativeTarget=false,role='je1',flowId='green',trustedControl,observeTransport,observeNativeEnd,beforeFirstScopedSnapshot}:{held?:boolean;nativeTarget?:boolean;role?:'je1'|'testowner'|'openclaw';flowId?:string;trustedControl?:(context:TrustedScopedControlContext,signal:AbortSignal)=>Promise<never>;observeTransport?:Parameters<typeof createContinuationReceiver>[0]['observeTransport'];observeNativeEnd?:Parameters<typeof createContinuationReceiver>[0]['observeNativeEnd'];beforeFirstScopedSnapshot?:Parameters<typeof createContinuationReceiver>[0]['beforeFirstScopedSnapshot']}={}){
   const dir=await fs.mkdtemp(path.join(tmpdir(),'envoi-continuation-receiver-'));
   cleanups.push(async()=>{const target=path.resolve(dir);if(!target.startsWith(path.resolve(tmpdir())+path.sep)||!path.basename(target).startsWith('envoi-continuation-receiver-'))throw Error('CLEANUP_REFUSED');await fs.rm(target,{recursive:true,force:true});});
   const origin='https://sinaloa-staging.rachelgonsalves821.workers.dev',gateway='http://127.0.0.1:19001',workId='msg_inert_work',caseId='case_inert',address='inert@agents-staging.sinaloa-inbox.com';
   const expected={address,agentId:'agent_inert',inboxId:'inbox_inert',installationId:'installation_inert'};
   state.saved={version:1,runtime:role==='openclaw'?'openclaw':'hermes',apiUrl:origin,address,configuration:{gatewayUrl:gateway,agentId:'inert'},activationSetup:{agentId:expected.agentId,inboxId:expected.inboxId,installationId:expected.installationId}};
   const controller={active:()=>true,receipt:{serverSource:'2ae',clientSource:'inert-source'},control:new AbortController(),ledger:{window:'a'.repeat(64),snapshot:()=>({chargedAttempts:30,pending:0})},expectWork:vi.fn(),observeClaim:vi.fn(),beginPreNativeControl:vi.fn(),observePreNativeControlClaim:vi.fn(),endPreNativeControl:vi.fn(),assertScopedTool:vi.fn(),closeNativeForwarding:vi.fn(),nativeGuard:()=>vi.fn(async()=>{}),stop:vi.fn()} as unknown as ContinuationController;
+  let fence=1;const sessionId=nativeTarget?'case_session_inert':'session_inert',clientSource='d'.repeat(40);
+  if(nativeTarget)(controller.receipt as {clientSource:string}).clientSource=clientSource;
+  let selected:OpenClawWorkTarget;const resolveTarget=vi.fn(async()=>selected),reviewTarget=vi.fn(async()=>{
+    selected={binding:{window:'a'.repeat(64),workId,caseId,caseSessionId:sessionId,recipientAgentId:expected.agentId,installationId:expected.installationId,fence},
+      gatewayUrl:gateway,gatewayToken:'PRIVATE_NATIVE_TARGET',agentId:'inert',processIdentity:'inert-process',configurationSha256:'1'.repeat(64),stateDirectorySha256:'2'.repeat(64),configurationPathSha256:'3'.repeat(64),workspaceSha256:'4'.repeat(64),agentStateSha256:'5'.repeat(64),proxyOrigin:'http://127.0.0.1:19002',proxyIdentity:'inert-proxy',deadlineUnixMs:Date.now()+10000,
+      toolChannelSha256:createHash('sha256').update(JSON.stringify(['a'.repeat(64),workId,caseId,sessionId,fence,'PRIVATE_INERT_TOKEN',{kind:'mcp'}])).digest('hex'),ownerSelectionSha256:'6'.repeat(64)};
+    return{receiptSha256:selected.ownerSelectionSha256,clientSource,nativeSourceSha256:'e'.repeat(64),window:'a'.repeat(64),role:'openclaw' as const,workId,caseSessionId:sessionId,toolChannelSha256:selected.toolChannelSha256,targetSha256:openClawTargetDigest(selected)};
+  });
   const fetcher=vi.fn<typeof fetch>(async(input,init)=>{
     const url=new URL(String(input));if(url.origin===gateway)return Response.json({status:'completed',output:[{type:'message',content:[]}]});
     if(url.pathname.endsWith('/claim'))return Response.json({work:{workId,leaseToken:'PRIVATE_LEASE',leaseExpiresAt:new Date(Date.now()+60000).toISOString(),message:{id:workId,caseId,recipientAgentId:expected.agentId}}});
@@ -24,19 +33,20 @@ async function setup({held=false,role='je1',flowId='green',trustedControl,observ
     if(url.pathname.endsWith('/complete'))return Response.json({workId,status:'processed'});
     if(url.pathname.endsWith('/fail'))return Response.json({workId,status:'retryable'});
     if(url.pathname.endsWith('/session/end'))return Response.json({session:{id:'session_inert',status:'ended'}});
-    if(url.pathname.endsWith('/session'))return Response.json({session:{id:'session_inert',workId,caseId,agentId:expected.agentId,installationId:expected.installationId,fence:2,expiresAt:new Date(Date.now()+900000).toISOString(),token:'PRIVATE_INERT_TOKEN',allowedTools:['envoi_case_snapshot','envoi_case_list_assets','envoi_case_decide'],transport:{kind:'mcp'}}});
+    if(url.pathname.endsWith('/session'))return Response.json({session:{id:sessionId,workId,caseId,agentId:expected.agentId,installationId:expected.installationId,fence:nativeTarget?++fence:2,expiresAt:new Date(Date.now()+900000).toISOString(),token:'PRIVATE_INERT_TOKEN',allowedTools:['envoi_case_snapshot','envoi_case_list_assets','envoi_case_decide'],transport:{kind:'mcp'}}});
     if(url.pathname==='/mcp'){const body=JSON.parse(String(init?.body));if(body.params.name==='envoi_case_decide')return Response.json({result:{content:[{text:JSON.stringify({ok:false,error:{code:'AUTHORITY_EXPIRED'}})}]}});return Response.json({result:{content:[{text:JSON.stringify({ok:true,result:{case:{id:caseId,state:'inProgress'},tools:{decide:'actual_new_ref'}}})}]}});}
     throw Error('UNEXPECTED_SYNTHETIC_ROUTE');
   });
   const process=vi.fn(async(signal=new AbortController().signal)=>{
     const context=state.context;await context.fetch(origin+'/api/agent/work/claim',{method:'POST',body:'{}'});
-    if(trustedControl||observeNativeEnd||beforeFirstScopedSnapshot){await context.fetch(origin+'/api/agent/work/'+workId+'/session',{method:'POST',body:'{}'});await context.fetch(origin+'/mcp',{method:'POST',headers:{authorization:'Bearer PRIVATE_INERT_TOKEN','mcp-protocol-version':'2025-11-25'},body:JSON.stringify({jsonrpc:'2.0',id:'snapshot',method:'tools/call',params:{name:'envoi_case_snapshot',arguments:{}}})});}
+    if(trustedControl||observeNativeEnd||beforeFirstScopedSnapshot||nativeTarget){await context.fetch(origin+'/api/agent/work/'+workId+'/session',{method:'POST',body:'{}'});await context.fetch(origin+'/mcp',{method:'POST',headers:{authorization:'Bearer PRIVATE_INERT_TOKEN','mcp-protocol-version':'2025-11-25'},body:JSON.stringify({jsonrpc:'2.0',id:'snapshot',method:'tools/call',params:{name:'envoi_case_snapshot',arguments:{}}})});}
     await context.beforeScopedTurn(workId,signal);
+    if(nativeTarget)await context.openClawTargetResolver(workId,signal);
     const file=path.join(dir,'scoped-runs',workId+'.json');await fs.mkdir(path.dirname(file),{recursive:true});
     const input=[{role:'system',content:'inert system'},{role:'user',content:'inert canonical snapshot'}];
     if(role==='openclaw'){
       await fs.writeFile(file,JSON.stringify({version:1,workId,model:'openclaw:'+gateway+':inert',completed:false,pending:[],providerCalls:1,input}));
-      await context.fetch(gateway+'/v1/responses',{method:'POST',body:JSON.stringify({model:'openclaw/inert',input:input.map(i=>({type:'message',...i}))})});
+      await context.fetch(gateway+'/v1/responses',{method:'POST',...(nativeTarget?{headers:{authorization:'Bearer PRIVATE_NATIVE_TARGET'}}:{}),body:JSON.stringify({model:'openclaw/inert',input:input.map(i=>({type:'message',...i}))})});
     }else await context.beforeNativeSubmit({workId,sessionId:'native_inert',deadlineUnixMs:Date.now()+10000},new AbortController().signal);
     await fs.writeFile(file,JSON.stringify({version:1,workId,model:role==='openclaw'?'openclaw:'+gateway+':inert':'hermes-inert',completed:true,pending:[],providerCalls:1,input}));
     await context.fetch(origin+'/api/agent/work/'+workId+'/session/end',{method:'POST',body:JSON.stringify({sessionId:'session_inert'})});
@@ -48,10 +58,21 @@ async function setup({held=false,role='je1',flowId='green',trustedControl,observ
   const request={requestId:'5f75da53-d134-4203-86e3-a161caf5b65c',recipientAddress:'other@inert.example',text:'An unsent synthetic test only.'};
   const receiver=await createContinuationReceiver({controller,role,stateDir:dir,env:{ENVOI_SCOPED_TOOLS:'true',ENVOI_HERMES_GATE_REQUIRED:'1'},meterToken:'f'.repeat(64),nativeGate:role==='openclaw'?undefined:nativeGate,
     expected,allowedNewSends:[request],fetch:fetcher,reserveOperation,record,beforeTrustedScopedControl:trustedControl,observeTransport,observeNativeEnd,beforeFirstScopedSnapshot,
+    ...(nativeTarget?{openClawTargetResolver:resolveTarget,openClawTargetSelection:{clientSource,nativeSourceSha256:'e'.repeat(64),window:'a'.repeat(64),readPersonalSelection:reviewTarget}}:{}),
     ...(held?{beforeScopedControl:async()=>{throw Error('INERT_CONTROL_ABORT');},verifyHeldControl:async()=>({lateScopeDenied:true as const,lateSettlementDenied:true as const,heldWorkResumable:true as const,evidenceSha256:'9'.repeat(64)})}:{}),
   });cleanups.push(receiver.close);
-  return {receiver,controller,fetcher,process,dir,workId,caseId,flowId,request,record,reserveOperation};
+  return {receiver,controller,fetcher,process,dir,workId,caseId,flowId,request,record,reserveOperation,resolveTarget,reviewTarget};
 }
+it('preserves the first native target after pause and expiry controls close on the same accepted OpenClaw work',async()=>{
+  const s=await setup({role:'openclaw',flowId:'openclaw',nativeTarget:true,trustedControl:async()=>{throw Error('UNUSED_CONTROL_CONSUMER');}});
+  for(const mode of ['pause','expiry'] as const){const control=await s.receiver.startPreNativeControl({controlId:'inert-'+mode,mode,role:'openclaw',caseId:s.caseId,workId:s.workId,evidenceSha256:'7'.repeat(64)});await control.ready;control.cancel();await control.finished;await control.close();}
+  expect(s.resolveTarget).not.toHaveBeenCalled();expect(s.reviewTarget).not.toHaveBeenCalled();
+  await expect(fs.stat(path.join(s.dir,'scoped-runs',s.workId+'.json'))).rejects.toMatchObject({code:'ENOENT'});
+  const result=await s.receiver.runOne('openclaw',s.workId,s.caseId,'1'.repeat(64));expect(result.canonicalStatus).toBe('processed');
+  expect(s.resolveTarget).toHaveBeenCalledTimes(1);expect(s.reviewTarget).toHaveBeenCalledTimes(1);
+  expect(s.fetcher.mock.calls.filter(([u])=>String(u).endsWith('/v1/responses'))).toHaveLength(1);
+  await expect(state.context.openClawTargetResolver(s.workId,new AbortController().signal)).rejects.toMatchObject({code:'OPENCLAW_TARGET_CLOSED'});
+});
 it('opens the same installed helper without claiming or generating a model request, then processes only its explicitly pinned work',async()=>{
   const s=await setup();expect(s.fetcher).not.toHaveBeenCalled();expect(s.process).not.toHaveBeenCalled();
   const proof=await s.receiver.runOne('green',s.workId,s.caseId,'1'.repeat(64));
