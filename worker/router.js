@@ -49,12 +49,13 @@ export function settingsChanged(startedFingerprint, currentFingerprint, lastRest
   return Boolean(startedFingerprint) && startedFingerprint !== currentFingerprint && lastRestartFingerprint !== currentFingerprint;
 }
 
-export function createForwardedRequest(request) {
+export function createForwardedRequest(request, requestId) {
   const url = new URL(request.url);
   const headers = new Headers(request.headers);
   const clientIp = headers.get('cf-connecting-ip');
   // The marker the container puts on the REST call a /mcp tool call makes for itself (agent-remote-auth §9) never comes from outside.
   headers.delete('x-envoi-mcp-dispatch');
+  if (requestId) headers.set('x-request-id', requestId);
 
   headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
   headers.set('x-forwarded-host', url.host);
@@ -73,11 +74,12 @@ export function createForwardedRequest(request) {
 // agent-remote-auth v1 §2: the discovery documents are public and cacheable for 300 s.
 const publicMetadataPaths = new Set(['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server']);
 
-export function withNoStoreHeaders(response, pathname = '') {
+export function withNoStoreHeaders(response, pathname = '', requestId) {
   if (response.status === 101) return response;
   if (pathname === '/.well-known/envoi-wake-keys.json' && response.status === 200 && response.headers.get('cache-control') === 'public, max-age=300, s-maxage=0') return response;
   if (publicMetadataPaths.has(pathname) && response.status === 200 && response.headers.get('cache-control') === 'public, max-age=300') return response;
   const headers = new Headers(response.headers);
+  if (requestId) headers.set('x-request-id', requestId);
   headers.set('cache-control', 'private, no-store');
   headers.set('cdn-cache-control', 'no-store');
   headers.set('cloudflare-cdn-cache-control', 'no-store');
@@ -88,13 +90,14 @@ export function withNoStoreHeaders(response, pathname = '') {
   });
 }
 
-export function serviceUnavailableResponse() {
-  return new Response(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', message: 'Envoi is temporarily unavailable' }), {
+export function serviceUnavailableResponse(requestId) {
+  return new Response(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', message: 'Envoi is temporarily unavailable', ...(requestId ? { requestId } : {}) }), {
     status: 503,
     headers: {
       'cache-control': 'private, no-store',
       'content-type': 'application/json; charset=utf-8',
-      'retry-after': '5'
+      'retry-after': '5',
+      ...(requestId ? { 'x-request-id': requestId } : {})
     }
   });
 }

@@ -41,6 +41,24 @@ export async function smokeDeployment(origin, expectedSha, { fetchImpl = fetch, 
     } else { await response.body?.cancel(); }
     log(`${pathname}: passed`);
   }
+  if (target.origin === 'https://www.envoi-agents.com') {
+    const metadata = await fetchImpl(new URL('/.well-known/oauth-protected-resource/mcp', target), {
+      redirect: 'error', signal: AbortSignal.timeout(30_000)
+    });
+    if (!metadata.ok || (await metadata.json().catch(() => null))?.resource !== `${target.origin}/mcp`) {
+      throw new Error('MCP OAuth resource metadata is unavailable');
+    }
+    log('/.well-known/oauth-protected-resource/mcp: passed');
+    const challenge = await fetchImpl(new URL('/mcp', target), {
+      method: 'GET', redirect: 'error', signal: AbortSignal.timeout(30_000)
+    });
+    const auth = challenge.headers.get('www-authenticate') || '';
+    if (challenge.status !== 401 || !auth.includes(`resource_metadata="${target.origin}/.well-known/oauth-protected-resource/mcp"`)) {
+      throw new Error('MCP OAuth challenge is unavailable');
+    }
+    await challenge.body?.cancel();
+    log('/mcp OAuth challenge: passed');
+  }
   const team = await fetchImpl(new URL('/team/', target), { redirect: 'manual', signal: AbortSignal.timeout(30_000) });
   if (team.status !== 301 || team.headers.get('location') !== '/#team') throw new Error('Legacy team redirect is missing');
   await team.body?.cancel();

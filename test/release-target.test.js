@@ -39,6 +39,9 @@ function smokeResponses(overrides = {}) {
     if (pathname === '/ready') return Response.json({ ready: true, mode: 'production', configurationValidated: true, releaseSha, ...overrides.ready });
     if (pathname === '/api/onboarding/routes') return Response.json({registrationEnabled:true,installationsEnabled:true,
       routes:[{connectionRoute:'remote_mcp_oauth',available:true}],deliveryModes:[{deliveryMode:'on_demand',available:true}],...overrides.dots});
+    if (pathname === '/.well-known/oauth-protected-resource/mcp') return overrides.mcpMetadata ?? Response.json({ resource: 'https://www.envoi-agents.com/mcp' });
+    if (pathname === '/mcp') return new Response(null, { status: overrides.mcpStatus ?? 401,
+      headers: { 'www-authenticate': overrides.mcpChallenge ?? 'Bearer resource_metadata="https://www.envoi-agents.com/.well-known/oauth-protected-resource/mcp", scope="envoi.agent envoi.send"' } });
     if (pathname === '/api/auth/config') return Response.json({ enabled: true });
     if (pathname === '/api/auth/workos/sign-in') {
       const authorization = new URL('https://auth.example.test/authorize');
@@ -69,6 +72,15 @@ for (const dots of [
 
 test('release smoke refuses a backend that still returns 404 for the Product page', async () => {
   await assert.rejects(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ missingProduct: true }), log() {} }), /\/product\/ returned 404/);
+});
+
+test('release smoke rejects disabled MCP OAuth metadata and challenge', async () => {
+  await assert.rejects(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, {
+    fetchImpl: smokeResponses({ mcpMetadata: new Response(null, { status: 404 }) }), log() {}
+  }), /MCP OAuth resource metadata is unavailable/);
+  await assert.rejects(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, {
+    fetchImpl: smokeResponses({ mcpChallenge: 'Bearer realm="Envoi agent MCP"' }), log() {}
+  }), /MCP OAuth challenge is unavailable/);
 });
 
 for (const endpoint of ['health', 'ready']) {
