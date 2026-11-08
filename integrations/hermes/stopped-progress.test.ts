@@ -134,7 +134,7 @@ it.each(['native-history','program-file','foreign-directory','reachable','journa
  if(fault==='ledger-change')await fs.appendFile(r.ledgerAtStop.path,' ');
  if(fault==='foreign-root'){const clone=path.join(s.root,'clone');await fs.mkdir(clone);for(const name of await fs.readdir(s.root)){const stat=await fs.lstat(path.join(s.root,name));if(stat.isFile())await fs.copyFile(path.join(s.root,name),path.join(clone,name));}o.releaseRoot=clone;}
  if(fault==='stale-local'){s.local.checkedAtUtc=new Date(Date.now()-300001).toISOString();r.localStop=await s.pin('bad-local.json',s.local);}
- if(fault==='unrelated-stop'){s.local.operatorStop={...s.local.operatorStop,observedAtUtc:new Date(Date.now()-1).toISOString()};r.localStop=await s.pin('bad-local.json',s.local);}
+ if(fault==='unrelated-stop'){s.local.operatorStop={...s.local.operatorStop,observedAtUtc:new Date(Date.parse(s.local.operatorStop.observedAtUtc)-1).toISOString()};r.localStop=await s.pin('bad-local.json',s.local);}
  if(fault==='missing-journal'){s.local.originalJournalHashesVerified.pop();r.localStop=await s.pin('bad-local.json',s.local);}
  const before=await fs.readFile(s.filename);await expect(ContinuationController.preparePreProgramRestore(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
 });
@@ -387,7 +387,7 @@ async function controlledSetup(){
  const preflight={...s.options.preflight,checkedAtMs:now};
  const recovery:any={history:r,runtimePacket:packetPin,initialExecution,execution,operatorSeal:seal,state:statePin,stop,ledger:frozen,checkpoint:checkpointPin,carry:await s.pin('control-carry.json',carry),pollGap,
   canonicalWork:await s.pin('fresh-canonical-retry.json',{database:'sinaloa_staging',readOnly:'on',checkedAt:new Date(now).toISOString(),activeWorkLeases:0,work:{workId,caseId,agentId,status:'retryable',attempts:2,sessions:[{status:'ended'}]}})};
- const target=await s.pin('fixed-runtime-packet.json',{clientSource:'1'.repeat(40),serverSource:packet.serverSource,library:{sha256:h('fixed library')},oldKitRoot:s.root,carriedStateSha256:statePin.sha256,reviewedGraph:s.nextGraph});
+ const target=await s.pin('fixed-runtime-packet.json',{purpose:'phase-c-prepared-controlled-progress-session',clientSource:'1'.repeat(40),serverSource:packet.serverSource,library:{sha256:h('fixed library')},oldKitRoot:s.root,directory:path.join(s.root,'fixed-runtime-session'),states,actors,program:{...program,clientSource:'1'.repeat(40)},controlledRecoveryBase:{...recovery},carriedStateSha256:statePin.sha256,reviewedGraph:s.nextGraph});
  const adoption:any={purpose:'phase-c-explicit-controlled-progress-recovery',version:1,owner:'pjsk02',ownerApproved:true,priorWindow:current.window,priorExecutionSha256:execution.sha256,priorStateSha256:statePin.sha256,priorLedgerSha256:frozen.sha256,checkpointSha256:checkpointPin.sha256,carrySha256:recovery.carry.sha256,clientSource:'1'.repeat(40),serverSource:packet.serverSource,runnerSha256:h('fixed library'),packetSha256:target.sha256,modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,currentModels:35,currentOperations:32,currentCanonicalMessages:12,currentCases:4,currentAssets:0,repeatOnboarding:false,replayAcceptedSends:false,repeatObservedControls:false,decisionId:'inert-controlled-recovery',receivedAtUtc:new Date(now-1).toISOString(),timeMode:'new-interval',maximumIntervalMs:5400000};
  recovery.adoption=await s.pin('controlled-adoption.json',adoption);recovery.targetPacket=target;
  const receipt={...current.receipt,clientSource:adoption.clientSource,ciHead:adoption.clientSource,runnerSha256:adoption.runnerSha256,packetSha256:target.sha256,approvalReceiptSha256:recovery.adoption.sha256,startUtc:new Date(now).toISOString(),hardStopUtc:new Date(now+5400000).toISOString()},signed=s.sign(s.nextGraph,receipt,'fixed runtime');
@@ -429,4 +429,48 @@ it('rechecks pinned controls after preparation and before consuming any recovery
  const s=await controlledSetup(),before=await fs.readFile(s.filename),h=await ContinuationController.prepareControlledProgress(s.options);
  await fs.appendFile(s.options.recovery.carry.path,' ');await expect(ContinuationController.startControlledProgress(h)).rejects.toThrow('CONTROLLED_PROGRESS_CHANGED');
  expect(await fs.readFile(s.filename)).toEqual(before);expect((await fs.readdir(s.root)).filter(f=>f.startsWith('phase-c-controlled-progress-'))).toEqual([]);
+});
+
+async function controlledStartupSetup(timeMode:'same-fixed'|'new-interval'='same-fixed'){
+ const s=await controlledSetup(),old=s.options,r=old.recovery,c=await ContinuationController.startControlledProgress(await ContinuationController.prepareControlledProgress(old));c.stop();
+ const now=Date.now()+2000;vi.spyOn(Date,'now').mockReturnValue(now);
+ const p=JSON.parse(await fs.readFile(r.targetPacket.path,'utf8')),window=hash(JSON.stringify(old.receipt));
+ const execution={purpose:'actual-controlled-checkpoint-recovery',receipt:old.receipt,window,graphApprovalRaw:old.graphApprovalRaw,priorExecution:r.execution,carriedState:r.state,carriedCheckpoint:r.carry,sealSha256:h('sealed startup'),actualStartedAtUtc:old.receipt.startUtc};
+ const executionPin=await s.pin('actual-startup-execution.json',execution),stop={state:'controlled_recovery_stopped_preserve_originals',phase:'owned-runtime-startup',observedAtUtc:new Date(now-1000).toISOString(),packetSha256:r.targetPacket.sha256,gateComplete:false},stopPin=await s.pin('actual-startup-stop.json',stop),ledgerPin=await s.pin('actual-startup-ledger.jsonl',await fs.readFile(s.filename,'utf8'));
+ const originalPacket=JSON.parse(await fs.readFile(r.runtimePacket.path,'utf8'));
+ const checkpoint:any={purpose:'actual-controlled-startup-stop-readonly',checkedAtUtc:new Date(now).toISOString(),packet:r.targetPacket,execution:executionPin,stop:stopPin,ledger:ledgerPin,stopState:stop,executionReceipt:execution,usage:{chargedAttempts:35,pending:0,unresolvedDispatches:0},selectedHermesHosts:['je1','je2','testowner'].map(role=>({role,unreachable:true})),ownedMeterListening:false,ownerGatewayContextAbsent:true,sharedNativeJournalAbsent:true,originalJournals:originalPacket.program.originalJournalHashes.map((j:any)=>({role:j.role,file:j.file,unchanged:true})),modelCallsAdded:0,hostStarts:0};
+ const frame:any={packet:r.targetPacket,execution:executionPin,stop:stopPin,checkpoint:await s.pin('actual-startup-checkpoint.json',checkpoint),ledger:ledgerPin,adoption:r.adoption,programDirectory:path.join(p.directory,'native-program')};
+ const inventory=JSON.parse(await fs.readFile(r.history.currentInventory.path,'utf8'));inventory.checkedAt=new Date(now).toISOString();
+ const canonical=JSON.parse(await fs.readFile(r.canonicalWork.path,'utf8'));canonical.checkedAt=new Date(now).toISOString();
+ const recovery:any={...r,history:{...r.history,currentInventory:await s.pin('startup-fresh-inventory.json',inventory)},canonicalWork:await s.pin('startup-fresh-canonical.json',canonical),startupStops:[frame]};
+ const newPacket=await s.pin('startup-recovery-packet.json',{...p,clientSource:'2'.repeat(40),library:{sha256:h('startup recovery library')},directory:path.join(s.root,'startup-recovery-session'),program:{...p.program,clientSource:'2'.repeat(40)},controlledRecoveryBase:recovery});
+ const adoption:any={...s.adoption,priorWindow:window,priorExecutionSha256:executionPin.sha256,priorLedgerSha256:ledgerPin.sha256,startupStopSha256:stopPin.sha256,startupCheckpointSha256:frame.checkpoint.sha256,startupPacketSha256:frame.packet.sha256,clientSource:'2'.repeat(40),runnerSha256:h('startup recovery library'),packetSha256:newPacket.sha256,decisionId:'inert-startup-recovery-decision',receivedAtUtc:new Date(now-1).toISOString(),timeMode};
+ recovery.adoption=await s.pin('startup-recovery-adoption.json',adoption);recovery.targetPacket=newPacket;
+ const receipt={...old.receipt,clientSource:adoption.clientSource,ciHead:adoption.clientSource,runnerSha256:adoption.runnerSha256,packetSha256:newPacket.sha256,approvalReceiptSha256:recovery.adoption.sha256,...(timeMode==='new-interval'?{startUtc:new Date(now).toISOString(),hardStopUtc:new Date(now+5400000).toISOString()}:{})},signed=s.sign(s.nextGraph,receipt,'startup recovery');
+ return{...s,old,frame,checkpoint,execution,adoption,options:{...old,recovery,receipt,preflight:{...old.preflight,checkedAtMs:now},reviewedPlan:signed.plan,graphApprovalRaw:signed.raw,expected:{...old.expected,clientSource:receipt.clientSource,runnerSha256:receipt.runnerSha256,packetSha256:receipt.packetSha256}}};
+}
+it.each(['same-fixed','new-interval'] as const)('recovers a real pre-native startup stop with %s authority and retained controls',async mode=>{
+ const s=await controlledStartupSetup(mode),o=s.options,before=await fs.readFile(s.filename),state=await fs.readFile(o.recovery.state.path),oldExecution=await fs.readFile(s.frame.execution.path);
+ const handle=await ContinuationController.prepareControlledProgress(o);expect(handle.priorWindow).toBe(s.execution.window);expect(await fs.readFile(s.filename)).toEqual(before);
+ const c=await ContinuationController.startControlledProgress(handle);expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(c.receipt).toEqual(o.receipt);if(mode==='same-fixed')expect(c.receipt.hardStopUtc).toBe(s.old.receipt.hardStopUtc);
+ expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);expect(await fs.readFile(o.recovery.state.path)).toEqual(state);expect(await fs.readFile(s.frame.execution.path)).toEqual(oldExecution);
+ for(const id of s.used)expect(()=>c.releaseGroup([id])).toThrow();c.releaseGroup(['openclaw']);expect(()=>c.expectWork('openclaw','msg_replacement',h('replacement'))).toThrow();c.stop();
+ await expect(ContinuationController.startControlledProgress(handle)).rejects.toThrow('PREPARED_CONTROLLED_PROGRESS_REQUIRED');
+});
+it.each(['program-file','gateway-context','wrong-stop-phase','missing-admission-marker','missing-time-marker','changed-execution','foreign-checkpoint','unreachable-false','invented-journal-proof','native-binding','ledger-whitespace','unapproved-startup','clock-reset'] as const)('refuses startup recovery without mutation: %s',async fault=>{
+ const s=await controlledStartupSetup(),o=s.options,r=o.recovery,f=s.frame;
+ if(fault==='program-file'){await fs.mkdir(f.programDirectory,{recursive:true});await fs.writeFile(path.join(f.programDirectory,'state.json'),'{}');}
+ if(fault==='gateway-context'){await fs.mkdir(path.dirname(f.programDirectory),{recursive:true});await fs.writeFile(path.join(path.dirname(f.programDirectory),'owner-gateway-context.private.json'),'{}');}
+ if(fault==='wrong-stop-phase'){const v=JSON.parse(await fs.readFile(f.stop.path,'utf8'));v.phase='remaining-native-program';f.stop=await s.pin('wrong-startup-phase.json',v);}
+ if(fault==='missing-admission-marker')await fs.unlink(path.join(s.root,'phase-c-controlled-progress-'+s.current.window+'.used.json'));
+ if(fault==='missing-time-marker'){const d=JSON.parse(await fs.readFile(f.adoption.path,'utf8'));await fs.unlink(path.join(s.root,'phase-c-recovery-time-'+h('pjsk02\0'+d.decisionId)+'.used.json'));}
+ if(fault==='changed-execution')await fs.appendFile(f.execution.path,' ');
+ if(fault==='foreign-checkpoint'){s.checkpoint.packet={...s.checkpoint.packet,sha256:h('foreign')};f.checkpoint=await s.pin('foreign-startup-checkpoint.json',s.checkpoint);}
+ if(fault==='unreachable-false'){s.checkpoint.selectedHermesHosts[0].unreachable=false;f.checkpoint=await s.pin('reachable-startup-checkpoint.json',s.checkpoint);}
+ if(fault==='invented-journal-proof'){s.checkpoint.originalJournals[0].unchanged=false;f.checkpoint=await s.pin('bad-startup-journals.json',s.checkpoint);}
+ if(fault==='native-binding'){const l=await RequestBudgetLedger.open(s.filename);await l.bindWork('openclaw',{canonicalWorkHash:h(s.workId),nativeToken:h('native added'),evidenceHash:h('native proof')});f.ledger=await s.pin('native-startup-ledger.jsonl',await fs.readFile(s.filename,'utf8'));}
+ if(fault==='ledger-whitespace')await fs.appendFile(s.filename,'\n');
+ if(fault==='unapproved-startup'){const d=JSON.parse(await fs.readFile(f.adoption.path,'utf8'));d.ownerApproved=false;f.adoption=await s.pin('unapproved-original-startup.json',d);}
+ if(fault==='clock-reset')o.receipt.hardStopUtc=new Date(Date.parse(o.receipt.hardStopUtc)+1).toISOString();
+ const before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
 });

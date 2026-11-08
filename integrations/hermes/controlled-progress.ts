@@ -4,9 +4,11 @@ import fs from'node:fs/promises';import path from'node:path';import{createHash}f
 import type{ContinuationReceipt}from'./continuation-controller';
 import{inspectStoppedProgress,inspectStoppedProgressHistory,type ProgressPin,type StoppedProgressRecovery,type StoppedProgressPreflight}from'./stopped-progress';
 import type{RequestBudgetLedger}from'./request-budget';import{hashReviewedContinuationPlan}from'./continuation-plan';
+import{readControlledStartupFrames,inspectControlledStartupFrames,type ControlledStartupStop}from'./controlled-startup';
 export type ControlledProgressRecovery=Readonly<{
   history:StoppedProgressRecovery;runtimePacket:ProgressPin;initialExecution:ProgressPin;execution:ProgressPin;operatorSeal:ProgressPin;
   state:ProgressPin;stop:ProgressPin;ledger:ProgressPin;checkpoint:ProgressPin;carry:ProgressPin;pollGap:ProgressPin;canonicalWork:ProgressPin;adoption:ProgressPin;targetPacket:ProgressPin;
+  startupStops?:readonly ControlledStartupStop[];
 }>;
 const hash=(b:string|Buffer)=>createHash('sha256').update(b).digest('hex'),object=(v:any)=>v&&typeof v==='object'&&!Array.isArray(v),canon=(v:any):any=>Array.isArray(v)?v.map(canon):object(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
 const equal=(a:any,b:any)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
@@ -26,8 +28,10 @@ export async function inspectControlledProgressHistory(input:{releaseRoot:string
    ||operator.recovery?.library?.sha256!==current.recoveryImplementation?.library?.sha256)refuse('ACTUAL_CONTROLLED_STOP_REQUIRED');
  const{actionLedger:_,currentInventory:__,time:___,...history}=r.history,known=(await read(p.resumption?.history)).value;
  if(!equal(history,known))refuse('EXACT_CONTROLLED_ANCESTRY_REQUIRED');
- const historical=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r.history,ledger,nextStart:Date.parse(a.startUtc)},[a,b]);
- const rows=(await read(r.ledger,false)).raw;if(!rows.equals(await fs.readFile(ledger.filename))||hash(rows)!==ledger.contentSha256)refuse('CONTROLLED_LEDGER_CHANGED');
+ const startupFrames=await readControlledStartupFrames(r.startupStops),metadataReceipts=[a,b,...startupFrames.map(f=>originalReceipt(f.execution))];
+ const historical=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r.history,ledger,nextStart:Date.parse(a.startUtc)},metadataReceipts);
+ const frozen=(await read(r.ledger,false)).raw,rows=await fs.readFile(ledger.filename);
+ if(!rows.subarray(0,frozen.length).equals(frozen)||!startupFrames.length&&!rows.equals(frozen)||rows.toString().trimEnd().split('\n').length!==frozen.toString().trimEnd().split('\n').length+2*startupFrames.length||hash(rows)!==ledger.contentSha256)refuse('CONTROLLED_LEDGER_CHANGED');
  const tail=rows.toString().trimEnd().split('\n').map(x=>JSON.parse(x));
  for(const e of[first,current]){const plan=tail.find((x:any)=>x.kind==='plan'&&x.window===e.window);if(plan?.proof?.graphApprovalRaw!==e.graphApprovalRaw)refuse('ACTUAL_CONTROLLED_GRAPH_REQUIRED');}
  if(state.window!==current.window||state.planSha256!==hash(JSON.stringify(canon({...p.program,windowId:current.window})))
@@ -78,12 +82,14 @@ export async function inspectControlledProgressHistory(input:{releaseRoot:string
    ||poll.caseId!==work.caseId||poll.modelCallsAdded!==0||poll.lost?.responseSha256!==lost.responseSha256||poll.lost.path!==poll.recovered?.path||poll.lost.query!==poll.recovered.query
    ||!Array.isArray(poll.lost.eventIds)||!poll.lost.eventIds.every((id:any)=>poll.recovered.eventIds.includes(id)))refuse('ACTUAL_POLL_GAP_PROOF_REQUIRED');
  const settlement=(await read(d.events?.canonical_settlement)).value;if(settlement.kind!=='canonical_settlement'||settlement.workId!==work.workId||settlement.status!=='retryable'||settlement.operation!=='fail')refuse('PRIOR_RETRYABLE_SETTLEMENT_REQUIRED');
- return{...historical,originalReceipt:b,priorWindow:current.window,currentLedgerSha256:hash(rows),stateSha256:r.state.sha256,workId:work.workId,caseId:work.caseId,
-   actorId:p.actors.openclaw.agentId,carriedControlProofs:controls,carriedControlSource:b.clientSource,pollGapSha256:r.pollGap.sha256,runtimePacket:p,initialReceipt:a};
+ const startup=await inspectControlledStartupFrames({releaseRoot:input.releaseRoot,recovery:r,frames:startupFrames,ledger,rows,frozen,controlWindow:current.window,journals:p.program.originalJournalHashes,states:p.states});
+ return{...historical,originalReceipt:startup?.receipt??b,priorWindow:startup?.window??current.window,currentLedgerSha256:hash(rows),stateSha256:r.state.sha256,workId:work.workId,caseId:work.caseId,
+   actorId:p.actors.openclaw.agentId,carriedControlProofs:controls,carriedControlSource:b.clientSource,pollGapSha256:r.pollGap.sha256,runtimePacket:p,initialReceipt:a,metadataReceipts,
+   priorExecution:startup?.proof.execution??r.execution,priorLedger:startup?.proof.ledger??r.ledger,startup};
 }
 export async function inspectControlledProgress(input:{releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}}){
  const{recovery:r,receipt:n,ledger,preflight:p,expected:e}=input,h=await inspectControlledProgressHistory(input),a=h.initialReceipt;
- await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts:[a,h.originalReceipt]});
+ await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts:h.metadataReceipts});
  const canonical=(await read(r.canonicalWork)).value,w=canonical?.work,now=Date.now();
  if(canonical.database!=='sinaloa_staging'||canonical.readOnly!=='on'||Date.parse(canonical.checkedAt)!==p.checkedAtMs||canonical.activeWorkLeases!==0
    ||w?.workId!==h.workId||w.caseId!==h.caseId||w.agentId!==h.actorId||w.status!=='retryable'||!Number.isSafeInteger(w.attempts)||w.attempts<1
@@ -95,8 +101,10 @@ export async function inspectControlledProgress(input:{releaseRoot:string;ledger
    ||!Number.isFinite(start)||!Number.isFinite(end)||start>now||end<=now||end<=start||end-start>5400000||!/^[a-f0-9]{40}$/.test(n.clientSource)||!/^[a-f0-9]{64}$/.test(n.runnerSha256)
    ||target.clientSource!==n.clientSource||target.serverSource!==n.serverSource||target.library?.sha256!==n.runnerSha256||path.resolve(target.oldKitRoot??'')!==path.resolve(input.releaseRoot)
    ||target.carriedStateSha256!==r.state.sha256||hashReviewedContinuationPlan(target.reviewedGraph)!==ledger.reviewedPlan?.planSha256)refuse('EXACT_CONTROLLED_SOURCE_ADOPTION_REQUIRED');
- const exact={purpose:'phase-c-explicit-controlled-progress-recovery',version:1,owner:'pjsk02',ownerApproved:true,priorWindow:h.priorWindow,priorExecutionSha256:r.execution.sha256,priorStateSha256:r.state.sha256,
-   priorLedgerSha256:r.ledger.sha256,checkpointSha256:r.checkpoint.sha256,carrySha256:r.carry.sha256,clientSource:n.clientSource,serverSource:n.serverSource,runnerSha256:n.runnerSha256,packetSha256:n.packetSha256,
+ const exact={purpose:'phase-c-explicit-controlled-progress-recovery',version:1,owner:'pjsk02',ownerApproved:true,priorWindow:h.priorWindow,priorExecutionSha256:h.priorExecution.sha256,priorStateSha256:r.state.sha256,
+   priorLedgerSha256:h.priorLedger.sha256,checkpointSha256:r.checkpoint.sha256,carrySha256:r.carry.sha256,
+   ...(h.startup?{startupStopSha256:h.startup.proof.stop.sha256,startupCheckpointSha256:h.startup.proof.checkpoint.sha256,startupPacketSha256:h.startup.proof.packet.sha256}:{}),
+   clientSource:n.clientSource,serverSource:n.serverSource,runnerSha256:n.runnerSha256,packetSha256:n.packetSha256,
    modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,currentModels:ledger.snapshot().chargedAttempts,currentOperations:p.conservativeMessages,currentCanonicalMessages:p.canonicalEffects,currentCases:p.cases,currentAssets:p.assets,
    repeatOnboarding:false,replayAcceptedSends:false,repeatObservedControls:false};
  if(Object.keys(approval).sort().join()!==[...Object.keys(exact),'decisionId','receivedAtUtc','timeMode','maximumIntervalMs'].sort().join()||Object.entries(exact).some(([k,v])=>approval[k]!==v)
