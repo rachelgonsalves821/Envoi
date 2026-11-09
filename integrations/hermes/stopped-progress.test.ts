@@ -611,3 +611,95 @@ it.each(['unapproved-cap','reduced-cleanup','unbounded-cap','allocation-changed'
 it('refuses the complete distinct follow-up plan without the explicit operation amendment',async()=>{
  const s=await unforwardedSetup(),before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(s.options)).rejects.toThrow('EXACT_OPERATION_AMENDMENT_REQUIRED');expect(await fs.readFile(s.filename)).toEqual(before);
 });
+
+async function acceptedCheckpointSetup(){
+ const s=await withOperationAmendment(),o=s.options,r=o.recovery,canon=(v:any):any=>Array.isArray(v)?v.map(canon):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
+ if(o.preflight.conservativeMessages===32){
+  const file=path.join(s.root,'phase-c-cumulative-actions.jsonl'),raw=await fs.readFile(file,'utf8'),last=raw.trimEnd().split('\n').at(-1)!;
+  const next=raw+JSON.stringify({previous:h(last+'\n'),kind:'operation',operationKind:'message',caseId:s.caseId})+'\n';await fs.writeFile(file,next);r.history.actionLedger=await s.pin('accepted-before-actions.jsonl',next);
+  o.preflight.conservativeMessages=33;s.adoption.currentOperations=33;const allocation=JSON.parse(await fs.readFile(r.operationAmendment.allocation.path,'utf8'));allocation.currentConservativeReservations=33;allocation.minimumNormalTotal=54;
+  r.operationAmendment.allocation=await s.pin('accepted-before-allocation.json',allocation);s.adoption.operationAllocationSha256=r.operationAmendment.allocation.sha256;
+ }
+ const now=Date.now()+2000;vi.spyOn(Date,'now').mockReturnValue(now);
+ const p=JSON.parse(await fs.readFile(r.targetPacket.path,'utf8')),seal=await s.pin('accepted-seal.json',{purpose:'inert sealed code'});
+ p.sealPath=seal.path;p.controlledRecoveryBase=structuredClone(r);p.decisionPaths={adoption:path.join(p.directory,'decisions','adoption.actual-human.private.json')};
+ const packet=await s.pin('accepted-start-packet.json',p);r.targetPacket=packet;
+ Object.assign(s.adoption,{packetSha256:packet.sha256,decisionId:'accepted-checkpoint-original-window',receivedAtUtc:new Date(now-1).toISOString(),timeMode:'new-interval'});
+ await fs.mkdir(path.join(p.directory,'decisions'),{recursive:true});const adoptionFile=p.decisionPaths.adoption,adoptionRaw=JSON.stringify(s.adoption);await fs.writeFile(adoptionFile,adoptionRaw);r.adoption={path:adoptionFile,sha256:h(adoptionRaw)};
+ await fs.writeFile(path.join(p.directory,'ADOPTION-RECORDED.private.json'),JSON.stringify({purpose:'actual-startup-source-time-decision-record-no-clock',clockStarted:false,sealSha256:seal.sha256,packetSha256:packet.sha256,adoption:r.adoption}));
+ o.receipt={...o.receipt,packetSha256:packet.sha256,approvalReceiptSha256:r.adoption.sha256,startUtc:new Date(now).toISOString(),hardStopUtc:new Date(now+5400000).toISOString()};
+ o.expected={...o.expected,packetSha256:packet.sha256};
+ const signed=s.sign(s.nextGraph,o.receipt,'accepted original');o.reviewedPlan=signed.plan;o.graphApprovalRaw=signed.raw;o.preflight.checkedAtMs=now;
+ const inventory=JSON.parse(await fs.readFile(r.history.currentInventory.path,'utf8'));inventory.checkedAt=new Date(now).toISOString();r.history.currentInventory=await s.pin('accepted-before-inventory.json',inventory);
+ const oldCanonical=JSON.parse(await fs.readFile(r.canonicalWork.path,'utf8'));oldCanonical.checkedAt=new Date(now).toISOString();r.canonicalWork=await s.pin('accepted-before-canonical.json',oldCanonical);
+ const handle=await ContinuationController.prepareControlledProgress(o),oldLedger=await fs.readFile(s.filename),controller=await ContinuationController.startControlledProgress(handle);controller.stop();
+ const currentWindow=h(JSON.stringify(o.receipt)),execution={purpose:'actual-controlled-checkpoint-recovery',receipt:o.receipt,window:currentWindow,graphApprovalRaw:o.graphApprovalRaw,
+  priorExecution:r.startupStops.at(-1).execution,carriedState:r.state,carriedCheckpoint:r.carry,sealSha256:seal.sha256,actualStartedAtUtc:o.receipt.startUtc};
+ const executionPin=await s.pin('accepted-execution.json',execution);vi.spyOn(Date,'now').mockReturnValue(now+2000);
+ let actions=await fs.readFile(path.join(s.root,'phase-c-cumulative-actions.jsonl'),'utf8');const last=actions.trimEnd().split('\n').at(-1)!;
+ actions+=JSON.stringify({previous:h(last+'\n'),kind:'operation',operationKind:'message',caseId:s.caseId})+'\n';await fs.writeFile(path.join(s.root,'phase-c-cumulative-actions.jsonl'),actions);
+ const workId='msg_accepted_checkpoint',programDir=path.join(p.directory,'native-program');await fs.mkdir(programDir,{recursive:true});
+ const personal={purpose:'phase-c-personal-followup-confirmation',version:1,windowId:currentWindow,name:'openclaw-ready-checkpoint',requestId:s.followup.requestId,subjectSha256:h('personal subject'),humanConfirmed:true,confirmedAtUtc:new Date(now+100).toISOString()};
+ const personalPin=await s.pin('accepted-personal.json',personal),ownerDigest=h(JSON.stringify(canon(personal)));
+ const selected={case:{id:s.caseId},messages:[{id:workId,caseId:s.caseId,text:s.followup.text,senderAgentId:s.followup.senderAgentId,recipientAgentId:s.followup.recipientAgentId}]};
+ const selectedRaw=JSON.stringify(selected);await fs.writeFile(path.join(programDir,'selected-checkpoint.json'),selectedRaw);
+ const accepted={state:'accepted',requestId:s.followup.requestId,caseId:s.caseId,messageId:workId,senderRole:'testowner',recipientAddress:'inert@example.invalid',ownerReceiptSha256:ownerDigest,canonicalSha256:h(selectedRaw),failedOriginalPreserved:true,originalAcceptedSendRepeated:false};
+ const original=JSON.parse(await fs.readFile(r.state.path,'utf8'));
+ const state={...original,phase:'prepared',window:currentWindow,planSha256:h(JSON.stringify(canon({...p.program,windowId:currentWindow}))),started:{openclaw:{workId,caseId:s.caseId,beforeSha256:h(selectedRaw)}},
+  observerFollowupAttempt:{requestId:s.followup.requestId,subjectSha256:personal.subjectSha256,ownerReceiptSha256:ownerDigest,state:'accepted'},
+  retainedObserverFailedOriginal:{workId:s.workId,caseId:s.caseId,canonicalStatus:'failed',attempts:5,neverReplay:true,journalSha256:s.journal.sha256,journal:s.journal},distinctFollowupReceipts:{openclaw:accepted},
+  carriedControlObservations:s.preTargetState.carriedControlObservations,carriedOpenClawPollObservation:s.preTargetState.carriedOpenClawPollObservation};
+ const stateRaw=JSON.stringify(state),stateFile=path.join(programDir,'accepted-state.json');await fs.writeFile(stateFile,stateRaw);const programState={path:stateFile,sha256:h(stateRaw)};
+ const stop=await s.pin('accepted-native-stop.json',{state:'controlled_recovery_stopped_preserve_originals',phase:'remaining-native-program',observedAtUtc:new Date(now+1000).toISOString(),packetSha256:packet.sha256,gateComplete:false});
+ const newWork={workId,status:'retryable',attempts:1,failure:{retryable:true,reasonCode:'HANDLER_FAILED'},messageStatus:'acknowledged',processedAt:null},oldWork={workId:s.workId,status:'failed',attempts:5,failure:{retryable:false,reasonCode:'HANDLER_FAILED'}};
+ const canonicalStop={database:'sinaloa_staging',readOnly:'on',checkedAt:new Date(now+1500).toISOString(),activeWorkLeases:0,activeCaseSessions:0,work:[newWork,oldWork],sessions:[{workId,status:'ended'},{workId:s.workId,status:'ended'}]};
+ const journal={version:1,workId,model:'openclaw:http://127.0.0.1:19000:main',providerCalls:1,completed:false,pending:[],input:[{role:'system',content:'inert instructions'},{role:'user',content:'inert snapshot'}]};
+ const journalPath=path.join(p.states.openclaw,'scoped-runs',workId+'.json');await fs.writeFile(journalPath,JSON.stringify(journal));const journalPin={path:journalPath,sha256:h(JSON.stringify(journal))};
+ const d:any={purpose:'actual-accepted-checkpoint-native-start-stop-inspection',version:1,executionAllowed:false,newAuthorityGranted:false,checkedAtUtc:new Date(now+2000).toISOString(),window:currentWindow,fixedHardStopUtc:o.receipt.hardStopUtc,source:o.receipt.clientSource,
+  packet,seal,execution:executionPin,stop,programState,frozenRequests:await s.pin('accepted-request-snapshot.jsonl',await fs.readFile(s.filename,'utf8')),frozenActions:await s.pin('accepted-action-snapshot.jsonl',actions),personalSend:personalPin,
+  canonicalStop:await s.pin('accepted-canonical-stop.json',canonicalStop),cleanup:await s.pin('accepted-cleanup.json',{checkedAtUtc:new Date(now+1500).toISOString(),ports:[{listening:false},{listening:false},{listening:false}],hermes:['je1','testowner'].map(role=>({role,running:false})),modelsAdded:0,tasksSent:0}),
+  accounting:await s.pin('accepted-accounting.json',{window:currentWindow,operations:34,assets:0,counts:{chargedAttempts:35,pending:0,unresolvedDispatches:0,knownOpenClawDispatches:0},retainedConfigUnchanged:true,oldFailedJournalUnchanged:true,replayAttempted:false,newLiveAdmission:false,newWindow:false}),
+  checkpointJournal:journalPin,acceptedReceipt:accepted,models:35,operations:34,assets:0,sameAcceptedSendMustNotRepeat:true,failedOriginalMustRemainFailed:true,oldAdmissionMustNotReplay:true};
+ r.acceptedCheckpoint=await s.pin('accepted-checkpoint-descriptor.json',d);
+ const priorAllocation=r.operationAmendment.allocation,allocation=JSON.parse(await fs.readFile(priorAllocation.path,'utf8'));
+ r.operationAmendment={...r.operationAmendment,allocation:await s.pin('accepted-remaining-allocation.json',{currentConservativeReservations:34,acceptedFollowupCarried:true,newFollowupIncluded:false,previousAllocationSha256:priorAllocation.sha256,allocations:allocation.allocations.slice(1),minimumAdditionalReservations:20,minimumNormalTotal:54,normalCeiling:54,cleanupReserve:8,overallCeiling:62})};
+ r.history.actionLedger=d.frozenActions;inventory.checkedAt=new Date(now+2000).toISOString();inventory.canonicalMessageEffects++;r.history.currentInventory=await s.pin('accepted-fresh-inventory.json',inventory);
+ r.canonicalWork=await s.pin('accepted-fresh-canonical.json',{database:'sinaloa_staging',readOnly:'on',checkedAt:inventory.checkedAt,activeWorkLeases:0,activeCaseSessions:0,work:{...newWork,caseId:s.caseId,agentId:o.actorIds.openclaw,sessions:[{status:'ended'}]},retainedOriginal:{...oldWork,caseId:s.caseId,agentId:o.actorIds.openclaw}});
+ const target=await s.pin('accepted-retry-packet.json',{...p,clientSource:'4'.repeat(40),library:{sha256:h('accepted retry library')},carriedStateSha256:r.state.sha256});r.targetPacket=target;
+ const adoption:any={...s.adoption,priorWindow:currentWindow,priorExecutionSha256:executionPin.sha256,priorLedgerSha256:d.frozenRequests.sha256,clientSource:'4'.repeat(40),runnerSha256:h('accepted retry library'),packetSha256:target.sha256,
+  decisionId:'accepted-retry-new-source-same-clock',receivedAtUtc:new Date(now+1900).toISOString(),timeMode:'same-fixed',currentOperations:34,currentCanonicalMessages:inventory.canonicalMessageEffects,acceptedCheckpointSha256:r.acceptedCheckpoint.sha256,operationAllocationSha256:r.operationAmendment.allocation.sha256};delete adoption.distinctFollowupSha256;
+ const originalReceipt=o.receipt;o.receipt={...o.receipt,clientSource:adoption.clientSource,ciHead:adoption.clientSource,runnerSha256:adoption.runnerSha256,packetSha256:target.sha256};
+ const refresh=async()=>{r.acceptedCheckpoint=await s.pin('accepted-checkpoint-descriptor.json',d);adoption.acceptedCheckpointSha256=r.acceptedCheckpoint.sha256;r.adoption=await s.pin('accepted-retry-adoption.json',adoption);o.receipt.approvalReceiptSha256=r.adoption.sha256;
+  const signed=s.sign(s.nextGraph,o.receipt,'accepted retry');o.reviewedPlan=signed.plan;o.graphApprovalRaw=signed.raw;};
+ o.expected={...o.expected,clientSource:adoption.clientSource,runnerSha256:adoption.runnerSha256,packetSha256:target.sha256};o.preflight={...o.preflight,checkedAtMs:now+2000,conservativeMessages:34,canonicalEffects:inventory.canonicalMessageEffects};
+ await refresh();return{...s,descriptor:d,acceptedState:state,canonicalStop,newWork,oldWork,workId,originalReceipt,oldLedger,adoption,refreshAccepted:refresh,journalPin};
+}
+it('retries only the accepted checkpoint through a fresh canonical claim with no resend, journal reset or clock extension',async()=>{
+ const s=await acceptedCheckpointSetup(),before=await fs.readFile(s.filename),journal=await fs.readFile(s.journalPin.path),failed=await fs.readFile(s.journal.path);
+ const handle=await ContinuationController.prepareControlledProgress(s.options);expect(await fs.readFile(s.filename)).toEqual(before);
+ const c=await ContinuationController.startControlledProgress(handle);expect(c.receipt.hardStopUtc).toBe(s.originalReceipt.hardStopUtc);expect(c.operationBounds).toEqual({operationCap:62,normalCeiling:54,cleanupReserve:8});
+ c.releaseGroup(['openclaw']);expect(()=>c.expectWork('openclaw',s.descriptor.acceptedReceipt.messageId+'wrong',h('wrong'))).toThrow('CANONICAL_WORK_BINDING_CHANGED');expect(()=>c.expectWork('openclaw',s.followup.retainedFailedWorkId,h('old'))).toThrow('PRIOR_NATIVE_WORK_MUST_NOT_REPEAT');
+ c.expectWork('openclaw',s.workId,h('fresh canonical'));const message={id:s.workId,caseId:s.caseId,text:s.followup.text,senderAgentId:s.followup.senderAgentId,recipientAgentId:s.followup.recipientAgentId};
+ expect(()=>c.observeClaim('openclaw','openclaw',{workId:s.workId,message:{...message,text:'replacement'}},'{}')).toThrow('EXACT_DISTINCT_FOLLOWUP_MESSAGE_REQUIRED');
+ c.observeClaim('openclaw','openclaw',{workId:s.workId,message},'{}');expect(await fs.readFile(s.journalPin.path)).toEqual(journal);expect(await fs.readFile(s.journal.path)).toEqual(failed);expect(c.ledger.snapshot().chargedAttempts).toBe(35);c.stop();
+});
+it.each(['descriptor-drift','processed','nonretryable','active-session','repeated-send','reset-journal','journal-pending','wrong-owner','operation-refund','model-uncertain','live-port','changed-old-journal','missing-allocation','clock-extension'] as const)('refuses accepted checkpoint retry before mutation: %s',async fault=>{
+ const s=await acceptedCheckpointSetup(),d=s.descriptor,o=s.options,r=o.recovery;
+ if(fault==='processed'||fault==='nonretryable'||fault==='active-session'){if(fault==='processed')s.canonicalStop.work[0].processedAt=new Date(Date.now()).toISOString();if(fault==='nonretryable')s.canonicalStop.work[0].failure.retryable=false;if(fault==='active-session')s.canonicalStop.sessions[0].status='active';d.canonicalStop=await s.pin('accepted-bad-stop.json',s.canonicalStop);}
+ if(fault==='repeated-send')d.sameAcceptedSendMustNotRepeat=false;
+ if(fault==='reset-journal'||fault==='journal-pending'){const j=JSON.parse(await fs.readFile(s.journalPin.path,'utf8'));if(fault==='reset-journal')j.providerCalls=0;else j.pending=[{}];await fs.writeFile(s.journalPin.path,JSON.stringify(j));d.checkpointJournal={...s.journalPin,sha256:h(JSON.stringify(j))};}
+ if(fault==='wrong-owner')d.acceptedReceipt.senderRole='je1';if(fault==='operation-refund')d.operations=33;
+ if(fault==='model-uncertain'){const v=JSON.parse(await fs.readFile(d.accounting.path,'utf8'));v.counts.unresolvedDispatches=1;d.accounting=await s.pin('accepted-uncertain.json',v);}
+ if(fault==='live-port'){const v=JSON.parse(await fs.readFile(d.cleanup.path,'utf8'));v.ports[0].listening=true;d.cleanup=await s.pin('accepted-live-port.json',v);}
+ if(fault==='changed-old-journal')await fs.appendFile(s.journal.path,' ');if(fault==='missing-allocation')delete r.operationAmendment;
+ if(fault==='clock-extension')o.receipt.hardStopUtc=new Date(Date.parse(o.receipt.hardStopUtc)+1).toISOString();
+ await s.refreshAccepted();if(fault==='descriptor-drift')await fs.appendFile(r.acceptedCheckpoint.path,' ');
+ const before=await fs.readFile(s.filename),actions=await fs.readFile(path.join(s.root,'phase-c-cumulative-actions.jsonl'));await expect(ContinuationController.prepareControlledProgress(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);expect(await fs.readFile(path.join(s.root,'phase-c-cumulative-actions.jsonl'))).toEqual(actions);
+});
+it('makes historical prefix inspection read-only, exact and anchored in the actual cumulative ledger',async()=>{
+ const s=await acceptedCheckpointSetup(),ledger=await RequestBudgetLedger.open(s.filename),pin=s.options.recovery.startupStops.at(-1).ledger,before=await fs.readFile(pin.path);
+ const view=await ledger.inspectReadOnlyPrefix(pin.path,pin.sha256);expect(view.snapshot().chargedAttempts).toBe(35);
+ await expect(view.bindApprovedWindow(h('attempted prefix write'),{approvalReceiptHash:h('fake'),allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:35})).rejects.toThrow('READ_ONLY_LEDGER_PREFIX');
+ expect(await fs.readFile(pin.path)).toEqual(before);await expect(fs.access(pin.path+'.lock')).rejects.toMatchObject({code:'ENOENT'});
+ const foreign=await s.pin('foreign-prefix.jsonl',before.toString().replace('"previous"','"changed"'));await expect(ledger.inspectReadOnlyPrefix(foreign.path,foreign.sha256)).rejects.toThrow('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
+});

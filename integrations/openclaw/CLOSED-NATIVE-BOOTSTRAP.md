@@ -113,3 +113,26 @@ not native execution evidence and never approve a new interval or additional mod
 The real policy approval is recorded in the existing workflow. Exact source adoption, native
 pair CI/review, actual per-work personal receipts and a current guarded interval remain
 separate prerequisites. This source does not repeat onboarding, sends, approvals or claims.
+
+The pinned 2026.10.5 loader requires **authored** agent configuration in keyed
+`agents.entries`. `perWorkNativeAgents` emits exactly one approved key, with the
+private workspace/agent directory and no retired `id` or `default` fields. The
+native loader materializes its runtime `agents.list` projection; the existing
+strict effective-policy and capability checks continue inspecting that actual
+runtime projection. Do not run Doctor or rewrite a retained failed profile.
+
+Startup failures report only a versioned, finite stage/reason pair through the
+existing nonce-authenticated child channel. The parent revalidates its exact
+shape and vocabulary. Unknown exceptions become `NATIVE_STARTUP_UNCLASSIFIED`;
+raw messages, stacks, paths, configuration and credentials are never forwarded.
+All startup, authority, source, deadline and cleanup refusals remain in force.
+
+After the separately confirmed checkpoint was accepted, supported recovery uses
+its frozen stop descriptor and fresh canonical retryable work. It carries that
+same message and journal, blocks the permanently failed original, and makes no
+replacement send. Historical request-ledger prefixes are inspected only through
+a read-only view anchored in the current cumulative ledger; that view cannot
+append any record. The already charged send remains charged: 34 operations plus
+the exact remaining 20 normal reservations equals 54, with eight cleanup
+reservations retained. Exact source adoption and explicit time authority are
+still required; an inspection or an unused model allowance starts no clock.

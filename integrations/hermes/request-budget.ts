@@ -42,6 +42,8 @@ export function nativeWorkToken(token: string, window: string, role: Role, nativ
 export class RequestBudgetLedger {
   private tail = Promise.resolve();
   private denied = false;
+  private readOnly = false;
+  private historicalPrefix:Readonly<{filename:string;sha256:string}>|undefined;
   private constructor(readonly filename: string, private lines: RecordLine[], private digest: string,
     private syncFile: (handle: Awaited<ReturnType<typeof fs.open>>) => Promise<void>) {}
 
@@ -90,6 +92,25 @@ export class RequestBudgetLedger {
 
   get window() { return (this.lines.filter(l => l.kind === 'window').at(-1)?.window ?? this.lines[0].window) as string; }
   get contentSha256(){return hash(this.lines.map(line=>JSON.stringify(line)+'\n').join(''));}
+  /** Historical inspection only. The canonical anchored ledger must contain these exact bytes. */
+  async inspectReadOnlyPrefix(filename:string,sha256:string){
+    if(!path.isAbsolute(filename)||!exactHash(sha256))refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
+    const stat=await fs.lstat(filename);if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1||stat.size>1000000)refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
+    const raw=await fs.readFile(filename),current=await fs.readFile(this.filename),canonical=Buffer.from(this.lines.map(line=>JSON.stringify(line)+'\n').join(''));
+    if(!raw.toString().endsWith('\n')||hash(raw)!==sha256||!current.equals(canonical)||!current.subarray(0,raw.length).equals(raw))refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
+    const count=raw.toString().trimEnd().split('\n').length,view=new RequestBudgetLedger(this.filename,structuredClone(this.lines.slice(0,count)),sha256,async()=>{refuse('READ_ONLY_LEDGER_PREFIX');});
+    view.readOnly=true;view.historicalPrefix=Object.freeze({filename,sha256});view.validate();return view;
+  }
+  /** A branded historical view retains the canonical filename and verifies its frozen bytes on every read. */
+  async readInspectionBytes(){
+    const current=await fs.readFile(this.filename);if(!this.historicalPrefix)return current;
+    const {filename,sha256}=this.historicalPrefix,stat=await fs.lstat(filename);
+    if(!this.readOnly||!stat.isFile()||stat.isSymbolicLink()||stat.size<1||stat.size>1000000)refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
+    const raw=await fs.readFile(filename),expected=Buffer.from(this.lines.map(line=>JSON.stringify(line)+'\n').join(''));
+    const anchor=JSON.parse(await fs.readFile(path.join(path.dirname(this.filename),'phase-c-request-ledger.anchor'),'utf8'));
+    if(anchor.filename!==path.resolve(this.filename)||anchor.seedSha256!==hash(JSON.stringify(this.lines[0])+'\n')||hash(raw)!==sha256||!raw.equals(expected)||!current.subarray(0,raw.length).equals(raw))refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
+    return raw;
+  }
   get reviewedPlan() { return structuredClone(this.lines.filter(l=>l.kind==='plan').at(-1)?.plan) as ReviewedContinuationPlan|undefined; }
   get reviewedGraphApprovalRaw(){return (this.lines.filter(l=>l.kind==='plan').at(-1)?.proof as ReviewedGraphAmendmentProof|undefined)?.graphApprovalRaw;}
   get flows() { const plan=this.reviewedPlan;return plan?plan.flows.map(({policy:_policy,...flow})=>flow):structuredClone(this.lines[0].flows) as Flow[]; }
@@ -188,6 +209,7 @@ export class RequestBudgetLedger {
     const result = this.tail.then(operation); this.tail = result.then(() => undefined, () => undefined); return result;
   }
   private async append(kind: string, fields: Record<string, unknown>) {
+    if(this.readOnly)refuse('READ_ONLY_LEDGER_PREFIX');
     if (this.denied) refuse('REQUEST_LEDGER_STOPPED');
     let lock: Awaited<ReturnType<typeof fs.open>>;
     try { lock = await fs.open(this.filename + '.lock', 'wx', 0o600); }

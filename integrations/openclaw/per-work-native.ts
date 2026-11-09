@@ -52,6 +52,10 @@ export async function assertOwnedOpenClawFactory(factory:OwnedOpenClawFactory,ex
 export interface PrepareNativeWork{binding:ClosedNativeBinding;canonical:{recipientAgentId:string;installationId:string;fence:number};gatewayPort:number;proxyToken:string;proxyIdentity:string;signal:AbortSignal;}
 type Prepared={factory:OwnedOpenClawFactory;binding:ClosedNativeBinding;paths:{stateDirectory:string;configurationPath:string;workspace:string;agentState:string};target:OpenClawWorkTarget;};
 declare const workBrand:unique symbol;export type PreparedOwnedOpenClawWork=Readonly<{[workBrand]:true}>;const works=new WeakMap<object,Prepared>();
+/** Author canonical 2026.10.5 config; the native loader supplies its runtime list projection. */
+export function perWorkNativeAgents(b:Pick<ClosedNativeBinding,'nativeAgentId'|'modelId'>,paths:{workspace:string;agentState:string}){
+ return{defaults:{workspace:paths.workspace,model:{primary:'anthropic/'+b.modelId,fallbacks:[]},models:{['anthropic/'+b.modelId]:{agentRuntime:{id:'openclaw'}}}},entries:{[b.nativeAgentId]:{workspace:paths.workspace,agentDir:paths.agentState}}};
+}
 /** Copies private native configuration locally; never copies an Envoi credential/journal store. */
 export async function prepareOwnedOpenClawWork(factory:OwnedOpenClawFactory,input:PrepareNativeWork){const state=factories.get(factory);if(!state)throw Error('PREPARED_OWNED_NATIVE_FACTORY_REQUIRED');await checkFactory(factory,state.pins,input.signal,false);
  const b=input.binding;if(!/^msg_[A-Za-z0-9_-]+$/.test(b.workId)||!/^agent_[A-Za-z0-9_-]+$/.test(input.canonical.recipientAgentId)||!/^installation_[A-Za-z0-9_-]+$/.test(input.canonical.installationId)||!Number.isSafeInteger(input.canonical.fence)||input.canonical.fence<1||state.prepared.has(b.workId)||!Number.isInteger(input.gatewayPort)||input.gatewayPort<1||input.gatewayPort>65535)throw Error('NEW_EXACT_NATIVE_WORK_REQUIRED');state.prepared.add(b.workId);
@@ -62,7 +66,7 @@ export async function prepareOwnedOpenClawWork(factory:OwnedOpenClawFactory,inpu
  const nativeModel=provider.models?.find((m:any)=>m.id===b.modelId);if(!nativeModel)throw Error('ORIGINAL_NATIVE_MODEL_REQUIRED');
  const token=randomBytes(32).toString('hex');config.plugins={enabled:false,allow:[],deny:[],entries:{},load:{paths:[]},slots:{memory:'none',contextEngine:'none'}};
  config.models={mode:'replace',providers:{anthropic:{...provider,api:'anthropic-messages',baseUrl:b.proxyOrigin,agentRuntime:{id:'openclaw'},headers:{...provider.headers,'x-phase-c-meter':input.proxyToken},models:[{...nativeModel,agentRuntime:{id:'openclaw'}}]}}};
- config.agents={defaults:{workspace:paths.workspace,model:{primary:'anthropic/'+b.modelId,fallbacks:[]},models:{['anthropic/'+b.modelId]:{agentRuntime:{id:'openclaw'}}}},list:[{id:b.nativeAgentId,default:true,workspace:paths.workspace,agentDir:paths.agentState}]};
+ config.agents=perWorkNativeAgents(b,paths);
  config.tools={profile:'minimal',deny:['*']};config.hooks={enabled:false};config.cron={enabled:false};delete config.cloudWorkers;
  config.gateway={...config.gateway,mode:'local',bind:'loopback',port:input.gatewayPort,auth:{...config.gateway?.auth,mode:'token',token},reload:{mode:'off'},http:{...config.gateway?.http,endpoints:{...config.gateway?.http?.endpoints,responses:{...config.gateway?.http?.endpoints?.responses,enabled:true}}}};
  await fs.writeFile(paths.configurationPath,JSON.stringify(config,null,2),{flag:'wx',mode:0o600});

@@ -104,7 +104,8 @@ export class ContinuationController {
     await ledger.amendReviewedPlan(options.reviewedPlan,proof);const controller=await this.openChecked(options,false,true);
     for(const id of inspection.blockedFlows)controller.released.add(id);for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
     controller.approvedOperationBounds=Object.freeze({...inspection.operationBounds});
-    if(inspection.distinctFollowup){controller.retainedWorkHashes.add(hash(inspection.workId));controller.distinctOpenClawFollowup=Object.freeze({...inspection.distinctFollowup});}
+    if(inspection.acceptedCheckpoint){controller.retainedWorkHashes.add(hash(inspection.acceptedCheckpoint.retainedOriginalWorkId));controller.distinctOpenClawFollowup=Object.freeze({...inspection.acceptedCheckpoint.followup});controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});}
+    else if(inspection.distinctFollowup){controller.retainedWorkHashes.add(hash(inspection.workId));controller.distinctOpenClawFollowup=Object.freeze({...inspection.distinctFollowup});}
     else controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});return controller;
   }
   /** Read-only validation of an actually stopped, metadata-only current run.
