@@ -474,3 +474,63 @@ it.each(['program-file','gateway-context','wrong-stop-phase','missing-admission-
  if(fault==='clock-reset')o.receipt.hardStopUtc=new Date(Date.parse(o.receipt.hardStopUtc)+1).toISOString();
  const before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
 });
+
+async function controlledPreTargetSetup(){
+ const s=await controlledStartupSetup(),r=s.options.recovery,f=s.frame,p=JSON.parse(await fs.readFile(f.packet.path,'utf8')),e=s.execution;
+ const canon=(v:any):any=>Array.isArray(v)?v.map(canon):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
+ const save=async(name:string,value:any)=>{const raw=typeof value==='string'?value:JSON.stringify(value),file=path.join(f.programDirectory,name);await fs.writeFile(file,raw);return{path:file,sha256:h(raw)};};
+ await fs.mkdir(f.programDirectory,{recursive:true});
+ const selected={case:{id:s.caseId},messages:[{id:s.workId,caseId:s.caseId}]},selection=await save('selected.json',selected);
+ const descriptor={...r.carry,bytes:(await fs.stat(r.carry.path)).size},oldSource=s.current.receipt.clientSource,oldWindow=s.current.window;
+ const state:any={phase:'prepared',window:e.window,planSha256:h(JSON.stringify(canon({...p.program,windowId:e.window}))),started:{openclaw:{workId:s.workId,caseId:s.caseId,beforeSha256:selection.sha256}},results:{},effects:{},controlProofs:s.state.controlProofs,taskReceipts:s.state.taskReceipts,carriedProgress:s.state.carriedProgress,carriedTaskReceipts:s.state.carriedTaskReceipts,
+  carriedControlObservations:{openclaw:{priorSource:oldSource,priorWindow:oldWindow,descriptor,controlsRepeated:false,newSourceControlCredit:false}},
+  carriedOpenClawPollObservation:{priorSource:oldSource,priorWindow:oldWindow,descriptor,workId:s.workId,pollInterruptedAgain:false,newSourcePollCredit:false}};
+ const send={windowId:e.window,startUtc:e.receipt.startUtc,hardStopUtc:e.receipt.hardStopUtc,clientSource:e.receipt.clientSource,librarySha256:e.receipt.runnerSha256};
+ const context={window:e.window,hardStopUtc:e.receipt.hardStopUtc,librarySha256:e.receipt.runnerSha256};
+ const contextFile=path.join(p.directory,'owner-gateway-context.private.json');await fs.writeFile(contextFile,JSON.stringify(context));
+ const atUtc=new Date(Date.parse(s.checkpoint.stopState.observedAtUtc)-1).toISOString(),row=(kind:string,fields:any={})=>({atUtc,window:e.window,kind,...fields});
+ const events:any[]=[...['je1','testowner'].map(role=>row('actual_hermes_gateway_ready',{role,modelRequestsAdded:0})),row('actual_session_started_awaiting_personal_gateway_addresses',{modelCalls:35,onboardingRepeated:false,acceptedSendsRepeated:false}),
+  ...['je1','testowner','openclaw'].map(role=>row('existing_receiver_ready',{role,receivingStarted:false,newEnrollment:false})),row('owned_native_factory_ready',{nativeGatewayStarted:false,modelPromptsSubmitted:0}),
+  row('prior_openclaw_controls_carried_without_repetition',{priorSource:oldSource,priorWindow:oldWindow,workId:s.workId,descriptorSha256:r.carry.sha256,newControlRun:false}),
+  row('prior_openclaw_poll_gap_carried_without_repetition',{priorSource:oldSource,priorWindow:oldWindow,workId:s.workId,descriptorSha256:r.carry.sha256,newPollInterruption:false}),
+  row('actual_canonical_context',{flowId:'openclaw',role:'openclaw',workId:s.workId,caseId:s.caseId,session:{id:'scope_retry',fence:4,agentId:p.actors.openclaw.agentId,installationId:p.actors.openclaw.installationId}}),
+  row('actual_bounded_case_snapshot',{flowId:'openclaw',workId:s.workId,caseId:s.caseId,rawSnapshotBytes:JSON.stringify(selected),sha256:h(JSON.stringify(selected))}),row('canonical_settlement',{role:'openclaw',workId:s.workId,status:'retryable',operation:'fail'})];
+ const eventsFile=path.join(p.directory,'actual-events.private.jsonl');
+ const refresh=async()=>{
+  const statePin=await save('state.json',state),nativeSendContext=await save('native-send-context.private.json',send);
+  await fs.writeFile(contextFile,JSON.stringify(context));const ownerGatewayContext={path:contextFile,sha256:h(JSON.stringify(context))};
+  const raw=events.map(v=>JSON.stringify(v)+'\n').join('');await fs.writeFile(eventsFile,raw);
+  f.preTarget={state:statePin,selection,nativeSendContext,ownerGatewayContext,events:{path:eventsFile,sha256:h(raw)}};
+  const stop={...s.checkpoint.stopState,phase:'remaining-native-program'};f.stop=await s.pin('actual-pretarget-stop.json',stop);
+  Object.assign(s.checkpoint,{purpose:'actual-controlled-pretarget-stop-readonly',stop:f.stop,stopState:stop,preTargetPins:f.preTarget,ownerGatewayContextAbsent:false,receiversStopped:true,operatorWorkerStopped:true,nativeGatewayListening:false,nativeProxyListening:false});
+  f.checkpoint=await s.pin('actual-pretarget-checkpoint.json',s.checkpoint);
+  s.adoption.startupStopSha256=f.stop.sha256;s.adoption.startupCheckpointSha256=f.checkpoint.sha256;r.adoption=await s.pin('pretarget-adoption.json',s.adoption);s.options.receipt.approvalReceiptSha256=r.adoption.sha256;
+  const signed=s.sign(s.nextGraph,s.options.receipt,'pretarget recovery');s.options.reviewedPlan=signed.plan;s.options.graphApprovalRaw=signed.raw;
+ };
+ await refresh();return{...s,preTargetState:state,events,context,send,refresh};
+}
+it('recovers an actual zero-native receiver stop, retaining its partial files and the original fixed deadline',async()=>{
+ const s=await controlledPreTargetSetup(),before=await fs.readFile(s.filename),state=await fs.readFile(s.frame.preTarget.state.path),events=await fs.readFile(s.frame.preTarget.events.path);
+ const handle=await ContinuationController.prepareControlledProgress(s.options);expect(await fs.readFile(s.filename)).toEqual(before);
+ const c=await ContinuationController.startControlledProgress(handle);expect(c.receipt.hardStopUtc).toBe(s.old.receipt.hardStopUtc);expect(c.ledger.snapshot().chargedAttempts).toBe(35);
+ expect(await fs.readFile(s.frame.preTarget.state.path)).toEqual(state);expect(await fs.readFile(s.frame.preTarget.events.path)).toEqual(events);
+ expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);c.releaseGroup(['openclaw']);expect(()=>c.expectWork('openclaw','msg_replacement',h('replacement'))).toThrow();c.stop();
+});
+it.each(['native-result','native-effect','new-control-credit','repeated-poll','wrong-shared-work','wrong-selection','context-clock','send-source','processed-settlement','foreign-session','unknown-model-event','snapshot-drift','missing-receiver','native-evidence','owner-request','extra-program-file','changed-state','cleanup-incomplete'] as const)('refuses pre-target recovery without mutation: %s',async fault=>{
+ const s=await controlledPreTargetSetup(),v=s.preTargetState;
+ if(fault==='native-result')v.results.openclaw={completed:true};if(fault==='native-effect')v.effects.openclaw={sent:true};
+ if(fault==='new-control-credit')v.carriedControlObservations.openclaw.newSourceControlCredit=true;
+ if(fault==='repeated-poll')v.carriedOpenClawPollObservation.pollInterruptedAgain=true;
+ if(fault==='wrong-shared-work')v.started.openclaw.workId='msg_other';if(fault==='wrong-selection')v.started.openclaw.beforeSha256=h('other snapshot');
+ if(fault==='context-clock')s.context.hardStopUtc=new Date(Date.now()+5400001).toISOString();if(fault==='send-source')s.send.clientSource='9'.repeat(40);
+ if(fault==='processed-settlement')s.events.at(-1)!.status='processed';if(fault==='foreign-session')s.events.find(e=>e.kind==='actual_canonical_context').session.agentId='agent_other';
+ if(fault==='unknown-model-event')s.events.push({...s.events[0],kind:'actual_model_submitted'});if(fault==='snapshot-drift')s.events.find(e=>e.kind==='actual_bounded_case_snapshot').sha256=h('not snapshot');
+ if(fault==='missing-receiver')s.events.splice(s.events.findIndex(e=>e.kind==='existing_receiver_ready'),1);
+ if(fault==='cleanup-incomplete')s.checkpoint.receiversStopped=false;
+ await s.refresh();
+ if(['native-evidence','owner-request'].includes(fault)){const dir=path.join(path.dirname(s.frame.programDirectory),fault==='native-evidence'?'openclaw-evidence':'owner-requests');await fs.mkdir(dir,{recursive:true});await fs.writeFile(path.join(dir,'unreviewed.json'),'{}');}
+ if(fault==='extra-program-file')await fs.writeFile(path.join(s.frame.programDirectory,'extra.json'),'{}');
+ if(fault==='changed-state')await fs.appendFile(s.frame.preTarget.state.path,' ');
+ if(fault==='cleanup-incomplete'){s.checkpoint.receiversStopped=false;s.frame.checkpoint=await s.pin('bad-pretarget-cleanup.json',s.checkpoint);}
+ const before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(s.options)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
+});

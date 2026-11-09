@@ -37,3 +37,17 @@ it('copies private native config only, preserves provider auth/model and origina
  expect(fake.start).toHaveBeenCalledTimes(1);const actual=fake.start.mock.calls[0][0]as any;expect(actual.pins).toMatchObject({workId:binding.workId,caseSessionId:binding.caseSessionId,capabilitySha256:'1'.repeat(64),nativeSourceSha256:pins.nativeSourceSha256});expect(actual.nativeEnvironmentFile).toBe(s.options.nativeEnvironmentFile);expect(actual.bootstrap.binding.nativeSources.packageTree).toMatch(/^[a-f0-9]{64}$/);expect(actual.environment.OPENCLAW_CONFIG_PATH).toBe(path.join(s.options.workRoot,'msg_actual','openclaw.json'));
  await expect(prepareOwnedOpenClawWork(factory,{binding,canonical,gatewayPort:41002,proxyToken:'fake',proxyIdentity:'proxy_duplicate',signal})).rejects.toThrow('NEW_EXACT_NATIVE_WORK_REQUIRED');
 });
+it('preserves an earlier attempt profile and supports the same logical work in a caller-pinned fresh attempt root',async()=>{
+ const s=await setup(),signal=new AbortController().signal,binding={window:'c'.repeat(64),workId:'msg_retained',caseId:'case_retained',caseSessionId:'case_session_first',toolChannelSha256:'d'.repeat(64),processIdentity:'process_first',stateDirectorySha256:'e'.repeat(64),configurationPathSha256:'e'.repeat(64),workspaceSha256:'e'.repeat(64),agentStateSha256:'e'.repeat(64),nativeAgentId:'main',modelId:'claude-haiku-4-5-20251001',proxyOrigin:'http://127.0.0.1:42001',hardStopUnixMs:Date.now()+120000,nativeSources:{}},canonical={recipientAgentId:'agent_original',installationId:'installation_original',fence:1};
+ const first=await prepareOwnedOpenClawFactory(s.options),input={binding,canonical,gatewayPort:41001,proxyToken:'FAKE_PRIVATE_TOKEN',proxyIdentity:'proxy_first',signal};
+ await prepareOwnedOpenClawWork(first.factory,input);
+ const oldRoot=path.join(s.options.workRoot,binding.workId),files=['openclaw.json','original-config.private.backup.json'],before=await Promise.all(files.map(file=>fs.readFile(path.join(oldRoot,file))));
+ const reopened=await prepareOwnedOpenClawFactory(s.options);await expect(prepareOwnedOpenClawWork(reopened.factory,input)).rejects.toMatchObject({code:'EEXIST'});
+ const fresh=await prepareOwnedOpenClawFactory({...s.options,workRoot:path.join(s.options.workRoot,'attempt-reviewed-2')}),next={...binding,caseSessionId:'case_session_retry',processIdentity:'process_retry'};
+ const prepared=await prepareOwnedOpenClawWork(fresh.factory,{...input,binding:next,canonical:{...canonical,fence:2},gatewayPort:41002,proxyIdentity:'proxy_retry'});
+ expect(prepared.privateTarget.binding).toMatchObject({workId:binding.workId,caseId:binding.caseId,caseSessionId:next.caseSessionId,fence:2});
+ for(let i=0;i<files.length;i++)expect(await fs.readFile(path.join(oldRoot,files[i]))).toEqual(before[i]);
+ expect(prepared.privateTarget.configurationPathSha256).not.toBe(hash(path.resolve(path.join(oldRoot,'openclaw.json'))));
+ expect(await fs.readFile(path.join(s.profile,'envoi-state','history'),'utf8')).toBe('ORIGINAL_ENROLLMENT_HISTORY');expect(fake.start).not.toHaveBeenCalled();
+ await expect(prepareOwnedOpenClawWork(fresh.factory,{...input,binding:next,canonical:{...canonical,fence:2}})).rejects.toThrow('NEW_EXACT_NATIVE_WORK_REQUIRED');
+});

@@ -3,7 +3,8 @@
 import fs from'node:fs/promises';import path from'node:path';import{createHash}from'node:crypto';
 import type{ProgressPin}from'./stopped-progress';import type{ControlledProgressRecovery}from'./controlled-progress';
 import type{RequestBudgetLedger}from'./request-budget';import type{ContinuationReceipt}from'./continuation-controller';
-export type ControlledStartupStop=Readonly<{packet:ProgressPin;execution:ProgressPin;stop:ProgressPin;checkpoint:ProgressPin;ledger:ProgressPin;adoption:ProgressPin;programDirectory:string}>;
+import{inspectControlledPreTarget,type ControlledPreTargetPins}from'./controlled-pretarget';
+export type ControlledStartupStop=Readonly<{packet:ProgressPin;execution:ProgressPin;stop:ProgressPin;checkpoint:ProgressPin;ledger:ProgressPin;adoption:ProgressPin;programDirectory:string;preTarget?:ControlledPreTargetPins}>;
 const hash=(x:string|Buffer)=>createHash('sha256').update(x).digest('hex'),canon=(v:any):any=>Array.isArray(v)?v.map(canon):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
 const equal=(a:any,b:any)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
 function refuse(code:string):never{throw Object.assign(Error(code),{code});}
@@ -31,17 +32,22 @@ export async function inspectControlledStartupFrames(input:{releaseRoot:string;r
   const frozenLedger=(await read(proof.ledger,false)).raw;
   if(!frozenLedger.equals(prefix)||i===frames.length-1&&!frozenLedger.equals(rows)||allRows[baseCount+2*i+1]?.proof?.graphApprovalRaw!==e.graphApprovalRaw)refuse('EXACT_ZERO_NATIVE_STARTUP_LEDGER_REQUIRED');
   const observed=Date.parse(stop.observedAtUtc),checked=Date.parse(c.checkedAtUtc);
-  if(stop.state!=='controlled_recovery_stopped_preserve_originals'||stop.phase!=='owned-runtime-startup'||stop.packetSha256!==proof.packet.sha256||stop.gateComplete!==false
+  if(stop.state!=='controlled_recovery_stopped_preserve_originals'||stop.phase!==(proof.preTarget?'remaining-native-program':'owned-runtime-startup')||stop.packetSha256!==proof.packet.sha256||stop.gateComplete!==false
     ||!Number.isFinite(observed)||observed<Date.parse(receipt.startUtc)||observed>now
-    ||!['actual-540-startup-stop-readonly','actual-controlled-startup-stop-readonly'].includes(c.purpose)||!Number.isFinite(checked)||checked<observed||checked>now
+    ||!(proof.preTarget?c.purpose==='actual-controlled-pretarget-stop-readonly':['actual-540-startup-stop-readonly','actual-controlled-startup-stop-readonly'].includes(c.purpose))||!Number.isFinite(checked)||checked<observed||checked>now
     ||!samePin(c.packet,proof.packet)||!samePin(c.execution,proof.execution)||!samePin(c.stop,proof.stop)||!samePin(c.ledger,proof.ledger)||!equal(c.stopState,stop)||!equal(c.executionReceipt,e)
-    ||c.usage?.chargedAttempts!==ledger.snapshot().chargedAttempts||c.usage.pending!==0||c.usage.unresolvedDispatches!==0||c.modelCallsAdded!==0||c.hostStarts!==0
-    ||c.ownedMeterListening!==false||c.ownerGatewayContextAbsent!==true||c.sharedNativeJournalAbsent!==true
+    ||c.usage?.chargedAttempts!==ledger.snapshot().chargedAttempts||c.usage.pending!==0||c.usage.unresolvedDispatches!==0||c.modelCallsAdded!==0||!proof.preTarget&&c.hostStarts!==0
+    ||c.ownedMeterListening!==false||c.ownerGatewayContextAbsent!==!proof.preTarget||c.sharedNativeJournalAbsent!==true
     ||!Array.isArray(c.selectedHermesHosts)||c.selectedHermesHosts.length!==3||!['je1','je2','testowner'].every(role=>c.selectedHermesHosts.filter((x:any)=>x.role===role&&x.unreachable===true).length===1))refuse('ACTUAL_CONTROLLED_STARTUP_STOP_REQUIRED');
   if(!Array.isArray(c.originalJournals)||c.originalJournals.length!==input.journals.length||input.journals.some(j=>c.originalJournals.filter((x:any)=>x.role===j.role&&x.file===j.file&&x.unchanged===true).length!==1))refuse('EXACT_STARTUP_ORIGINAL_JOURNALS_REQUIRED');
   if(!path.isAbsolute(proof.programDirectory)||path.resolve(proof.programDirectory)!==path.resolve(p.directory??'','native-program'))refuse('NO_STARTED_NATIVE_PROGRAM_REQUIRED');
-  try{const s=await fs.lstat(proof.programDirectory);if(!s.isDirectory()||s.isSymbolicLink()||(await fs.readdir(proof.programDirectory)).length)refuse('NO_STARTED_NATIVE_PROGRAM_REQUIRED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
-  try{await fs.lstat(path.join(p.directory,'owner-gateway-context.private.json'));refuse('NO_STARTED_NATIVE_PROGRAM_REQUIRED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+  if(proof.preTarget){
+   if(i!==frames.length-1)refuse('LAST_PRETARGET_STOP_REQUIRED');
+   await inspectControlledPreTarget({proof,packet:p,execution:e,checkpoint:c,recovery:r,controlWindow:input.controlWindow,now});
+  }else{
+   try{const s=await fs.lstat(proof.programDirectory);if(!s.isDirectory()||s.isSymbolicLink()||(await fs.readdir(proof.programDirectory)).length)refuse('NO_STARTED_NATIVE_PROGRAM_REQUIRED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+   try{await fs.lstat(path.join(p.directory,'owner-gateway-context.private.json'));refuse('NO_STARTED_NATIVE_PROGRAM_REQUIRED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+  }
   const priorLedger=i?frames[i-1].proof.ledger:r.ledger,previousReceipt=i?frames[i-1].execution.receipt:(await read(r.execution)).value.receipt;
   if(proof.adoption.sha256!==receipt.approvalReceiptSha256||adoption.ownerApproved!==true||adoption.clientSource!==receipt.clientSource||adoption.serverSource!==receipt.serverSource
     ||adoption.packetSha256!==proof.packet.sha256||adoption.runnerSha256!==receipt.runnerSha256||adoption.priorWindow!==previousWindow||adoption.modelCap!==64
