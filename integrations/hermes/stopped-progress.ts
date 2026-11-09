@@ -154,7 +154,7 @@ function joinAncestor(child:Awaited<ReturnType<typeof inspectHistory>>,parent:Aw
 /** Read-only historical format/provenance inspection. This grants no start
  * handle, current inventory credit, source adoption, time or model authority. */
 export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ContinuationReceipt|readonly ContinuationReceipt[]){
-  const {recovery:r,ledger}=input,filename=path.join(path.resolve(input.releaseRoot),'phase-c-cumulative-requests.jsonl'),current=await fs.readFile(filename),prefix=await pinned(r.priorLedger,false);
+  const {recovery:r,ledger}=input,filename=path.join(path.resolve(input.releaseRoot),'phase-c-cumulative-requests.jsonl'),current=await ledger.readInspectionBytes(),prefix=await pinned(r.priorLedger,false);
   if(path.resolve(ledger.filename)!==filename||(!restoreReceipt&&!prefix.raw.equals(current))||!current.subarray(0,prefix.raw.length).equals(prefix.raw)||!current.toString().endsWith('\n')||hash(current)!==ledger.contentSha256)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
   const rows=current.toString().trimEnd().split('\n').map(line=>JSON.parse(line));
   if(restoreReceipt){

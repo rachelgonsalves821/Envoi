@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';import {spawn,type ChildProcess} from 'node:ch
 import type {ClosedNativeBinding,ClosedNativeOwnerPorts} from './closed-native-owner';
 import type {ClosedNativeBootstrapOptions} from './closed-native-bootstrap';
 import {NativePhysicalIntents} from './native-physical-intents';
+import {ownedNativeStartupError} from './native-startup-diagnostics';
 declare const ownedNativeBrand:unique symbol;
 export type OwnedClosedNativeAuthority=Readonly<{[ownedNativeBrand]:true}>;
 export interface OwnedClosedNativePins {window:string;workId:string;caseId:string;caseSessionId:string;toolChannelSha256:string;processIdentity:string;
@@ -60,7 +61,7 @@ export async function startOwnedClosedNativeProcess(options:OwnedClosedNativeOpt
       ||r.stage==='body_drained'&&(intent.stage!=='headers'||r.httpStatus!==intent.httpStatus))refuse('NATIVE_PHYSICAL_INTENT_REQUIRED');await options.ports.recordPhysicalOutcome(r);broker.recordPhysicalOutcome(r);if(r.stage==='headers'){intent.stage='headers';intent.httpStatus=r.httpStatus;}else intents.delete(r.intentId);}
     else{if(['registrySha256','configurationSha256','pluginRegistrySha256'].some(k=>typeof r[k]!=='string'||!/^[a-f0-9]{64}$/.test(r[k])))refuse('ACTUAL_NATIVE_HARNESS_OBSERVATION_REQUIRED');await options.ports.recordObservation(r);harnessAcknowledged=r;}send({kind:message.kind+'_result',id:message.id,nonce});
    }catch{if(child.connected)send({kind:message.kind+'_result',id:message.id,nonce,error:'NATIVE_PHYSICAL_DISPATCH_REFUSED'});stop();}})();
-  }else if(message.kind==='closed'){state.live=false;closedAck=true;closeResolve();}else if(message.kind==='failed'){error(new Error('OWNED_NATIVE_CHILD_FAILED'));stop();}
+  }else if(message.kind==='closed'){state.live=false;closedAck=true;closeResolve();}else if(message.kind==='failed'){error(ownedNativeStartupError(message.diagnostic));stop();}
  });
  const timer=setTimeout(()=>{error(new Error('OWNED_NATIVE_BOOTSTRAP_TIMEOUT'));stop();},Math.max(1,Math.min(90000,b.hardStopUnixMs-Date.now())));
  const deadlineTimer=setTimeout(stop,Math.max(1,b.hardStopUnixMs-Date.now()));
