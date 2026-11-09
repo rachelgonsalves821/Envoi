@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import path from 'node:path';
@@ -9,7 +10,8 @@ import {createHttpWake} from '../src/http-wake.js';
 import {createProviderEventWake,signProviderWebhook} from '../src/provider-event-wake.js';
 import {createMcpWakeTools,mcpWakeTools} from '../src/mcp-wake-tools.js';
 import {createWakeTransport} from '../src/http-wake-transport.js';
-import {EventEmitter} from 'node:events';
+import {EventEmitter,once} from 'node:events';
+import {handleAgentMcp} from '../src/agent-mcp.js';
 import {wakeSubscriptionPath,wakeSubscriptionIndexDir,wakeQueueDir,wakeLiveDir} from '../src/http-wake-paths.js';
 
 const pair=crypto.generateKeyPairSync('ed25519');
@@ -131,6 +133,24 @@ parity('dispatcher cannot send catch-up events before the subscribe transaction 
   }finally{release();await pending;h.store.putJson=put;}
   assert.equal(await h.http.runOnce(),true);
   assert.equal(JSON.parse(h.sent.at(-1).bodyText).name,'envoi.work_available');
+});
+test('retained catch-up returns its HTTP subscribe result before the socket idle timeout',async t=>{
+  const events=Array.from({length:200},(_,n)=>({type:'wake.work_available',reason:'message_delivered',cursor:String(n+1).padStart(20,'0')}));
+  const h=await harness(t,'file',{}, {eventHistory:async()=>({cursor:events.at(-1).cursor,truncated:false,events})});
+  const put=h.store.putJson.bind(h.store);
+  // Model database round-trip latency. Per-row replay used to outlive the HTTP
+  // idle deadline even though verification succeeded and delivery had started.
+  h.store.putJson=async(p,value)=>{await new Promise(resolve=>setTimeout(resolve,25));return put(p,value);};
+  let handling=Promise.resolve();
+  const server=http.createServer((req,res)=>{
+    req.setTimeout(2000);
+    handling=handleAgentMcp(req,res,{identity,providerEvents:h.provider,eventsEnabled:true,callRest:async()=>{throw new Error('Not a tool call');}}).catch(()=>{if(!res.destroyed){res.writeHead(500);res.end();}});
+  });
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  try{
+    const response=await fetch(`http://127.0.0.1:${server.address().port}/mcp`,{method:'POST',headers:{'content-type':'application/json',accept:'application/json, text/event-stream','mcp-protocol-version':protocol},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'events/subscribe',params:parameters()}),signal:AbortSignal.timeout(10000)});
+    assert.equal(response.status,200);const body=await response.json();assert.match(body.result.id,/^evtsub_[0-9a-f]{20}$/);assert.equal(body.result.cursor,events.at(-1).cursor);
+  }finally{await handling;server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
 parity('unsubscribe deletes secrets, invalidates verification and fences previous generations',async(t,kind)=>{
   const h=await harness(t,kind);const first=await h.provider.subscribe(identity,parameters(),protocol);await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));
