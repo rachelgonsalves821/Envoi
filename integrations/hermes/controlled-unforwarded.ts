@@ -31,7 +31,7 @@ export async function inspectUnforwardedObserverStop(input:{pin:ProgressPin;pack
   ||j.input[0].role!=='system'||j.input[1].role!=='user'||j.input.some((x:any)=>Object.keys(x).sort().join()!=='content,role'||typeof x.content!=='string'))refuse();
  const canonical=(await readUnforwardedPin(q.canonical)).value,w=canonical.work;
  if(canonical.database!=='sinaloa_staging'||canonical.readOnly!=='on'||canonical.activeWorkLeases!==0||canonical.activeCaseSessions!==0
-  ||w?.workId!==workId||w.caseId!==caseId||w.agentId!==p.actors.openclaw.agentId||w.status!=='failed'||w.attempts!==5||w.failure?.retryable!==false||w.failure.reasonCode!=='HANDLER_FAILED'
+  ||w?.workId!==workId||canonical.message?.id!==workId||canonical.message.caseId!==caseId||w.caseId!==undefined&&w.caseId!==caseId||w.agentId!==undefined&&w.agentId!==p.actors.openclaw.agentId||w.status!=='failed'||w.attempts!==5||w.failure?.retryable!==false||w.failure.reasonCode!=='HANDLER_FAILED'
   ||canonical.message?.status!=='failed'||canonical.message.processedAt!=null||!Array.isArray(canonical.sessions)||!canonical.sessions.length||canonical.sessions.some((s:any)=>s.status!=='ended'))refuse();
  const local=(await readUnforwardedPin(q.local)).value;
  if(!same(local.journal,q.journal)||local.modelsAdded!==0||!Array.isArray(local.ports)||local.ports.length!==3||local.ports.some((x:any)=>x.listening!==false))refuse();
@@ -42,7 +42,14 @@ export async function inspectUnforwardedObserverStop(input:{pin:ProgressPin;pack
  if(!Array.isArray(q.ownerRequests)||q.ownerRequests.length!==1||!Array.isArray(q.nativeEvidence)||q.nativeEvidence.length!==2)refuse();
  for(const entry of q.ownerRequests){const request=(await readUnforwardedPin(entry.request)).value,response=(await readUnforwardedPin(entry.response)).value;
   if(path.dirname(entry.request.path)!==path.join(p.directory,'owner-requests')||path.dirname(entry.response.path)!==path.join(p.directory,'owner-requests')
-   ||request.window!==e.window||response.window!==e.window||request.hardStopUtc!==e.receipt.hardStopUtc||path.resolve(request.receiptPath)!==path.resolve(entry.response.path))refuse();}
+   ||request.window!==e.window||response.window!==e.window||request.hardStopUtc!==entry.hardStopUtc||!Number.isFinite(Date.parse(request.hardStopUtc))
+   ||Date.parse(request.hardStopUtc)>Date.parse(e.receipt.hardStopUtc)||Date.parse(request.hardStopUtc)<=Date.parse(e.receipt.startUtc)
+   ||path.resolve(request.receiptPath)!==path.resolve(entry.response.path)||!Array.isArray(request.targets)||request.targets.length!==1||!Array.isArray(response.results)||response.results.length!==1)refuse();
+  const target=request.targets[0],result=response.results[0];if(target.workId!==workId||target.hardStopUtc!==request.hardStopUtc||result.workId!==workId)refuse();
+  for(const key of ['targetDecisionRaw','capabilityDecisionRaw']){const decision=JSON.parse(result[key]);
+   if(decision.ownerApproved!==true||decision.window!==e.window||decision.clientSource!==e.receipt.clientSource||decision.expiresAtUtc!==target.hardStopUtc
+    ||!Number.isFinite(Date.parse(decision.approvedAtUtc))||Date.parse(decision.approvedAtUtc)<Date.parse(e.receipt.startUtc)||Date.parse(decision.approvedAtUtc)>=Date.parse(target.hardStopUtc))refuse();}
+ }
  for(const pin of q.nativeEvidence){if(path.dirname(pin.path)!==path.join(p.directory,'openclaw-evidence')||!/^(actual-owner-decisions|personal-review-subjects)-/.test(path.basename(pin.path)))refuse();await readUnforwardedPin(pin);}
  const exactFiles=async(dir:string,pins:ProgressPin[])=>{const actual=(await fs.readdir(dir)).sort(),wanted=pins.map(x=>path.basename(x.path)).sort();if(JSON.stringify(actual)!==JSON.stringify(wanted))refuse();};
  await exactFiles(path.join(p.directory,'owner-requests'),q.ownerRequests.flatMap((x:any)=>[x.request,x.response]));
