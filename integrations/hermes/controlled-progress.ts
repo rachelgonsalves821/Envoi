@@ -1,5 +1,6 @@
 // Recovery after actual controls, before the first native target/admission.
 // Historical results are pinned, never recreated or promoted to native success.
+import {readUnforwardedPin} from './controlled-unforwarded';
 import fs from'node:fs/promises';import path from'node:path';import{createHash}from'node:crypto';
 import type{ContinuationReceipt}from'./continuation-controller';
 import{inspectStoppedProgress,inspectStoppedProgressHistory,type ProgressPin,type StoppedProgressRecovery,type StoppedProgressPreflight}from'./stopped-progress';
@@ -8,7 +9,7 @@ import{readControlledStartupFrames,inspectControlledStartupFrames,type Controlle
 export type ControlledProgressRecovery=Readonly<{
   history:StoppedProgressRecovery;runtimePacket:ProgressPin;initialExecution:ProgressPin;execution:ProgressPin;operatorSeal:ProgressPin;
   state:ProgressPin;stop:ProgressPin;ledger:ProgressPin;checkpoint:ProgressPin;carry:ProgressPin;pollGap:ProgressPin;canonicalWork:ProgressPin;adoption:ProgressPin;targetPacket:ProgressPin;
-  startupStops?:readonly ControlledStartupStop[];
+  startupStops?:readonly ControlledStartupStop[];distinctFollowup?:ProgressPin;operationAmendment?:Readonly<{operationCap:62;normalCeiling:54;cleanupReserve:8;allocation:ProgressPin}>;
 }>;
 const hash=(b:string|Buffer)=>createHash('sha256').update(b).digest('hex'),object=(v:any)=>v&&typeof v==='object'&&!Array.isArray(v),canon=(v:any):any=>Array.isArray(v)?v.map(canon):object(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
 const equal=(a:any,b:any)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
@@ -56,7 +57,7 @@ export async function inspectControlledProgressHistory(input:{releaseRoot:string
    ||!equal(c.controlProofs.openclaw,controls)||!Array.isArray(c.selected)||c.selected.length!==3||!['je1','je2','testowner'].every(role=>c.selected.filter((x:any)=>x.role===role&&x.stopped===true).length===1))refuse('ACTUAL_CONTROLLED_CLEANUP_REQUIRED');
  const journals=p.program.originalJournalHashes;if(!Array.isArray(journals)||journals.length!==9||!Array.isArray(c.originalJournals)||c.originalJournals.length!==9)refuse('EXACT_ORIGINAL_JOURNALS_REQUIRED');
  for(const j of journals){if(!['je1','je2','testowner'].includes(j.role)||path.basename(j.file)!==j.file||c.originalJournals.filter((x:any)=>x.role===j.role&&x.file===j.file&&x.sha256===j.sha256&&x.unchanged===true).length!==1)refuse('EXACT_ORIGINAL_JOURNALS_REQUIRED');await read({path:path.join(p.states[j.role],'scoped-runs',j.file),sha256:j.sha256},false);}
- const filename=path.join(p.states.openclaw,'scoped-runs',work.workId+'.json');try{await fs.lstat(filename);refuse('NATIVE_JOURNAL_MUST_BE_ABSENT');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+ const filename=path.join(p.states.openclaw,'scoped-runs',work.workId+'.json');if(!startupFrames.at(-1)?.proof.preTarget?.unforwarded)try{await fs.lstat(filename);refuse('NATIVE_JOURNAL_MUST_BE_ABSENT');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
  const d=(await read(r.carry)).value;
  if(d.purpose!=='phase-c-post-control-no-native-checkpoint-review-only'||d.executionAllowed!==false||d.newAuthorityGranted!==false
    ||d.execution?.sha256!==r.execution.sha256||d.programState?.sha256!==r.state.sha256||d.modelLedger?.sha256!==r.ledger.sha256
@@ -90,11 +91,34 @@ export async function inspectControlledProgressHistory(input:{releaseRoot:string
 export async function inspectControlledProgress(input:{releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}}){
  const{recovery:r,receipt:n,ledger,preflight:p,expected:e}=input,h=await inspectControlledProgressHistory(input),a=h.initialReceipt;
  await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts:h.metadataReceipts});
- const canonical=(await read(r.canonicalWork)).value,w=canonical?.work,now=Date.now();
+ const canonical=(await read(r.canonicalWork)).value,w=canonical?.work,now=Date.now(),unforwarded=h.startup?.proof.preTarget?.unforwarded;
  if(canonical.database!=='sinaloa_staging'||canonical.readOnly!=='on'||Date.parse(canonical.checkedAt)!==p.checkedAtMs||canonical.activeWorkLeases!==0
-   ||w?.workId!==h.workId||w.caseId!==h.caseId||w.agentId!==h.actorId||w.status!=='retryable'||!Number.isSafeInteger(w.attempts)||w.attempts<1
+   ||w?.workId!==h.workId||w.caseId!==h.caseId||w.agentId!==h.actorId||w.status!==(unforwarded?'failed':'retryable')||!Number.isSafeInteger(w.attempts)||w.attempts<1
    ||w.retryAt!=null&&(!Number.isFinite(Date.parse(w.retryAt))||Date.parse(w.retryAt)>now)
    ||!Array.isArray(w.sessions)||!w.sessions.length||w.sessions.some((s:any)=>s.status!=='ended'))refuse('FRESH_CANONICAL_RETRYABLE_WORK_REQUIRED');
+ if(unforwarded&&(w.attempts!==5||w.failure?.retryable!==false||w.failure.reasonCode!=='HANDLER_FAILED'||canonical.activeCaseSessions!==0))refuse('FAILED_ORIGINAL_MUST_REMAIN_FAILED');
+ let distinctFollowup:any;
+ if(unforwarded){
+  if(!r.distinctFollowup)refuse('EXPLICIT_DISTINCT_FOLLOWUP_REQUIRED');distinctFollowup=(await read(r.distinctFollowup)).value;
+  const frozen=(await readUnforwardedPin(unforwarded)).value,selected=(await read(h.startup!.proof.preTarget!.selection)).value;
+  if(distinctFollowup.version!==1||distinctFollowup.retainedFailedWorkId!==h.workId||distinctFollowup.retainedFailedJournalSha256!==frozen.journal.sha256
+   ||distinctFollowup.caseId!==h.caseId||distinctFollowup.senderRole!=='testowner'||distinctFollowup.recipientRole!=='openclaw'
+   ||distinctFollowup.senderAgentId!==(h.runtimePacket.actors.testowner.agentId??h.runtimePacket.actors.testowner)||distinctFollowup.recipientAgentId!==h.actorId
+   ||typeof distinctFollowup.text!=='string'||!distinctFollowup.text.trim()||distinctFollowup.text.length>2000||selected.messages.some((m:any)=>m.text===distinctFollowup.text)
+   ||!/^[a-f0-9-]{36}$/.test(distinctFollowup.requestId)||distinctFollowup.additionalOperationReservations!==1||distinctFollowup.newCasesAdded!==0||distinctFollowup.newInstallationsAdded!==0||distinctFollowup.newAssetsAdded!==0
+   ||distinctFollowup.requiresActualHumanSendConfirmation!==true||distinctFollowup.acceptedSendRepeated!==false||distinctFollowup.failedWorkRequeued!==false)refuse('EXPLICIT_DISTINCT_FOLLOWUP_REQUIRED');
+ }else if(r.distinctFollowup)refuse('UNFORWARDED_STOP_REQUIRED_FOR_DISTINCT_FOLLOWUP');
+ if(unforwarded&&p.conservativeMessages+21>52&&!r.operationAmendment)refuse('EXACT_OPERATION_AMENDMENT_REQUIRED');
+ let operationBounds={operationCap:60,normalCeiling:52,cleanupReserve:8};
+ if(r.operationAmendment){
+  const amendment=r.operationAmendment,allocation=(await read(amendment.allocation)).value;
+  if(!unforwarded||!distinctFollowup||Object.keys(amendment).sort().join()!=='allocation,cleanupReserve,normalCeiling,operationCap'||amendment.operationCap!==62||amendment.normalCeiling!==54||amendment.cleanupReserve!==8
+   ||allocation.currentConservativeReservations!==p.conservativeMessages||allocation.newFollowupIncluded!==true||!Array.isArray(allocation.allocations)||allocation.allocations.length!==10
+   ||allocation.allocations.some((x:any)=>typeof x.item!=='string'||!x.item||!Number.isSafeInteger(x.minimumReservations)||x.minimumReservations<1)
+   ||allocation.allocations.reduce((sum:number,x:any)=>sum+x.minimumReservations,0)!==21||allocation.minimumAdditionalReservations!==21||p.conservativeMessages+21>54
+   ||allocation.minimumNormalTotal!==p.conservativeMessages+21||allocation.normalCeiling!==54||allocation.cleanupReserve!==8||allocation.overallCeiling!==62)refuse('EXACT_OPERATION_AMENDMENT_REQUIRED');
+  operationBounds={operationCap:62,normalCeiling:54,cleanupReserve:8};
+ }
  const target=(await read(r.targetPacket)).value,approval=(await read(r.adoption)).value,old=h.originalReceipt,start=Date.parse(n.startUtc),end=Date.parse(n.hardStopUtc);
  if(n.version!==1||n.ownerApproved!==true||n.modelCap!==64||n.ciHead!==n.clientSource||n.ciPassed!==true||n.clientSource!==e.clientSource||n.serverSource!==old.serverSource||n.serverSource!==e.serverSource
    ||n.runnerSha256!==e.runnerSha256||n.packetSha256!==e.packetSha256||n.packetSha256!==r.targetPacket.sha256||n.approvalReceiptSha256!==r.adoption.sha256
@@ -105,12 +129,12 @@ export async function inspectControlledProgress(input:{releaseRoot:string;ledger
    priorLedgerSha256:h.priorLedger.sha256,checkpointSha256:r.checkpoint.sha256,carrySha256:r.carry.sha256,
    ...(h.startup?{startupStopSha256:h.startup.proof.stop.sha256,startupCheckpointSha256:h.startup.proof.checkpoint.sha256,startupPacketSha256:h.startup.proof.packet.sha256}:{}),
    clientSource:n.clientSource,serverSource:n.serverSource,runnerSha256:n.runnerSha256,packetSha256:n.packetSha256,
-   modelCap:64,operationCap:60,caseCap:9,installationCap:5,assetCap:6,currentModels:ledger.snapshot().chargedAttempts,currentOperations:p.conservativeMessages,currentCanonicalMessages:p.canonicalEffects,currentCases:p.cases,currentAssets:p.assets,
-   repeatOnboarding:false,replayAcceptedSends:false,repeatObservedControls:false};
+   modelCap:64,operationCap:operationBounds.operationCap,caseCap:9,installationCap:5,assetCap:6,currentModels:ledger.snapshot().chargedAttempts,currentOperations:p.conservativeMessages,currentCanonicalMessages:p.canonicalEffects,currentCases:p.cases,currentAssets:p.assets,
+   repeatOnboarding:false,replayAcceptedSends:false,repeatObservedControls:false,...(unforwarded?{distinctFollowupSha256:r.distinctFollowup!.sha256,preserveFailedOriginal:true,...(r.operationAmendment?{normalOperationCap:54,cleanupReserve:8,operationAllocationSha256:r.operationAmendment.allocation.sha256}: {})}: {})};
  if(Object.keys(approval).sort().join()!==[...Object.keys(exact),'decisionId','receivedAtUtc','timeMode','maximumIntervalMs'].sort().join()||Object.entries(exact).some(([k,v])=>approval[k]!==v)
    ||typeof approval.decisionId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/.test(approval.decisionId)||!Number.isFinite(Date.parse(approval.receivedAtUtc))||Date.parse(approval.receivedAtUtc)>now)refuse('EXACT_CONTROLLED_RECOVERY_DECISION_REQUIRED');
  if(approval.timeMode==='same-fixed'){if(start!==Date.parse(old.startUtc)||end!==Date.parse(old.hardStopUtc)||approval.maximumIntervalMs!==5400000)refuse('ORIGINAL_CONTROLLED_DEADLINE_REQUIRED');}
  else if(approval.timeMode!=='new-interval'||start<Date.parse(approval.receivedAtUtc)||start<Date.parse(old.startUtc)||!Number.isSafeInteger(approval.maximumIntervalMs)||approval.maximumIntervalMs<1||approval.maximumIntervalMs>5400000||end-start>approval.maximumIntervalMs)refuse('EXPLICIT_NEW_CONTROLLED_INTERVAL_REQUIRED');
  const marker=path.join(path.resolve(input.releaseRoot),'phase-c-recovery-time-'+hash('pjsk02\0'+approval.decisionId)+'.used.json');try{await fs.lstat(marker);refuse('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
- return{...h,async consume(){const f=await fs.open(marker,'wx',0o600);try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress-recovery',decisionId:approval.decisionId,approvalSha256:r.adoption.sha256,priorWindow:h.priorWindow,window:hash(JSON.stringify(n)),timeMode:approval.timeMode}));await f.sync();}finally{await f.close();}}};
+ return{...h,distinctFollowup,operationBounds,async consume(){const f=await fs.open(marker,'wx',0o600);try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress-recovery',decisionId:approval.decisionId,approvalSha256:r.adoption.sha256,priorWindow:h.priorWindow,window:hash(JSON.stringify(n)),timeMode:approval.timeMode}));await f.sync();}finally{await f.close();}}};
 }
