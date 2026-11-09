@@ -67,6 +67,9 @@ export class ContinuationController {
   private preNativeControl:Readonly<PreNativeControl & {baseline:number}>|undefined;
   private usedControlIds=new Set<string>();
   private retainedWorkHashes=new Set<string>();
+  private approvedOperationBounds:Readonly<{operationCap:number;normalCeiling:number;cleanupReserve:number}>=Object.freeze({operationCap:60,normalCeiling:52,cleanupReserve:8});
+  get operationBounds(){return this.approvedOperationBounds;}
+  private distinctOpenClawFollowup:{text:string;senderAgentId:string;recipientAgentId:string;caseId:string}|undefined;
   private constructor(readonly ledger:RequestBudgetLedger,readonly receipt:ContinuationReceipt,
     private flowCases:Readonly<Record<string,string>>,private actorIds:Readonly<Record<Role,string>>,private sameRoleNativeAttribution?:SameRoleNativeAttributionGuard){}
 
@@ -100,7 +103,9 @@ export class ContinuationController {
     await verified.inspection.consume();await ledger.bindApprovedWindow(handle.window,{approvalReceiptHash:options.receipt.approvalReceiptSha256,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:ledger.snapshot().chargedAttempts});
     await ledger.amendReviewedPlan(options.reviewedPlan,proof);const controller=await this.openChecked(options,false,true);
     for(const id of inspection.blockedFlows)controller.released.add(id);for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
-    controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});return controller;
+    controller.approvedOperationBounds=Object.freeze({...inspection.operationBounds});
+    if(inspection.distinctFollowup){controller.retainedWorkHashes.add(hash(inspection.workId));controller.distinctOpenClawFollowup=Object.freeze({...inspection.distinctFollowup});}
+    else controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});return controller;
   }
   /** Read-only validation of an actually stopped, metadata-only current run.
    * Retains its original receipt, deadline, graph, counts and ancestry. */
@@ -324,6 +329,7 @@ export class ContinuationController {
     if(!flow||flow.role!==role||!this.group?.ids.includes(flowId)||!expected||work.workId!==expected.workId||work.workId!==work.message.id
       ||!/^msg_[A-Za-z0-9_-]+$/.test(work.workId)||work.message.caseId!==this.flowCases[flowId]
       ||work.message.recipientAgentId!==this.actorIds[role])refuse('CANONICAL_WORK_GRAPH_MISMATCH');
+    if(flowId==='openclaw'&&this.distinctOpenClawFollowup&&Object.entries(this.distinctOpenClawFollowup).filter(([key])=>['text','senderAgentId','recipientAgentId','caseId'].includes(key)).some(([key,value])=>work.message[key]!==value))refuse('EXACT_DISTINCT_FOLLOWUP_MESSAGE_REQUIRED');
     const policy=this.flowPolicy(flowId);
     if(policy.decisionOutcome!==null){
       if(work.message.kind!=='humanDecision')refuse('CANONICAL_HUMAN_DECISION_REQUIRED');

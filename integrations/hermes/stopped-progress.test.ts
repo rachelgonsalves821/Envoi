@@ -534,3 +534,80 @@ it.each(['native-result','native-effect','new-control-credit','repeated-poll','w
  if(fault==='cleanup-incomplete'){s.checkpoint.receiversStopped=false;s.frame.checkpoint=await s.pin('bad-pretarget-cleanup.json',s.checkpoint);}
  const before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(s.options)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
 });
+
+async function unforwardedSetup(){
+ const s=await controlledPreTargetSetup(),r=s.options.recovery,f=s.frame,p=JSON.parse(await fs.readFile(f.packet.path,'utf8')),e=s.execution;
+ const journal=await s.pin('observer-journal.json',{version:1,model:'openclaw:inert',workId:s.workId,completed:false,providerCalls:1,pending:[],input:[{role:'system',content:'fixture system'},{role:'user',content:'fixture snapshot'}]});
+ const journalPath=path.join(p.states.openclaw,'scoped-runs',s.workId+'.json');await fs.copyFile(journal.path,journalPath);journal.path=journalPath;
+ const w={workId:s.workId,caseId:s.caseId,agentId:s.options.actorIds.openclaw,status:'failed',attempts:5,failure:{retryable:false,reasonCode:'HANDLER_FAILED'},sessions:[{status:'ended'}]};
+ const canonical=await s.pin('observer-failed-canonical.json',{database:'sinaloa_staging',readOnly:'on',checkedAt:new Date(Date.now()).toISOString(),activeWorkLeases:0,activeCaseSessions:0,work:w,message:{id:s.workId,caseId:s.caseId,status:'failed',processedAt:null},sessions:w.sessions});r.canonicalWork=canonical;
+ s.events.at(-1)!.status='failed';await s.refresh();
+ const privateCauses=[await s.pin('primary.log','ACTUAL_OWNED_NATIVE_CHILD_REQUIRED at observeTransport'),await s.pin('secondary.log','ACTUAL_LOST_RESPONSE_AND_IDENTICAL_REPLAY_REQUIRED')];
+ const historicalCanonical=JSON.parse(await fs.readFile(canonical.path,'utf8'));delete historicalCanonical.work.caseId;delete historicalCanonical.work.agentId;const historicalCanonicalPin=await s.pin('historical-user-sql-canonical.json',historicalCanonical);
+ const local=await s.pin('observer-local.json',{journal,modelsAdded:0,ports:[{listening:false},{listening:false},{listening:false}]});
+ const requestDir=path.join(p.directory,'owner-requests'),evidenceDir=path.join(p.directory,'openclaw-evidence');await fs.mkdir(requestDir);await fs.mkdir(evidenceDir);
+ const move=async(pin:any,dir:string,name:string)=>{const to=path.join(dir,name);await fs.copyFile(pin.path,to);return{path:to,sha256:pin.sha256};};
+ const targetStop=new Date(Date.parse(e.receipt.startUtc)+500).toISOString(),decision=JSON.stringify({ownerApproved:true,window:e.window,clientSource:e.receipt.clientSource,approvedAtUtc:e.receipt.startUtc,expiresAtUtc:targetStop});
+ const response=await move(await s.pin('personal-response.json',{window:e.window,results:[{workId:s.workId,targetDecisionRaw:decision,capabilityDecisionRaw:decision}]}),requestDir,'review.response.json');
+ const request=await move(await s.pin('personal-request.json',{window:e.window,hardStopUtc:targetStop,targets:[{workId:s.workId,hardStopUtc:targetStop}],receiptPath:response.path}),requestDir,'review.request.json');
+ const nativeEvidence=[];for(const name of ['actual-owner-decisions-fixture.json','personal-review-subjects-fixture.json'])nativeEvidence.push(await move(await s.pin(name,{}),evidenceDir,name));
+ const originals=[];for(const j of p.program.originalJournalHashes)originals.push({path:path.join(p.states[j.role],'scoped-runs',j.file),sha256:j.sha256});
+ const modelFiles=[];for(let i=0;i<6;i++)modelFiles.push(await s.pin('model-config-'+i,'inert config'));
+ const frozen:any={purpose:'actual-observer-order-zero-forwarding-stop-readonly',checkedAtUtc:new Date(Date.now()).toISOString(),packet:f.packet,execution:f.execution,stop:f.stop,adoption:f.adoption,ledger:f.ledger,programState:f.preTarget.state,events:f.preTarget.events,ownerGatewayContext:f.preTarget.ownerGatewayContext,
+  usage:s.checkpoint.usage,journal,canonical:historicalCanonicalPin,local,privateCauses,ownerRequests:[{request,response,hardStopUtc:targetStop}],nativeEvidence,originalJournals:originals,modelFiles,actionLedger:r.history.actionLedger,seal:await s.pin('observer-seal.json',{}),
+  primaryCode:'ACTUAL_OWNED_NATIVE_CHILD_REQUIRED',outerCode:'SCOPED_PROVIDER_UNAVAILABLE',secondaryCode:'ACTUAL_LOST_RESPONSE_AND_IDENTICAL_REPLAY_REQUIRED',logicalProviderIterations:1,physicalRequestsAdded:0,modelsAdded:0,
+  nativeBootstrapAdmitted:false,nativeHarnessObserved:false,nativePhysicalObserved:false,nativeResponseObserved:false,canonicalProcessed:false,taskReplayPerformed:false,oldAcceptedSendsRepeated:false,completedControlsRepeated:false,wholeGateComplete:false};
+ const followup:any={version:1,requestId:'65608c60-b9d6-4323-8ccc-1209bc04ad28',retainedFailedWorkId:s.workId,retainedFailedJournalSha256:journal.sha256,caseId:s.caseId,senderRole:'testowner',recipientRole:'openclaw',senderAgentId:s.options.actorIds.testowner,recipientAgentId:s.options.actorIds.openclaw,text:'A distinct new follow-up after the failed work.',additionalOperationReservations:1,newCasesAdded:0,newInstallationsAdded:0,newAssetsAdded:0,requiresActualHumanSendConfirmation:true,acceptedSendRepeated:false,failedWorkRequeued:false};
+ const refresh=async()=>{f.preTarget.unforwarded=await s.pin('unforwarded-proof.json',frozen);s.checkpoint.preTargetPins=f.preTarget;s.checkpoint.sharedNativeJournalAbsent=false;f.checkpoint=await s.pin('unforwarded-checkpoint.json',s.checkpoint);
+  r.distinctFollowup=await s.pin('distinct-followup.json',followup);s.adoption.startupCheckpointSha256=f.checkpoint.sha256;s.adoption.distinctFollowupSha256=r.distinctFollowup.sha256;s.adoption.preserveFailedOriginal=true;
+  r.adoption=await s.pin('unforwarded-adoption.json',s.adoption);s.options.receipt.approvalReceiptSha256=r.adoption.sha256;const signed=s.sign(s.nextGraph,s.options.receipt,'unforwarded');s.options.reviewedPlan=signed.plan;s.options.graphApprovalRaw=signed.raw;};
+ await refresh();return{...s,frozen,followup,journal,refreshUnforwarded:refresh};
+}
+it('preserves the unforwarded failed original and only admits the explicitly reviewed distinct follow-up',async()=>{
+ const s=await withOperationAmendment(),before=await fs.readFile(s.filename),journal=await fs.readFile(s.journal.path);
+ const handle=await ContinuationController.prepareControlledProgress(s.options);expect(await fs.readFile(s.filename)).toEqual(before);
+ const c=await ContinuationController.startControlledProgress(handle);c.releaseGroup(['openclaw']);
+ expect(()=>c.expectWork('openclaw',s.workId,h('old'))).toThrow('PRIOR_NATIVE_WORK_MUST_NOT_REPEAT');
+ c.expectWork('openclaw','msg_distinct',h('canonical new receipt'));
+ const message={id:'msg_distinct',caseId:s.caseId,text:s.followup.text,senderAgentId:s.followup.senderAgentId,recipientAgentId:s.followup.recipientAgentId};
+ expect(()=>c.observeClaim('openclaw','openclaw',{workId:'msg_distinct',message:{...message,text:'foreign'}},'{}')).toThrow('EXACT_DISTINCT_FOLLOWUP_MESSAGE_REQUIRED');
+ c.observeClaim('openclaw','openclaw',{workId:'msg_distinct',message},'{}');expect(await fs.readFile(s.journal.path)).toEqual(journal);c.stop();
+});
+it.each(['physical-dispatch','logical-iterations','completed-journal','pending-tool','wrong-primary','live-port','processed-original','retryable-original','different-case','same-old-text','missing-review','missing-followup-approval'] as const)('refuses an unforwarded recovery without mutation: %s',async fault=>{
+ const s=await withOperationAmendment(),r=s.options.recovery;
+ if(fault==='physical-dispatch')s.frozen.physicalRequestsAdded=1;if(fault==='logical-iterations')s.frozen.logicalProviderIterations=2;
+ if(fault==='completed-journal'||fault==='pending-tool'){const j=JSON.parse(await fs.readFile(s.journal.path,'utf8'));if(fault==='completed-journal')j.completed=true;else j.pending=[{}];await fs.writeFile(s.journal.path,JSON.stringify(j));}
+ if(fault==='wrong-primary')s.frozen.primaryCode='OTHER';
+ if(fault==='live-port'){const local=JSON.parse(await fs.readFile(s.frozen.local.path,'utf8'));local.ports[0].listening=true;s.frozen.local=await s.pin('live-port.json',local);}
+ if(fault==='processed-original'||fault==='retryable-original'){const v=JSON.parse(await fs.readFile(r.canonicalWork.path,'utf8'));v.work.status=fault==='processed-original'?'processed':'retryable';r.canonicalWork=await s.pin('wrong-original.json',v);}
+ if(fault==='different-case')s.followup.caseId='case_foreign';if(fault==='same-old-text'){s.followup.text='';}
+ await s.refreshUnforwarded();if(fault==='missing-review')delete r.distinctFollowup;
+ if(fault==='missing-followup-approval'){delete s.adoption.distinctFollowupSha256;r.adoption=await s.pin('missing-followup-approval.json',s.adoption);s.options.receipt.approvalReceiptSha256=r.adoption.sha256;const signed=s.sign(s.nextGraph,s.options.receipt,'unapproved');s.options.reviewedPlan=signed.plan;s.options.graphApprovalRaw=signed.raw;}
+ const before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(s.options)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
+});
+
+async function withOperationAmendment(){
+ const s=await unforwardedSetup(),r=s.options.recovery;
+ const allocations=[1,2,4,2,2,4,1,2,2,1].map((minimumReservations,i)=>({item:'required operation group '+i,minimumReservations}));
+ r.operationAmendment={operationCap:62,normalCeiling:54,cleanupReserve:8,allocation:await s.pin('operation-allocation.json',{currentConservativeReservations:s.options.preflight.conservativeMessages,newFollowupIncluded:true,allocations,minimumAdditionalReservations:21,minimumNormalTotal:s.options.preflight.conservativeMessages+21,normalCeiling:54,cleanupReserve:8,overallCeiling:62})};
+ Object.assign(s.adoption,{operationCap:62,normalOperationCap:54,cleanupReserve:8,operationAllocationSha256:r.operationAmendment.allocation.sha256});
+ const refresh=async()=>{r.adoption=await s.pin('amended-resource-adoption.json',s.adoption);s.options.receipt.approvalReceiptSha256=r.adoption.sha256;const signed=s.sign(s.nextGraph,s.options.receipt,'operation amended');s.options.reviewedPlan=signed.plan;s.options.graphApprovalRaw=signed.raw;};
+ await refresh();return{...s,refreshAmendment:refresh};
+}
+it('accepts only explicitly approved 62 total / 54 normal / 8 cleanup bounds and retains all prior reservations',async()=>{
+ const s=await withOperationAmendment(),c=await ContinuationController.startControlledProgress(await ContinuationController.prepareControlledProgress(s.options));
+ expect(c.operationBounds).toEqual({operationCap:62,normalCeiling:54,cleanupReserve:8});expect(Object.isFrozen(c.operationBounds)).toBe(true);expect(c.ledger.snapshot().chargedAttempts).toBe(35);c.stop();
+});
+it.each(['unapproved-cap','reduced-cleanup','unbounded-cap','allocation-changed','missing-allocation-approval'] as const)('refuses operation amendment %s',async fault=>{
+ const s=await withOperationAmendment(),r=s.options.recovery;
+ if(fault==='unapproved-cap')s.adoption.operationCap=60;
+ if(fault==='reduced-cleanup')r.operationAmendment.cleanupReserve=6;
+ if(fault==='unbounded-cap')r.operationAmendment.operationCap=100;
+ if(fault==='allocation-changed')await fs.appendFile(r.operationAmendment.allocation.path,' ');
+ if(fault==='missing-allocation-approval')delete s.adoption.operationAllocationSha256;
+ await s.refreshAmendment();const before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(s.options)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
+});
+
+it('refuses the complete distinct follow-up plan without the explicit operation amendment',async()=>{
+ const s=await unforwardedSetup(),before=await fs.readFile(s.filename);await expect(ContinuationController.prepareControlledProgress(s.options)).rejects.toThrow('EXACT_OPERATION_AMENDMENT_REQUIRED');expect(await fs.readFile(s.filename)).toEqual(before);
+});

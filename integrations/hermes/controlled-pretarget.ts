@@ -1,5 +1,6 @@
 // Read-only recovery evidence for a receiver failure before any native target.
 // The old state, selected snapshot, events and contexts remain immutable.
+import {inspectUnforwardedObserverStop} from './controlled-unforwarded';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -8,7 +9,7 @@ import type {ControlledProgressRecovery} from './controlled-progress';
 import type {ControlledStartupStop} from './controlled-startup';
 
 export type ControlledPreTargetPins=Readonly<{
- state:ProgressPin;events:ProgressPin;ownerGatewayContext:ProgressPin;selection:ProgressPin;nativeSendContext:ProgressPin;
+ state:ProgressPin;events:ProgressPin;ownerGatewayContext:ProgressPin;selection:ProgressPin;nativeSendContext:ProgressPin;unforwarded?:ProgressPin;
 }>;
 const hash=(v:string|Buffer)=>createHash('sha256').update(v).digest('hex');
 const object=(v:any)=>v&&typeof v==='object'&&!Array.isArray(v);
@@ -27,14 +28,14 @@ async function empty(dir:string){try{const s=await fs.lstat(dir);if(!s.isDirecto
 
 export async function inspectControlledPreTarget(input:{proof:ControlledStartupStop;packet:any;execution:any;checkpoint:any;recovery:ControlledProgressRecovery;controlWindow:string;now:number}){
  const{proof,packet:p,execution:e,checkpoint:c,recovery:r}=input,q=proof.preTarget!;
- if(keys(q)!=='events,nativeSendContext,ownerGatewayContext,selection,state'||!equal(c.preTargetPins,q)
+ if(keys(q)!==(q.unforwarded?'events,nativeSendContext,ownerGatewayContext,selection,state,unforwarded':'events,nativeSendContext,ownerGatewayContext,selection,state')||!equal(c.preTargetPins,q)
    ||c.receiversStopped!==true||c.operatorWorkerStopped!==true||c.nativeGatewayListening!==false||c.nativeProxyListening!==false)refuse('EXACT_PRETARGET_CLEANUP_REQUIRED');
  const dir=proof.programDirectory;
  direct(q.state,dir);direct(q.selection,dir);direct(q.nativeSendContext,dir,'native-send-context.private.json');
  direct(q.events,p.directory,'actual-events.private.jsonl');direct(q.ownerGatewayContext,p.directory,'owner-gateway-context.private.json');
  const stat=await fs.lstat(dir),files=await fs.readdir(dir),expected=[q.state,q.selection,q.nativeSendContext].map(x=>path.basename(x.path)).sort();
  if(!stat.isDirectory()||stat.isSymbolicLink()||new Set(expected).size!==3||!equal(files.sort(),expected))refuse('EXACT_PRETARGET_PROGRAM_FILES_REQUIRED');
- await empty(path.join(p.directory,'owner-requests'));await empty(path.join(p.directory,'openclaw-evidence'));
+ if(!q.unforwarded){await empty(path.join(p.directory,'owner-requests'));await empty(path.join(p.directory,'openclaw-evidence'));}
  const state=(await read(q.state)).value,original=(await read(r.state)).value,selected=(await read(q.selection)).value,
   context=(await read(q.ownerGatewayContext)).value,send=(await read(q.nativeSendContext)).value;
  const work=original.started.openclaw,receipt=e.receipt,old=(await read(r.execution)).value.receipt;
@@ -72,7 +73,8 @@ export async function inspectControlledPreTarget(input:{proof:ControlledStartupS
    ||!canonical.session?.id||!Number.isSafeInteger(canonical.session.fence)||canonical.session.fence<1
    ||canonical.session.agentId!==p.actors.openclaw.agentId||canonical.session.installationId!==p.actors.openclaw.installationId
    ||snapshot.flowId!=='openclaw'||snapshot.workId!==work.workId||snapshot.caseId!==work.caseId||typeof snapshot.rawSnapshotBytes!=='string'||hash(snapshot.rawSnapshotBytes)!==snapshot.sha256
-   ||settled.role!=='openclaw'||settled.workId!==work.workId||settled.status!=='retryable'||settled.operation!=='fail'
+   ||settled.role!=='openclaw'||settled.workId!==work.workId||settled.status!==(q.unforwarded?'failed':'retryable')||settled.operation!=='fail'
    ||events.indexOf(canonical)>=events.indexOf(snapshot)||events.indexOf(snapshot)>=events.indexOf(settled)
-   ||events.filter(v=>v.kind==='receiver_startup_transport_failure').length>1)refuse('ACTUAL_PRETARGET_RETRYABLE_SETTLEMENT_REQUIRED');
+   ||events.filter(v=>v.kind==='receiver_startup_transport_failure').length>(q.unforwarded?2:1))refuse('ACTUAL_PRETARGET_RETRYABLE_SETTLEMENT_REQUIRED');
+ if(q.unforwarded)await inspectUnforwardedObserverStop({pin:q.unforwarded,packet:p,proof,execution:e,checkpoint:c,workId:work.workId,caseId:work.caseId});
 }

@@ -37,12 +37,12 @@ export async function inspectControlledStartupFrames(input:{releaseRoot:string;r
     ||!(proof.preTarget?c.purpose==='actual-controlled-pretarget-stop-readonly':['actual-540-startup-stop-readonly','actual-controlled-startup-stop-readonly'].includes(c.purpose))||!Number.isFinite(checked)||checked<observed||checked>now
     ||!samePin(c.packet,proof.packet)||!samePin(c.execution,proof.execution)||!samePin(c.stop,proof.stop)||!samePin(c.ledger,proof.ledger)||!equal(c.stopState,stop)||!equal(c.executionReceipt,e)
     ||c.usage?.chargedAttempts!==ledger.snapshot().chargedAttempts||c.usage.pending!==0||c.usage.unresolvedDispatches!==0||c.modelCallsAdded!==0||!proof.preTarget&&c.hostStarts!==0
-    ||c.ownedMeterListening!==false||c.ownerGatewayContextAbsent!==!proof.preTarget||c.sharedNativeJournalAbsent!==true
+    ||c.ownedMeterListening!==false||c.ownerGatewayContextAbsent!==!proof.preTarget||c.sharedNativeJournalAbsent!==!proof.preTarget?.unforwarded
     ||!Array.isArray(c.selectedHermesHosts)||c.selectedHermesHosts.length!==3||!['je1','je2','testowner'].every(role=>c.selectedHermesHosts.filter((x:any)=>x.role===role&&x.unreachable===true).length===1))refuse('ACTUAL_CONTROLLED_STARTUP_STOP_REQUIRED');
   if(!Array.isArray(c.originalJournals)||c.originalJournals.length!==input.journals.length||input.journals.some(j=>c.originalJournals.filter((x:any)=>x.role===j.role&&x.file===j.file&&x.unchanged===true).length!==1))refuse('EXACT_STARTUP_ORIGINAL_JOURNALS_REQUIRED');
   if(!path.isAbsolute(proof.programDirectory)||path.resolve(proof.programDirectory)!==path.resolve(p.directory??'','native-program'))refuse('NO_STARTED_NATIVE_PROGRAM_REQUIRED');
   if(proof.preTarget){
-   if(i!==frames.length-1)refuse('LAST_PRETARGET_STOP_REQUIRED');
+   if(i!==frames.length-1&&!(i===frames.length-2&&frames.at(-1)!.proof.preTarget?.unforwarded&&!proof.preTarget.unforwarded))refuse('LAST_PRETARGET_STOP_REQUIRED');
    await inspectControlledPreTarget({proof,packet:p,execution:e,checkpoint:c,recovery:r,controlWindow:input.controlWindow,now});
   }else{
    try{const s=await fs.lstat(proof.programDirectory);if(!s.isDirectory()||s.isSymbolicLink()||(await fs.readdir(proof.programDirectory)).length)refuse('NO_STARTED_NATIVE_PROGRAM_REQUIRED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
