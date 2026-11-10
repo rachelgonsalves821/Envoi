@@ -5412,3 +5412,18 @@ Authentication, installation/audience/permission qualification, lifecycle denial
 Independent synthetic parameter vectors and schemas are registered under `test/contract-fixtures/provider-event-wake-request-metadata/`. They cover inert/malformed metadata, unknown fields, nested metadata and retained list cursor/limit refusals; parent authority and callback vectors keep their original bytes and remain in force. These are parameter-acceptance vectors, not fabricated HTTP observations. Runtime tests must consume them, verify FileStore/PostgreSQL effects and metadata non-persistence, and exercise real HTTP parsing, size and unchanged method gates.
 
 Publish the contract and implementation as separate draft PRs into integration/agent-native. A later exact source/image deployment needs its own reviewed window and authorization. The callback allowlist remains empty until real origin evidence is approved. Rollback removes the isolated implementation increment and restores metadata rejection without migration, rotation or data deletion. Catalog success alone is not hosted wake acceptance.
+
+
+## agent-remote-auth-cimd-grants v1
+
+**Status:** human-approved in this chat on November 9, 2026 Eastern time. The human replied "approved" to the exact bounded proposal at https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6757060504, including this additive contract/fixture ownership exception. This is an approval receipt, not an agent granting approval.
+
+This amends only agent-remote-auth v1 revision4 section3.1 client grant_types acceptance, alongside the already-approved agent-remote-auth-cimd v1 authentication-method amendment. Frozen earlier contract/fixture bytes are retained.
+
+If grant_types is absent, retain existing behavior. If present, require an array of1–16 unique nonempty printable ASCII strings (characters U+0021–U+007E), each1–256 characters, containing authorization_code. Additional well-formed CLIENT grant capabilities are accepted as metadata and ignored for SERVER authorization. The captured current ChatGPT document additionally advertises urn:ietf:params:oauth:grant-type:jwt-bearer.
+
+Server grant support remains authorization_code/refresh_token plus the existing separately gated provider bootstrap grant. Unsupported token grants still return unsupported_grant_type. No JWT bearer, client credentials, password grants, private_key_jwt, scopes, permissions or identity authority is enabled by this amendment. All client ID/name/redirect/auth-method/response checks, public-address SSRF rules, TLS/HTTPS/no-redirect policy,5s/5120byte fetch limits, caching, PKCE, resource/scope binding and refresh/replay protection remain.
+
+Client-rejection diagnostics may contain only fixed reason/stage and a hash of client ID. Never log raw client IDs/documents, credentials, authorization parameters, callback/redirect URLs, error text or stacks; observer failures cannot change authorization outcomes. Public OAuth errors retain their wire shape. The authorization UI may distinguish a single allowlisted pre-consent error with fixed guidance, never render raw query error_description or call consent without a handle.
+
+Canonical fixtures: test/contract-fixtures/agent-remote-auth-cimd-grants/,21 independent metadata vectors. Validate amended grant fields against its schema and unchanged non-grant fields against the frozen original after normalizing only the two approved auth/grant amendments. Retain malformed/count/length/duplicate/missing-code refusals and unsupported token-grant tests. Local mocks/source checks do not establish production owner authentication or native processing acceptance.
