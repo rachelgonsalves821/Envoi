@@ -43,7 +43,7 @@ Hosted PASS requires D-01 through D-09 at the same served SHA. On any failed row
 ## Source reconciliation
 
 - Original source `c072fcf` is already on main via #276 (`6b771c1`), including the contract, server, UI and SDKs. #276 also added a public availability route and UI gating. Main `5a2e2a7` retains that branch-specific behavior.
-- Integration `0986d0f` did not contain Phase D. This candidate composes Lane A's `235c925` once, without merging main or replaying #211. Lane A's flags-off fallback fix and FileStore/PostgreSQL test parametrization remain intact. The published fixture bytes and newer integration work are preserved. Rebuild from candidate source with `npm run build`.
+- Integration `e5454de` did not contain Phase D. This candidate composes Lane A's `235c925` once, without merging main or replaying #211. Lane A's flags-off fallback fix and FileStore/PostgreSQL test parametrization remain intact. The published fixture bytes and newer integration work are preserved. Rebuild from candidate source with `npm run build`.
 - #211's CI, its unpublished image, the October staging baseline and its proposed window are historical. The PostgreSQL script now explicitly runs both Phase D HTTP files. Verify the completed PR workflow and seven PostgreSQL Phase D HTTP variants at the final draft SHA.
 
 ## Reproduce local evidence
