@@ -100,6 +100,19 @@ it.each([true,false])('only accepts the owned nonce and sanitized diagnostic, th
 });
 
 let temporary='',childEntry='';
+it.each(['missing','relative','foreign'] as const)('refuses %s native workspace before spawning or granting authority',async fault=>{
+ const f=fixture(),spawnChild=vi.fn(),pins={window:f.binding.window,workId:f.binding.workId,caseId:f.binding.caseId,caseSessionId:f.binding.caseSessionId,toolChannelSha256:f.binding.toolChannelSha256,processIdentity:f.binding.processIdentity,clientSource:'a'.repeat(40),nativeSourceSha256:closedNativeManifestDigest(f.binding.nativeSources),capabilitySha256:'c'.repeat(64),ownerSelectionSha256:'d'.repeat(64),targetSha256:'e'.repeat(64)};
+ const paths={...f.paths,workspace:fault==='missing'?undefined:fault==='relative'?'relative/workspace':path.resolve('inert/foreign')} as any;
+ await expect(startOwnedClosedNativeProcess({nodeExecutable:'inert',childEntry:'inert',childEntrySha256:hash('entry'),environment:{},bootstrap:{...f.options,paths},pins,meterBinding:{nativeToken:'inert-token',deadlineUnixMs:f.binding.hardStopUnixMs},authorize:async()=>{},ports:f.ports,signal:new AbortController().signal},{readBytes:async()=>Buffer.from('entry'),spawnChild,nonce:()=> 'a'.repeat(64)})).rejects.toThrow('REVIEWED_NATIVE_WORKSPACE_REQUIRED');expect(spawnChild).not.toHaveBeenCalled();expect(f.ports.authorizePhysical).not.toHaveBeenCalled();
+});
+it('starts the real owned process in the reviewed private workspace rather than the operator cwd',async()=>{
+ const workspace=path.join(temporary,'private workspace');await fs.mkdir(workspace);
+ const entry=path.join(temporary,'inert-cwd-child.mjs'),code=`process.on('message',m=>{if(m.kind==='start')process.send({kind:'ready',nonce:m.nonce,observation:{...m.bootstrap.binding,kind:'actual_native_gateway_bootstrap_observation',runtimeObservation:'pending_first_harness',observedCwd:process.cwd()}});else if(m.kind==='stop')process.send({kind:'closed',nonce:m.nonce},()=>process.exit(0));});`;
+ await fs.writeFile(entry,code,{flag:'wx'});const f=fixture();f.paths.workspace=workspace;f.binding.workspaceSha256=hash(path.resolve(workspace));
+ const pins={window:f.binding.window,workId:f.binding.workId,caseId:f.binding.caseId,caseSessionId:f.binding.caseSessionId,toolChannelSha256:f.binding.toolChannelSha256,processIdentity:f.binding.processIdentity,clientSource:'a'.repeat(40),nativeSourceSha256:closedNativeManifestDigest(f.binding.nativeSources),capabilitySha256:'c'.repeat(64),ownerSelectionSha256:'d'.repeat(64),targetSha256:'e'.repeat(64)};
+ const handle=await startOwnedClosedNativeProcess({nodeExecutable:process.execPath,childEntry:entry,childEntrySha256:hash(code),environment:{},bootstrap:f.options,pins,meterBinding:{nativeToken:'inert-token',deadlineUnixMs:f.binding.hardStopUnixMs},authorize:async()=>{},ports:f.ports,signal:new AbortController().signal});
+ try{expect(handle.readiness()).toMatchObject({observedCwd:workspace});expect(workspace).not.toBe(process.cwd());expect(f.ports.authorizePhysical).not.toHaveBeenCalled();}finally{await handle.close();}
+});
 beforeAll(async()=>{
  temporary=await fs.mkdtemp(path.join(os.tmpdir(),'envoi-startup-diagnostic-'));
  const result=await build({configFile:false,envDir:false,logLevel:'silent',build:{write:false,minify:false,target:'node24',lib:{entry:fileURLToPath(new URL('./closed-native-child.ts',import.meta.url)),formats:['es'],fileName:()=> 'child.mjs'},rollupOptions:{external:(id:string)=>id.startsWith('node:')}}});
