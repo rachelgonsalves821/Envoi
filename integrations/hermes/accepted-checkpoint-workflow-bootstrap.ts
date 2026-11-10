@@ -19,6 +19,20 @@ const same=(a:any,b:any)=>a?.sha256===b?.sha256&&typeof a?.path==='string'&&type
 const dated=(v:unknown)=>typeof v==='string'&&Number.isFinite(Date.parse(v));
 function refuse():never{throw Object.assign(Error('EXACT_WORKFLOW_BOOTSTRAP_STOP_REQUIRED'),{code:'EXACT_WORKFLOW_BOOTSTRAP_STOP_REQUIRED'});}
 async function marker(file:string){const s=await fs.lstat(file);if(!s.isFile()||s.isSymbolicLink()||s.size>16384)refuse();return JSON.parse(await fs.readFile(file,'utf8'));}
+// The reviewed b853 private writer recorded the latest startup frame here. Its
+// human adoption still names the immediate timeout parent, checked separately.
+// Preserve that descriptive legacy field only when the approved packet and the
+// already-inspected startup history agree with the pinned writer implementation.
+export async function matchesRecordedWorkflowParent(input:{clientSource:unknown;recordedParent?:ProgressPin;priorExecution:ProgressPin;
+ declaredStartupStops?:readonly {execution?:ProgressPin}[];inspectedStartupStops?:readonly {execution?:ProgressPin}[];core?:ProgressPin},
+ readCore:(pin:ProgressPin)=>Promise<Buffer>=async pin=>(await readUnforwardedPin(pin,false)).raw){
+ if(same(input.recordedParent,input.priorExecution))return true;
+ const declared=input.declaredStartupStops?.at(-1)?.execution,inspected=input.inspectedStartupStops?.at(-1)?.execution;
+ if(input.clientSource!=='b853393dc148b0919f085223b95fe3361236cd36'||!same(declared,inspected)||!same(input.recordedParent,inspected)
+  ||!input.core||path.basename(input.core.path)!=='workflow-session.mjs')return false;
+ const writer=await readCore(input.core);
+ return writer.toString('utf8').includes('priorExecution:p.controlledRecoveryBase.startupStops.at(-1).execution');
+}
 type Input={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery};
 type Previous={workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ActiveContinuationReceipt[];acceptedCheckpoint:AcceptedCheckpointCarry;originalReceipt:ActiveContinuationReceipt};
 
@@ -43,7 +57,7 @@ export async function inspectAcceptedWorkflowBootstrapStop<H extends Previous>(i
   ||receipt.version!==2||receipt.lifetime!=='until-complete-or-cancel'||receipt.humanReview!=='before-claim'||Object.hasOwn(receipt,'hardStopUtc')
   ||receipt.ownerApproved!==true||receipt.modelCap!==64||receipt.ciPassed!==true||receipt.ciHead!==receipt.clientSource||receipt.clientSource!==p.clientSource||receipt.serverSource!==p.serverSource
   ||receipt.runnerSha256!==p.library?.sha256||receipt.packetSha256!==d.packet.sha256||e.purpose!=='actual-controlled-checkpoint-recovery'||e.window!==hash(JSON.stringify(receipt))||d.window!==e.window
-  ||!dated(receipt.startUtc)||Date.parse(receipt.startUtc)>Date.now()||e.actualStartedAtUtc!==receipt.startUtc||!same(e.priorExecution,h.priorExecution)||!same(e.carriedState,r.state)||!same(e.carriedCheckpoint,r.carry)
+  ||!dated(receipt.startUtc)||Date.parse(receipt.startUtc)>Date.now()||e.actualStartedAtUtc!==receipt.startUtc||!await matchesRecordedWorkflowParent({clientSource:p.clientSource,recordedParent:e.priorExecution,priorExecution:h.priorExecution,declaredStartupStops:p.controlledRecoveryBase?.startupStops,inspectedStartupStops:r.startupStops,core:p.modules?.core})||!same(e.carriedState,r.state)||!same(e.carriedCheckpoint,r.carry)
   ||!equal(p.workflowPolicy,{lifetime:receipt.lifetime,humanReview:receipt.humanReview})||!same(p.controlledRecoveryBase?.acceptedCheckpoint,d.priorAcceptedCheckpoint))refuse();
  for(const key of ['runtimePacket','initialExecution','execution','operatorSeal','state','stop','ledger','checkpoint','carry','pollGap','distinctFollowup'])if(!same(p.controlledRecoveryBase[key],r[key as keyof ControlledProgressRecovery]))refuse();
  if(!equal(p.controlledRecoveryBase.startupStops??[],r.startupStops??[]))refuse();
