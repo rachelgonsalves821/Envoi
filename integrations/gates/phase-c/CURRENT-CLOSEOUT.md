@@ -42,6 +42,8 @@ The entries below are assertion groups in the **existing** reviewed remaining pr
 
 R1 is the current internal engineering hold. R2 is the next user-visible milestone. R3–R5 proceed only under the existing approved program and personal controls; R6 closes the phase scope. Neither this checklist nor a CI pass supplies missing live authority.
 
+**Latest R1 readiness update:** the exact current-profile/ports/closure/ledger check passed at 20:09:41 UTC. The specifically approved old unarmed worker was identity-checked and stopped at 20:13:23 UTC; the original personal console and new prepared resident remain present. A WSL-specific connection failure to the Cloudflare auth endpoint prevented ordinary session refresh; the failed CLI left credentials unchanged. At 20:29:42 UTC, the already-installed official Windows CLI of the same version refreshed that same selected profile normally, with no login, new grant, settings change or custom token writer. Its authenticated current-profile/process/251-file guard then passed at 20:30:24 UTC; root matched its pinned receipt and required fields. The single fresh read-only state supplement has now been requested in the coordinator chat, preserving the original READY and console. Root/ARM/claim/model gates remain closed pending actual new data and independent derived verification. No source approval, accepted observation or budget was reset.
+
 ### Current R1–R6 status and evidence
 
 These are updates to the exits above, not additional batches or a replacement plan. Unchecked exits remain open; preserved results in the preceding table are still credited.
