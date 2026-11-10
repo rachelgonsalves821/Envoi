@@ -7,7 +7,7 @@ Status: **SOURCE CANDIDATE; hosted gate unproven.** This worksheet is a reviewab
 | Field | Receipt |
 | --- | --- |
 | Draft PR | [#333](https://github.com/rachelgonsalves821/Envoi/pull/333) into `integration/agent-native`. [#211](https://github.com/rachelgonsalves821/Envoi/pull/211) is the historical source review. |
-| Exact source SHA | Use the final head and corresponding green workflow recorded in #333. Record the resulting integration SHA separately before authorizing execution. |
+| Exact source SHA | Use the integration receipt in [#333](https://github.com/rachelgonsalves821/Envoi/pull/333). It records the resulting integration commit, its full green push workflow and the generated asset hashes. The draft workflow is a separate source-review check. |
 | Flag defaults | `ENVOI_RELATIONSHIPS_V2=false`; `ENVOI_A2A_GATEWAY=false` |
 | Local peer evidence | Phase D HTTP, fixture, frontend event/API and SDK tests. The card, send response and direct Task parse with the official [A2A Python SDK 1.2.3](https://github.com/a2aproject/a2a-python/releases/tag/v1.2.3) protobuf models. Its `RestTransport` completed a disposable local card/send/poll exchange when the client supplied the contract's `Content-Type: application/a2a+json`. Its unconfigured `httpx` JSON default received HTTP 415; this is a client setup requirement, not a hosted PASS. |
 | PR CI | Record the exact head and completed check URLs. |
@@ -43,7 +43,7 @@ Hosted PASS requires D-01 through D-09 at the same served SHA. On any failed row
 ## Source reconciliation
 
 - Original source `c072fcf` is already on main via #276 (`6b771c1`), including the contract, server, UI and SDKs. #276 also added a public availability route and UI gating. Main `0b53991` retains that branch-specific behavior.
-- Integration `e5454de` did not contain Phase D. This candidate composes Lane A's `235c925` once, without merging main or replaying #211. Lane A's flags-off fallback fix and FileStore/PostgreSQL test parametrization remain intact. The published fixture bytes and newer integration work are preserved. Rebuild from candidate source with `npm run build`.
+- Integration through Phase C #335 (`3b187c4`) did not contain Phase D. This candidate composes Lane A's `235c925` once, without merging main or replaying #211. Lane A's flags-off fallback fix and FileStore/PostgreSQL test parametrization remain intact. The published fixture bytes and newer integration work are preserved. Rebuild from candidate source with `npm run build`.
 - #211's CI, its unpublished image, the October staging baseline and its proposed window are historical. The PostgreSQL script now explicitly runs both Phase D HTTP files. Verify the completed PR workflow and seven PostgreSQL Phase D HTTP variants at the final draft SHA.
 
 ## Reproduce local evidence
