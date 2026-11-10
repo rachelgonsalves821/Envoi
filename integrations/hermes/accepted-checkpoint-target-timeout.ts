@@ -7,7 +7,7 @@ import {readUnforwardedPin} from './controlled-unforwarded';
 import {hashReviewedContinuationPlan} from './continuation-plan';
 import type {RequestBudgetLedger} from './request-budget';
 import type {ControlledProgressRecovery} from './controlled-progress';
-import type {ContinuationReceipt} from './continuation-controller';
+import type {ContinuationReceipt,ActiveContinuationReceipt} from './continuation-controller';
 import type {ProgressPin} from './stopped-progress';
 import type {AcceptedCheckpointCarry} from './accepted-checkpoint-retry';
 
@@ -22,23 +22,26 @@ function refuse():never {throw Object.assign(Error('EXACT_OWNER_TARGET_TIMEOUT_S
 async function absent(file:string){try{await fs.lstat(file);refuse();}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}}
 async function marker(file:string){const s=await fs.lstat(file);if(!s.isFile()||s.isSymbolicLink()||s.size>16384)refuse();return JSON.parse(await fs.readFile(file,'utf8'));}
 type Input={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery};
-type Previous={workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ContinuationReceipt[];acceptedCheckpoint:AcceptedCheckpointCarry;originalReceipt:ContinuationReceipt};
+type Previous={workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ActiveContinuationReceipt[];acceptedCheckpoint:AcceptedCheckpointCarry;originalReceipt:ActiveContinuationReceipt};
 
-export async function inspectAcceptedTargetTimeout<H extends Previous>(input:Input,inspectPrevious:(input:Input)=>Promise<H>){
+export async function inspectAcceptedTargetTimeout<H extends Previous>(input:Input,inspectPrevious:(input:Input,journal:ProgressPin)=>Promise<H>,historicalJournal?:ProgressPin){
  const {recovery:r,ledger}=input;if(!r.acceptedCheckpoint)refuse();
  const d=(await readUnforwardedPin(r.acceptedCheckpoint)).value;
  if(d.purpose!==OWNER_TARGET_TIMEOUT_KIND||d.version!==1||d.executionAllowed!==false||d.newAuthorityGranted!==false||d.personalTargetResponseAbsent!==true||d.ownerReviewCompleted!==false||d.checkpointJournalUnchanged!==true||d.acceptedSendMustNotRepeat!==true||d.oldFailedTaskMustNotReplay!==true||d.oldTargetDeadlineMustNotMove!==true||d.noRecoveryAttempted!==true||!d.canonicalFreshOwnerRead||d.missingCanonicalFields?.length!==0)refuse();
  const prior=(await readUnforwardedPin(d.priorAcceptedCheckpoint)).value;
  if(!['actual-v3-post-target-pre-model-stop-inspection',OWNER_TARGET_TIMEOUT_KIND].includes(prior.purpose)||d.checkpointJournal?.sha256!==prior.checkpointJournal?.sha256)refuse();
  const prefix=await ledger.inspectReadOnlyPrefix(prior.frozenRequests.path,prior.frozenRequests.sha256);
- const h=await inspectPrevious({...input,ledger:prefix,recovery:{...r,acceptedCheckpoint:d.priorAcceptedCheckpoint}});
+ const h=await inspectPrevious({...input,ledger:prefix,recovery:{...r,acceptedCheckpoint:d.priorAcceptedCheckpoint}},prior.checkpointJournal);
+ if(h.originalReceipt.version!==1)refuse();
  // The service's retryable attempts and the journal's logical provider counter
  // are separate. This path adds exactly one settled claim and no journal turn.
  const attempts=h.acceptedCheckpoint.expectedAttempts+1;
  if(attempts<3||attempts>4)refuse();
  const journal=(await readUnforwardedPin(d.checkpointJournal)).raw,j=JSON.parse(journal.toString());
  const previousJournal=(await readUnforwardedPin(prior.checkpointJournal)).raw;
- if(!journal.equals(previousJournal)||j.version!==1||j.workId!==h.workId||j.completed!==false||j.providerCalls!==2||j.input?.length!==3||!Array.isArray(j.pending)||j.pending.length||d.providerCalls!==2||d.inputCount!==3||!journal.equals(await fs.readFile(d.canonicalCheckpointJournalPath)))refuse();
+ if(historicalJournal&&historicalJournal.sha256!==d.checkpointJournal.sha256)refuse();
+ const observedJournal=historicalJournal?(await readUnforwardedPin(historicalJournal,false)).raw:await fs.readFile(d.canonicalCheckpointJournalPath);
+ if(!journal.equals(previousJournal)||j.version!==1||j.workId!==h.workId||j.completed!==false||j.providerCalls!==2||j.input?.length!==3||!Array.isArray(j.pending)||j.pending.length||d.providerCalls!==2||d.inputCount!==3||!journal.equals(observedJournal))refuse();
  const p=(await readUnforwardedPin(d.packet)).value,e=(await readUnforwardedPin(d.execution)).value,receipt=e.receipt as ContinuationReceipt,stop=(await readUnforwardedPin(d.stop)).value;
  if(p.purpose!=='phase-c-prepared-controlled-progress-session'||path.resolve(p.oldKitRoot??'')!==path.resolve(input.releaseRoot)||p.clientSource!==d.source||p.serverSource!==d.server||p.program?.clientSource!==p.clientSource||p.program?.serverSource!==p.serverSource||p.clientSource!==receipt.clientSource||p.serverSource!==receipt.serverSource||p.library?.sha256!==receipt.runnerSha256||receipt.version!==1||receipt.ownerApproved!==true||receipt.modelCap!==64||receipt.ciPassed!==true||receipt.ciHead!==receipt.clientSource||receipt.packetSha256!==d.packet.sha256||e.window!==hash(JSON.stringify(receipt))||d.window!==e.window||d.fixedHardStopUtc!==receipt.hardStopUtc||!dated(receipt.startUtc)||!dated(receipt.hardStopUtc)||Date.parse(receipt.hardStopUtc)-Date.parse(receipt.startUtc)!==5400000||!dated(e.actualStartedAtUtc)||Date.parse(e.actualStartedAtUtc)<Date.parse(receipt.startUtc)||!same(e.priorExecution,h.priorExecution)||!same(e.carriedState,r.state)||!same(e.carriedCheckpoint,r.carry))refuse();
  const seal=(await readUnforwardedPin(d.seal)).value;

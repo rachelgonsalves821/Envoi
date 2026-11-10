@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import type {ContinuationReceipt,ContinuationPreflight} from './continuation-controller';
+import type {ContinuationReceipt,ContinuationPreflight,ActiveContinuationReceipt} from './continuation-controller';
 import type {RecoveryTimeLink} from './recovery-time';
 import type {RequestBudgetLedger} from './request-budget';
 import {hashReviewedContinuationPlan,validateReviewedGraphApproval} from './continuation-plan';
@@ -153,7 +153,7 @@ function joinAncestor(child:Awaited<ReturnType<typeof inspectHistory>>,parent:Aw
 }
 /** Read-only historical format/provenance inspection. This grants no start
  * handle, current inventory credit, source adoption, time or model authority. */
-export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ContinuationReceipt|readonly ContinuationReceipt[]){
+export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ActiveContinuationReceipt|readonly ActiveContinuationReceipt[]){
   const {recovery:r,ledger}=input,filename=path.join(path.resolve(input.releaseRoot),'phase-c-cumulative-requests.jsonl'),current=await ledger.readInspectionBytes(),prefix=await pinned(r.priorLedger,false);
   if(path.resolve(ledger.filename)!==filename||(!restoreReceipt&&!prefix.raw.equals(current))||!current.subarray(0,prefix.raw.length).equals(prefix.raw)||!current.toString().endsWith('\n')||hash(current)!==ledger.contentSha256)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
   const rows=current.toString().trimEnd().split('\n').map(line=>JSON.parse(line));
@@ -194,7 +194,7 @@ export function assertStoppedProgressPreflight(p:StoppedProgressPreflight,ledger
 }
 export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;
   expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string};
-  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger;restore?:PreProgramRestore;metadataReceipts?:readonly ContinuationReceipt[]}){
+  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger;restore?:PreProgramRestore;metadataReceipts?:readonly ActiveContinuationReceipt[]}){
   const {recovery:r,ledger,receipt,expected,preflight}=input,now=Date.now(),start=Date.parse(receipt.startUtc),stop=Date.parse(receipt.hardStopUtc);
   if(r?.purpose!=='phase-c-stopped-native-progress'||!Array.isArray(r.completed)||!Array.isArray(r.failed))refuse('EXACT_STOPPED_PROGRESS_REQUIRED');
   if(receipt.version!==1||receipt.ownerApproved!==true||receipt.modelCap!==64||!digest(receipt.approvalReceiptSha256)||!digest(receipt.packetSha256)
