@@ -6105,8 +6105,10 @@ function Dn(e) {
 	}
 }
 var On = class extends Error {
-	constructor() {
-		super("Envoi fenced work API is unavailable; agent processing cannot start"), this.name = "ConnectorContractError";
+	status;
+	requestId;
+	constructor(e, t) {
+		super("Envoi fenced work API is unavailable; agent processing cannot start"), this.status = e, this.requestId = t, this.name = "ConnectorContractError";
 	}
 }, kn = class extends F {
 	constructor(e) {
@@ -7154,7 +7156,7 @@ var Fn = class {
 				404,
 				405,
 				501
-			].includes(e.status || 0) ? new On() : e;
+			].includes(e.status || 0) ? new On(e.status, e.requestId) : e;
 		}
 		if (this.lastWorkClaimAt = (/* @__PURE__ */ new Date()).toISOString(), n.state === "paused") return await this.observeError(new F("Paused", void 0, "AGENT_PAUSED")), null;
 		if (this.nextClaimAt = Infinity, n.work === null) return n.state === "idle" && Number.isSafeInteger(n.nextAvailableInMs) && n.nextAvailableInMs >= 0 && (this.nextClaimAt = Date.now() + Math.max(1e3, n.nextAvailableInMs)), null;
@@ -7410,24 +7412,24 @@ var Fn = class {
 			retryAt: void 0
 		}, t), this.wakeTrigger?.()));
 	}
-	async run(e) {
+	async run(e, t) {
 		await this.start();
-		let t = new AbortController(), n = AbortSignal.any([e, t.signal]), r = !!(this.options.handler || this.options.caseSessionHandler), i = r, a = null, o, s = 0, c = 0, l = !1, u = Date.now() + 12e3 + Math.random() * 6e3, d = Date.now() + 3e4 + Math.random() * 3e4, f = () => this.wake.abort(), p = () => {
-			r && (i = !0), f();
-		}, m = (e) => l && e?.state !== "DEGRADED" ? 3e4 + Math.random() * 3e4 : 12e3 + Math.random() * 6e3, h = async (e, r = !1) => {
-			if (n.aborted) return;
-			let i = !!this.options.caseSessionHandler && e instanceof bn && e.code === "TOOL_BUSY" && e.retryable;
-			if (i && (e = new F("Case tool is temporarily busy", void 0, "HANDLER_FAILED")), r && e instanceof F && le(e).lifecycle === "DEGRADED") {
-				u = Math.min(u, Date.now() + m()), f();
+		let n = new AbortController(), r = AbortSignal.any([e, n.signal]), i = !!(this.options.handler || this.options.caseSessionHandler), a = i, o = null, s, c = 0, l = 0, u = !1, d = Date.now() + 12e3 + Math.random() * 6e3, f = Date.now() + 3e4 + Math.random() * 3e4, p = () => this.wake.abort(), m = () => {
+			i && (a = !0), p();
+		}, h = (e) => u && e?.state !== "DEGRADED" ? 3e4 + Math.random() * 3e4 : 12e3 + Math.random() * 6e3, g = async (e, i) => {
+			if (r.aborted) return;
+			let a = !!this.options.caseSessionHandler && e instanceof bn && e.code === "TOOL_BUSY" && e.retryable;
+			if (a && (e = new F("Case tool is temporarily busy", void 0, "HANDLER_FAILED")), i === "wake_stream" && e instanceof F && le(e).lifecycle === "DEGRADED") {
+				d = Math.min(d, Date.now() + h()), p();
 				return;
 			}
-			if (await this.observeError(e), i && (s = Date.now() + ue(++c), u = Math.min(u, s)), this.options.caseSessionHandler && e instanceof F && e.code === "CASE_SESSION_ENDED" && e.reason === "credential_ended") try {
-				await this.checkStatus(n);
+			if (await this.observeError(e), a && (c = Date.now() + ue(++l), d = Math.min(d, c)), this.options.caseSessionHandler && e instanceof F && e.code === "CASE_SESSION_ENDED" && e.reason === "credential_ended") try {
+				await this.checkStatus(r);
 			} catch (t) {
 				e = t, await this.observeError(e);
 			}
-			let a = await this.lifecycle();
-			a.state === "DEGRADED" && (u = Math.min(u, Date.now() + 12e3 + Math.random() * 6e3)), (e instanceof Tn || e instanceof On || ["REVOKED", "NEEDS_RECONNECT"].includes(a.state) || !(e instanceof F) && a.state !== "DEGRADED" || e instanceof F && !(le(e).lifecycle === "DEGRADED" || [
+			let o = await this.lifecycle();
+			if (o.state === "DEGRADED" && (d = Math.min(d, Date.now() + 12e3 + Math.random() * 6e3)), e instanceof Tn || e instanceof On || ["REVOKED", "NEEDS_RECONNECT"].includes(o.state) || !(e instanceof F) && o.state !== "DEGRADED" || e instanceof F && !(le(e).lifecycle === "DEGRADED" || [
 				"REQUEST_CANCELLED",
 				"AGENT_PAUSED",
 				"CASE_CONTROLLED"
@@ -7437,8 +7439,17 @@ var Fn = class {
 				"WORK_LEASE_STALE",
 				"WORK_NOT_ELIGIBLE",
 				"WORK_NOT_FOUND"
-			].includes(e.code ?? ""))) && (o = e, t.abort()), f();
-		}, g = () => {
+			].includes(e.code ?? ""))) {
+				if (s === void 0) {
+					s = e;
+					try {
+						t?.(i, e);
+					} catch {}
+				}
+				n.abort();
+			}
+			p();
+		}, _ = () => {
 			this.actionEpoch++;
 			for (let e of [
 				...this.activeActions,
@@ -7446,31 +7457,31 @@ var Fn = class {
 				...this.activeRefresh,
 				...this.activeStreams
 			]) e.abort();
-			f();
+			p();
 		};
-		e.addEventListener("abort", g, { once: !0 }), t.signal.addEventListener("abort", g, { once: !0 }), this.wakeTrigger = p;
-		let _ = await this.lifecycle();
-		_.retryAt && await In(Math.max(0, Date.parse(_.retryAt) - Date.now()), n);
-		let v = (async () => {
+		e.addEventListener("abort", _, { once: !0 }), n.signal.addEventListener("abort", _, { once: !0 }), this.wakeTrigger = m;
+		let v = await this.lifecycle();
+		v.retryAt && await In(Math.max(0, Date.parse(v.retryAt) - Date.now()), r);
+		let y = (async () => {
 			let e = 0;
-			for (; !n.aborted;) {
+			for (; !r.aborted;) {
 				this.wakeTransport = "connecting";
 				let t = new AbortController();
 				this.activeStreams.add(t);
-				let r = AbortSignal.any([n, t.signal]), i = 0, a = 0, o, s = !1, c = 0, g = G(await this.store.load()), _ = this.cursorFor(g), v = !_, y = () => {
+				let n = AbortSignal.any([r, t.signal]), i = 0, a = 0, o, s = !1, c = 0, l = G(await this.store.load()), _ = this.cursorFor(l), v = !_, y = () => {
 					clearTimeout(o), o = setTimeout(() => t.abort(), 6e4);
 				};
 				try {
-					if ((await this.lifecycle()).paused && (await this.checkStatus(r), d = Date.now() + 3e4 + Math.random() * 3e4), r.aborted) break;
+					if ((await this.lifecycle()).paused && (await this.checkStatus(n), f = Date.now() + 3e4 + Math.random() * 3e4), n.aborted) break;
 					let e = await this.withFreshSession(async (e) => {
-						if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new F("Connector session changed while connecting");
-						g = e;
+						if (e.inboxId !== l.inboxId || e.agentId !== l.agentId) throw new F("Connector session changed while connecting");
+						l = e;
 						let t = {
 							authorization: `Bearer ${e.agentApiToken}`,
 							accept: "text/event-stream"
 						};
 						_ && (t["Last-Event-ID"] = _);
-						let n = new AbortController(), i = setTimeout(() => n.abort(), this.options.timeoutMs ?? 3e4);
+						let r = new AbortController(), i = setTimeout(() => r.abort(), this.options.timeoutMs ?? 3e4);
 						try {
 							let i;
 							try {
@@ -7478,7 +7489,7 @@ var Fn = class {
 									headers: t,
 									credentials: "omit",
 									redirect: "error",
-									signal: AbortSignal.any([r, n.signal])
+									signal: AbortSignal.any([n, r.signal])
 								});
 							} catch {
 								throw new F("Envoi event stream could not be reached", void 0, "NETWORK_ERROR");
@@ -7490,18 +7501,18 @@ var Fn = class {
 					}, !1, !0);
 					i = Date.now(), y();
 					try {
-						for await (let t of he(e, r, y)) {
-							if (n.aborted) break;
+						for await (let t of he(e, n, y)) {
+							if (r.aborted) break;
 							if (t.id !== void 0) {
 								if (!/^\d{20}$/.test(t.id) || t.data.cursor !== t.id || t.data.type !== t.type) throw new F("Envoi returned an invalid stored event");
 								let e = G(await this.store.load());
-								if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new F("Connector session changed while reading events");
+								if (e.inboxId !== l.inboxId || e.agentId !== l.agentId) throw new F("Connector session changed while reading events");
 								if (this.cursorFor(e) && t.id <= this.cursorFor(e)) continue;
 								let n = Nn(t.data);
-								await this.observeEvent(n, t.type), await this.options.onEvent?.(n), await this.saveCursor(g, t.id), this.lastWakeEventAt = (/* @__PURE__ */ new Date()).toISOString(), (t.type === "work.available" && n.agentId === g.agentId || (t.type === "message.delivered" || t.type === "human.instruction_created") && n.recipientAgentId === g.agentId) && p();
+								await this.observeEvent(n, t.type), await this.options.onEvent?.(n), await this.saveCursor(l, t.id), this.lastWakeEventAt = (/* @__PURE__ */ new Date()).toISOString(), (t.type === "work.available" && n.agentId === l.agentId || (t.type === "message.delivered" || t.type === "human.instruction_created") && n.recipientAgentId === l.agentId) && m();
 							} else if (t.type === "ready") {
-								if (t.data.inboxId !== g.inboxId || t.data.cursor !== null && (typeof t.data.cursor != "string" || !/^\d{20}$/.test(t.data.cursor))) throw new F("Envoi returned an invalid ready frame");
-								v && !this.cursorFor(G(await this.store.load())) && await this.saveCursor(g, t.data.cursor), l = !0, u = Date.now() + m(), this.wakeTransport = "connected", this.lastWakeReadyAt = (/* @__PURE__ */ new Date()).toISOString(), this.lastWakeErrorCode = void 0, (await this.lifecycle()).paused && (await this.checkStatus(r), d = Date.now() + 3e4 + Math.random() * 3e4), p();
+								if (t.data.inboxId !== l.inboxId || t.data.cursor !== null && (typeof t.data.cursor != "string" || !/^\d{20}$/.test(t.data.cursor))) throw new F("Envoi returned an invalid ready frame");
+								v && !this.cursorFor(G(await this.store.load())) && await this.saveCursor(l, t.data.cursor), u = !0, d = Date.now() + h(), this.wakeTransport = "connected", this.lastWakeReadyAt = (/* @__PURE__ */ new Date()).toISOString(), this.lastWakeErrorCode = void 0, (await this.lifecycle()).paused && (await this.checkStatus(n), f = Date.now() + 3e4 + Math.random() * 3e4), m();
 							} else if (t.type === "replay_required") {
 								s = !0;
 								break;
@@ -7512,60 +7523,64 @@ var Fn = class {
 						throw e instanceof F || e instanceof Tn ? e : new F("Envoi event stream was interrupted", void 0, "NETWORK_ERROR");
 					}
 				} catch (e) {
-					this.lastWakeErrorCode = e instanceof F && e.code && /^[A-Z][A-Z0-9_]{0,119}$/.test(e.code) ? e.code : "WAKE_STREAM_ERROR", e instanceof F && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), p()) : (c = e instanceof F ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await h(e, !0));
+					this.lastWakeErrorCode = e instanceof F && e.code && /^[A-Z][A-Z0-9_]{0,119}$/.test(e.code) ? e.code : "WAKE_STREAM_ERROR", e instanceof F && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(l, null), m()) : (c = e instanceof F ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, e instanceof F && e.code === void 0 && [
+						404,
+						405,
+						501
+					].includes(e.status ?? 0) ? this.lastWakeErrorCode = "WAKE_ENDPOINT_UNAVAILABLE" : await g(e, "wake_stream"));
 				} finally {
-					clearTimeout(o), t.abort(), this.activeStreams.delete(t), a = i ? Date.now() - i : 0, l = !1, u = Math.min(u, Date.now() + m()), f(), this.wakeTransport = "disconnected";
+					clearTimeout(o), t.abort(), this.activeStreams.delete(t), a = i ? Date.now() - i : 0, u = !1, d = Math.min(d, Date.now() + h()), p(), this.wakeTransport = "disconnected";
 				}
-				if (n.aborted) break;
+				if (r.aborted) break;
 				if (s) {
 					try {
-						for (; !n.aborted && (await this.pollOnce()).hasMore;);
-						p();
+						for (; !r.aborted && (await this.pollOnce()).hasMore;);
+						m();
 					} catch (e) {
-						e instanceof F && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), p()) : (await h(e), s = !1);
+						e instanceof F && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(l, null), m()) : (await g(e, "event_recovery"), s = !1);
 					}
 					if (s) continue;
 				}
 				a >= 6e4 && (e = 0);
 				let b = Math.min(3e4, 1e3 * 2 ** Math.min(e++, 5));
-				await In(Math.max(c, Math.random() * b), n);
+				await In(Math.max(c, Math.random() * b), r);
 			}
 		})().catch(async (e) => {
-			await h(e, !0);
-		}).finally(f);
+			await g(e, "wake_stream");
+		}).finally(p);
 		try {
-			for (; !n.aborted;) {
-				if (this.wake = new AbortController(), o) throw o;
+			for (; !r.aborted;) {
+				if (this.wake = new AbortController(), s) throw s;
 				let e = await this.lifecycle();
 				if (["REVOKED", "NEEDS_RECONNECT"].includes(e.state)) {
-					if (await v, o) throw o;
+					if (await y, s) throw s;
 					await this.guard();
 				}
-				let t = Date.now(), l = Math.max(e.retryAt ? Date.parse(e.retryAt) : 0, s);
+				let t = Date.now(), n = Math.max(e.retryAt ? Date.parse(e.retryAt) : 0, c);
 				if (e.paused) {
-					if (i = !1, this.nextClaimAt = Infinity, t >= d) {
-						d = t + 3e4 + Math.random() * 3e4;
+					if (a = !1, this.nextClaimAt = Infinity, t >= f) {
+						f = t + 3e4 + Math.random() * 3e4;
 						try {
-							await this.checkStatus(n);
+							await this.checkStatus(r);
 						} catch (e) {
-							await h(e);
+							await g(e, "status_check");
 						}
 					}
-				} else r && (t >= Math.min(u, this.nextClaimAt) && (i = !0, u = t + m(e), this.nextClaimAt = Infinity), i && !a && t >= l && (i = !1, a = this.processWorkOnce(n).then((e) => {
-					e && (i = !0, s = 0, c = 0);
+				} else i && (t >= Math.min(d, this.nextClaimAt) && (a = !0, d = t + h(e), this.nextClaimAt = Infinity), a && !o && t >= n && (a = !1, o = this.processWorkOnce(r).then((e) => {
+					e && (a = !0, c = 0, l = 0);
 				}, async (e) => {
-					await h(e), (await this.lifecycle()).state === "DEGRADED" && (i = !0);
+					await g(e, "work_processing"), (await this.lifecycle()).state === "DEGRADED" && (a = !0);
 				}).finally(() => {
-					a = null, f();
+					o = null, p();
 				})));
-				let p = e.paused ? d : i && !a ? l : r ? Math.max(l, Math.min(u, this.nextClaimAt)) : Infinity;
-				i && !a && !e.paused && Date.now() >= l || await In(Math.min(6e4, Math.max(1, p - Date.now())), AbortSignal.any([n, this.wake.signal]));
+				let u = e.paused ? f : a && !o ? n : i ? Math.max(n, Math.min(d, this.nextClaimAt)) : Infinity;
+				a && !o && !e.paused && Date.now() >= n || await In(Math.min(6e4, Math.max(1, u - Date.now())), AbortSignal.any([r, this.wake.signal]));
 			}
-			if (o) throw o;
+			if (s) throw s;
 		} finally {
-			t.abort(), await v, await a, this.wakeTrigger = void 0, e.removeEventListener("abort", g), t.signal.removeEventListener("abort", g), g();
-			let n = await this.lifecycle();
-			["REVOKED", "NEEDS_RECONNECT"].includes(n.state) || await this.transition("STOPPED");
+			n.abort(), await y, await o, this.wakeTrigger = void 0, e.removeEventListener("abort", _), n.signal.removeEventListener("abort", _), _();
+			let t = await this.lifecycle();
+			["REVOKED", "NEEDS_RECONNECT"].includes(t.state) || await this.transition("STOPPED");
 		}
 	}
 };

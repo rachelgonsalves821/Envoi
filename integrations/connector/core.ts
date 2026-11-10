@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { lifecyclePolicy } from '../../sdk/typescript/src/lifecycle';
 import { EnvoiError, responsePayload } from '../../sdk/typescript/src/index';
-import { enrollConnector, EnvoiConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
+import { enrollConnector, EnvoiConnector, ConnectorContractError, ConnectorPersistenceError, type ConnectorSession } from '../../sdk/typescript/src/connector';
 import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime, type QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { ConnectorSetupError, type AdapterOptions, type ConnectorAdapter, type RuntimeBridge } from './adapter';
@@ -18,7 +18,7 @@ import { waitForRuntimeTools } from './runtime-readiness';
 import { parseHostedWakeConfig, runHostedWake } from './hosted-wake-runner';
 import { resolveHostedWakeConfig } from './hosted-wake-config';
 import { createHostTaskSender, HostTaskError } from './host-task';
-import { readRuntimeDiagnostic, writeRuntimeDiagnostic, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
+import { readRuntimeDiagnostic, runtimeFailureDetails, writeRuntimeDiagnostic, type FailureOperation, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
 import { inspectHermesHost, type HermesHostObservation } from '../hermes/scoped-host';
 
 const hermesProofParkedGuidance = 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.';
@@ -522,16 +522,20 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
   let diagnostics: Record<string, unknown> = { status: 'starting', phase: 'starting', runtimeChecks: 'pending' };
   const startedAt = new Date().toISOString();
   let failed = false;
+  let operation: FailureOperation = 'starting';
+  let terminalFailure: { operation: FailureOperation; error: unknown } | undefined;
   const record = async (phase: RuntimePhase, runtimeChecks: RuntimeDiagnostic['runtimeChecks'] = 'pending',
-    errorCode?: string, retryAt?: string) => {
+    errorCode?: string, retryAt?: string, failure?: RuntimeDiagnostic['failure']) => {
     const previousCode = typeof diagnostics.errorCode === 'string' ? diagnostics.errorCode : undefined;
     const candidate = errorCode ?? (phase === 'service_check' || phase === 'runtime_check' || phase === 'tool_verification' ? previousCode : undefined);
     const safeCode = candidate && /^[A-Z][A-Z0-9_]{0,119}$/.test(candidate) ? candidate : undefined;
     const snapshot: RuntimeDiagnostic = { version: 1, phase, startedAt, updatedAt: new Date().toISOString(), runtimeChecks,
-      ...(safeCode ? { errorCode: safeCode } : {}), ...(retryAt ? { retryAt } : {}) };
+      ...(safeCode ? { errorCode: safeCode } : {}), ...(retryAt ? { retryAt } : {}), ...(failure ? { failure } : {}) };
+    operation = phase;
     diagnostics = { ...diagnostics, phase, runtimeChecks, errorCode: safeCode, retryAt };
     // Observation must never prevent the owner process from starting or recovering.
     await writeRuntimeDiagnostic(directory, snapshot).catch(() => {});
+    if (failure) await writeRuntimeDiagnostic(directory, snapshot, true).catch(() => {});
   };
   try {
     await record('starting');
@@ -604,15 +608,28 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
     }
     if (stop.signal.aborted || !bridge) return;
     if (wake) {
+      operation = 'hosted_wake';
       const session = await new FileBridgeStore(directory).load();
       if (!session) throw new ConnectorSetupError('STATE_INVALID', 'Hosted wake needs saved connector identity');
       await runHostedWake({ connector: bridge.connector, session, stateDir: directory, config: wake, signal: stop.signal,
         onListening: options.onReady });
-    } else { options.onReady?.(); await bridge.connector.run(stop.signal); }
+    } else {
+      operation = 'receive_loop';
+      options.onReady?.();
+      await bridge.connector.run(stop.signal, (where, error) => { terminalFailure = { operation: where, error }; });
+    }
   } catch (error) {
     if (!stop.signal.aborted) {
       failed = true;
-      await record('failed', 'pending', error instanceof ConnectorSetupError || error instanceof EnvoiError ? error.code : 'CONNECTOR_START_FAILED');
+      const observed = terminalFailure?.error ?? error;
+      const http = observed instanceof EnvoiError || observed instanceof ConnectorPersistenceError || observed instanceof ConnectorContractError
+        ? observed : undefined;
+      const code = observed instanceof ConnectorContractError ? 'WORK_CONTRACT_ERROR'
+        : observed instanceof ConnectorPersistenceError ? 'STATE_PERSISTENCE_FAILED'
+        : observed instanceof ConnectorSetupError || observed instanceof EnvoiError ? observed.code : undefined;
+      const runtimeChecks = diagnostics.runtimeChecks === 'passed' ? 'passed' : 'pending';
+      await record('failed', runtimeChecks, code ?? (runtimeChecks === 'passed' ? 'CONNECTOR_RECEIVE_FAILED' : 'CONNECTOR_START_FAILED'),
+        undefined, runtimeFailureDetails(terminalFailure?.operation ?? operation, http?.status, http?.requestId));
     }
     if (saved && bridge && !stop.signal.aborted) await report(saved, bridge.connector, 'error', fetcher, 'CONNECTOR_START_FAILED').catch(() => {});
     if (!stop.signal.aborted) throw error;
@@ -642,6 +659,7 @@ export async function connectionStatus(stateDir: string) {
   const checks = await readFile(path.join(directory, 'setup-check.json'), 'utf8').then(text => JSON.parse(text) as { checkedAt?: string }).catch(() => null);
   const enrollmentError = await readEnrollmentDiagnostic(directory);
   const lastRuntime = await readRuntimeDiagnostic(directory);
+  const lastFailure = await readRuntimeDiagnostic(directory, true);
   const configuration = saved.configuration as Record<string, unknown>;
   const scopedHermes = saved.runtime === 'hermes' && configuration.scopedTools === true;
   const gatewayHost = scopedHermes && typeof configuration.home === 'string' && typeof configuration.daemonOrigin === 'string'
@@ -668,6 +686,7 @@ export async function connectionStatus(stateDir: string) {
     : errorCode === 'SCOPED_CONFIG_INVALID' ? 'Preserve the connection and ask the owner to review the selected scoped Gateway.'
     : ['HERMES_EXECUTION_UNCERTAIN', 'HERMES_CREATION_UNCERTAIN', 'SCOPED_MODEL_CHANGED'].includes(errorCode ?? '')
       ? 'Preserve the turn journal and use the supported settlement recovery procedure.'
+    : phase === 'failed' && lastRuntime?.runtimeChecks === 'passed' ? 'Check the saved operation and error in lastFailure before restarting the existing connector.'
     : 'enabled' in startupService && startupService.enabled === false ? 'Ask the owner to enable the existing startup service.'
     : 'managerState' in startupService && startupService.managerState === 'failed' ? 'Inspect the startup service failure; preserve enrollment and credentials.'
     : errorCode === 'GATEWAY_UNREACHABLE' ? 'Restore the selected Gateway; the connector will retry its saved connection.'
@@ -683,6 +702,7 @@ export async function connectionStatus(stateDir: string) {
     guidance: session?.lifecycle?.guidance ?? (errorCode === 'TOOLS_PROOF_PARKED' ? hermesProofParkedGuidance : undefined), ...(enrollmentError ? { enrollmentError } : {}),
     stateDir: directory, status, controlChannel, startupService, ...(selectedGateway ? { selectedGateway } : {}),
     ...(nextAction ? { nextAction } : {}), checkedAt: live?.checkedAt ?? checks?.checkedAt,
+    ...(lastFailure ? { lastFailure } : {}),
     runtimeDiagnostic: live ? { phase: live.phase, runtimeChecks: live.runtimeChecks,
       ...(live.errorCode ? { errorCode: live.errorCode } : {}), ...(live.retryAt ? { retryAt: live.retryAt } : {}),
       ...(live.wake ? { wake: live.wake } : {}) } : lastRuntime,

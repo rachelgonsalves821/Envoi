@@ -258,11 +258,13 @@ function enrollmentRejectionCode(payload: Record<string, unknown> | null) {
 }
 
 export class ConnectorContractError extends Error {
-  constructor() {
+  constructor(public readonly status?: number, public readonly requestId?: string) {
     super('Envoi fenced work API is unavailable; agent processing cannot start');
     this.name = 'ConnectorContractError';
   }
 }
+
+export type ConnectorRunOperation = 'wake_stream' | 'event_recovery' | 'work_processing' | 'status_check';
 
 /** Trusted scoped host: this exact work cannot be retried. Never means processed. */
 export class PermanentWorkError extends EnvoiError {
@@ -1199,7 +1201,7 @@ export class EnvoiConnector {
     if (scoped) signal?.throwIfAborted();
     try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions: true }, undefined, scoped ? signal : undefined); }
     catch (error) {
-      if (error instanceof EnvoiError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError();
+      if (error instanceof EnvoiError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError(error.status, error.requestId);
       throw error;
     }
     this.lastWorkClaimAt = new Date().toISOString();
@@ -1503,7 +1505,7 @@ export class EnvoiConnector {
   }
 
   /** SSE wakes the authoritative work queue; delta is used only after replay_required. */
-  async run(signal: AbortSignal): Promise<void> {
+  async run(signal: AbortSignal, onTerminalFailure?: (operation: ConnectorRunOperation, error: unknown) => void): Promise<void> {
     await this.start();
     const stop = new AbortController();
     const stopped = AbortSignal.any([signal, stop.signal]);
@@ -1515,7 +1517,7 @@ export class EnvoiConnector {
     const notify = () => this.wake.abort();
     const trigger = () => { if (hasHandler) pending = true; notify(); };
     const safetyDelay = (state?: ConnectorLifecycle) => connected && state?.state !== 'DEGRADED' ? 30_000 + Math.random() * 30_000 : 12_000 + Math.random() * 6000;
-    const failure = async (error: unknown, independentStream = false) => {
+    const failure = async (error: unknown, operation: ConnectorRunOperation) => {
       if (stopped.aborted) return;
       // A validated TOOL_BUSY exhausted its identical-call retries. The work
       // lease was deferred; keep the host loop alive with its existing durable
@@ -1523,7 +1525,7 @@ export class EnvoiConnector {
       const busyTool = !!this.options.caseSessionHandler && error instanceof CaseToolError && error.code === 'TOOL_BUSY' && error.retryable;
       if (busyTool)
         error = new EnvoiError('Case tool is temporarily busy', undefined, 'HANDLER_FAILED');
-      if (independentStream && error instanceof EnvoiError && lifecyclePolicy(error).lifecycle === 'DEGRADED') {
+      if (operation === 'wake_stream' && error instanceof EnvoiError && lifecyclePolicy(error).lifecycle === 'DEGRADED') {
         safetyAt = Math.min(safetyAt, Date.now() + safetyDelay());
         notify();
         return;
@@ -1545,7 +1547,11 @@ export class EnvoiConnector {
         || !(error instanceof EnvoiError) && state.state !== 'DEGRADED'
         || error instanceof EnvoiError && !(lifecyclePolicy(error).lifecycle === 'DEGRADED' || ['REQUEST_CANCELLED', 'AGENT_PAUSED', 'CASE_CONTROLLED'].includes(error.code ?? '')
           || this.options.caseSessionHandler && ['CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED', 'WORK_LEASE_STALE', 'WORK_NOT_ELIGIBLE', 'WORK_NOT_FOUND'].includes(error.code ?? ''))) {
-        fatal = error; stop.abort();
+        if (fatal === undefined) {
+          fatal = error;
+          try { onTerminalFailure?.(operation, error); } catch { /* Diagnostics must not interrupt shutdown. */ }
+        }
+        stop.abort();
       }
       notify();
     };
@@ -1624,7 +1630,14 @@ export class EnvoiConnector {
           this.lastWakeErrorCode = error instanceof EnvoiError && error.code && /^[A-Z][A-Z0-9_]{0,119}$/.test(error.code)
             ? error.code : 'WAKE_STREAM_ERROR';
           if (error instanceof EnvoiError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
-          else { retryAfter = error instanceof EnvoiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0; await failure(error, true); }
+          else {
+            retryAfter = error instanceof EnvoiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0;
+            // An intermediary may omit the wake route during a rollout. The
+            // separately authenticated work queue still supplies safety claims.
+            if (error instanceof EnvoiError && error.code === undefined && [404, 405, 501].includes(error.status ?? 0)) {
+              this.lastWakeErrorCode = 'WAKE_ENDPOINT_UNAVAILABLE';
+            } else await failure(error, 'wake_stream');
+          }
         } finally {
           clearTimeout(idle); stream.abort(); this.activeStreams.delete(stream);
           uptime = openedAt ? Date.now() - openedAt : 0;
@@ -1638,7 +1651,7 @@ export class EnvoiConnector {
             trigger();
           } catch (error) {
             if (error instanceof EnvoiError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
-            else { await failure(error); recovery = false; }
+            else { await failure(error, 'event_recovery'); recovery = false; }
           }
           if (recovery) continue;
         }
@@ -1646,7 +1659,7 @@ export class EnvoiConnector {
         const ceiling = Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5));
         await delay(Math.max(retryAfter, Math.random() * ceiling), stopped);
       }
-    })().catch(async error => { await failure(error, true); }).finally(notify);
+    })().catch(async error => { await failure(error, 'wake_stream'); }).finally(notify);
     try {
       while (!stopped.aborted) {
         this.wake = new AbortController();
@@ -1657,13 +1670,13 @@ export class EnvoiConnector {
         const retryAt = Math.max(state.retryAt ? Date.parse(state.retryAt) : 0, toolRetryAt);
         if (state.paused) {
           pending = false; this.nextClaimAt = Infinity;
-          if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(stopped); } catch (error) { await failure(error); } }
+          if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(stopped); } catch (error) { await failure(error, 'status_check'); } }
         } else if (hasHandler) {
           if (now >= Math.min(safetyAt, this.nextClaimAt)) { pending = true; safetyAt = now + safetyDelay(state); this.nextClaimAt = Infinity; }
           if (pending && !flight && now >= retryAt) {
             pending = false;
             flight = this.processWorkOnce(stopped).then(worked => { if (worked) { pending = true; toolRetryAt = 0; toolFailures = 0; } }, async error => {
-              await failure(error);
+              await failure(error, 'work_processing');
               if ((await this.lifecycle()).state === 'DEGRADED') pending = true;
             })
               .finally(() => { flight = null; notify(); });
