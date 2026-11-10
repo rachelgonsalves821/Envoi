@@ -791,3 +791,30 @@ it.each(['missing-canonical','attempt-reset','attempt-jump','active-lease','proc
 it('carries a second settled review timeout at attempt four without resetting the original window',async()=>{const first=await ownerTargetTimeoutSetup(),second=await ownerTargetTimeoutSetup(first),before=await fs.readFile(second.filename),handle=await ContinuationController.prepareControlledProgress(second.options);expect(await fs.readFile(second.filename)).toEqual(before);const c=await ContinuationController.startControlledProgress(handle);expect(c.receipt.hardStopUtc).toBe(first.currentReceipt.hardStopUtc);expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(JSON.parse(await fs.readFile(second.journalPin.path,'utf8')).providerCalls).toBe(2);c.stop();});
 
 it('refuses to carry a third review timeout as retryable attempt five',async()=>{const first=await ownerTargetTimeoutSetup(),second=await ownerTargetTimeoutSetup(first),third=await ownerTargetTimeoutSetup(second),before=await fs.readFile(third.filename);await expect(ContinuationController.prepareControlledProgress(third.options)).rejects.toThrow();expect(await fs.readFile(third.filename)).toEqual(before);});
+
+async function persistentWorkflowSetup(){
+ const s=await ownerTargetTimeoutSetup(),o=s.options,r=o.recovery,p=JSON.parse(await fs.readFile(r.targetPacket.path,'utf8'));
+ p.workflowPolicy={lifetime:'until-complete-or-cancel',humanReview:'before-claim'};r.targetPacket=await s.pin('persistent-workflow-packet.json',p);
+ const a={...s.adoption,timeMode:'until-complete-or-cancel',lifetime:'until-complete-or-cancel',humanReview:'before-claim',packetSha256:r.targetPacket.sha256};delete a.maximumIntervalMs;
+ r.adoption=await s.pin('persistent-workflow-adoption.json',a);
+ const{hardStopUtc:_,...old}=o.receipt;
+ const receipt={...old,version:2 as const,modelCap:64 as const,lifetime:'until-complete-or-cancel' as const,humanReview:'before-claim' as const,approvalReceiptSha256:r.adoption.sha256,packetSha256:r.targetPacket.sha256,startUtc:new Date(Date.now()).toISOString()};
+ const signed=s.sign(s.nextGraph,receipt as any,'persistent workflow');
+ const options={...o,receipt,expected:{...o.expected,packetSha256:r.targetPacket.sha256},reviewedPlan:signed.plan,graphApprovalRaw:signed.raw};return{...s,options,adoption:a,packet:p};
+}
+it('starts a separately approved persistent workflow, preserves all history, and remains active until explicit cancellation',async()=>{
+ const s=await persistentWorkflowSetup(),before=await fs.readFile(s.filename),journal=await fs.readFile(s.journalPin.path),old=await fs.readFile(s.d.execution.path),handle=await ContinuationController.prepareControlledWorkflow(s.options);
+ expect(await fs.readFile(s.filename)).toEqual(before);expect(handle.kind).toBe('verified-controlled-workflow');
+ const c=await ContinuationController.startControlledWorkflow(handle);expect(c.receipt).not.toHaveProperty('hardStopUtc');expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(c.operationBounds.operationCap).toBe(62);
+ const later=Date.now()+7*86400000;vi.spyOn(Date,'now').mockReturnValue(later);expect(c.active()).toBe(true);expect(c.modelActive()).toBe(false);expect(c.operationDeadline(120000)).toBe(later+120000);expect(()=>c.operationDeadline(120001)).toThrow();
+ expect(await fs.readFile(s.journalPin.path)).toEqual(journal);expect(await fs.readFile(s.d.execution.path)).toEqual(old);
+ c.stop('HUMAN_CANCELLED');expect(c.active()).toBe(false);await expect(ContinuationController.startControlledWorkflow(handle)).rejects.toThrow('PREPARED_CONTROLLED_WORKFLOW_REQUIRED');
+});
+it.each(['fake-hardstop','wrong-lifetime','legacy-adoption','packet-policy','budget-change','replayed-handle'] as const)('refuses invalid persistent authority before changing ledger: %s',async fault=>{
+ const s=await persistentWorkflowSetup(),o=s.options;
+ if(fault==='fake-hardstop')(o.receipt as any).hardStopUtc='2099-01-01T00:00:00.000Z';if(fault==='wrong-lifetime')(o.receipt as any).lifetime='forever';
+ if(fault==='legacy-adoption'){s.adoption.timeMode='new-interval';o.recovery.adoption=await s.pin('persistent-bad-adoption.json',s.adoption);o.receipt.approvalReceiptSha256=o.recovery.adoption.sha256;}
+ if(fault==='packet-policy'){s.packet.workflowPolicy.humanReview='after-claim';o.recovery.targetPacket=await s.pin('persistent-bad-packet.json',s.packet);o.receipt.packetSha256=o.recovery.targetPacket.sha256;o.expected.packetSha256=o.recovery.targetPacket.sha256;}
+ if(fault==='budget-change')(o.receipt as any).modelCap=65;
+ const before=await fs.readFile(s.filename);if(fault==='replayed-handle')await expect(ContinuationController.startControlledWorkflow({kind:'verified-controlled-workflow'}as any)).rejects.toThrow();else await expect(ContinuationController.prepareControlledWorkflow(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);
+});

@@ -3,7 +3,7 @@
 import {readUnforwardedPin} from './controlled-unforwarded';
 import {inspectAcceptedCheckpointHistory,type AcceptedCheckpointCarry} from './accepted-checkpoint-retry';
 import fs from'node:fs/promises';import path from'node:path';import{createHash}from'node:crypto';
-import type{ContinuationReceipt}from'./continuation-controller';
+import type{ContinuationReceipt,ActiveContinuationReceipt}from'./continuation-controller';
 import{inspectStoppedProgress,inspectStoppedProgressHistory,type ProgressPin,type StoppedProgressRecovery,type StoppedProgressPreflight}from'./stopped-progress';
 import type{RequestBudgetLedger}from'./request-budget';import{hashReviewedContinuationPlan}from'./continuation-plan';
 import{readControlledStartupFrames,inspectControlledStartupFrames,type ControlledStartupStop}from'./controlled-startup';
@@ -94,7 +94,7 @@ async function inspectOriginalControlledProgressHistory(input:HistoryInput){
    actorId:p.actors.openclaw.agentId,carriedControlProofs:controls,carriedControlSource:b.clientSource,pollGapSha256:r.pollGap.sha256,runtimePacket:p,initialReceipt:a,metadataReceipts,
    priorExecution:startup?.proof.execution??r.execution,priorLedger:startup?.proof.ledger??r.ledger,startup,acceptedCheckpoint:undefined as AcceptedCheckpointCarry|undefined};
 }
-export async function inspectControlledProgress(input:{releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}}){
+export async function inspectControlledProgress(input:{releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ActiveContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}}){
  const{recovery:r,receipt:n,ledger,preflight:p,expected:e}=input,h=await inspectControlledProgressHistory(input),a=h.initialReceipt;
  await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts:h.metadataReceipts});
  const canonical=(await read(r.canonicalWork)).value,w=canonical?.work,now=Date.now(),accepted=h.acceptedCheckpoint,unforwarded=accepted?undefined:h.startup?.proof.preTarget?.unforwarded;
@@ -138,12 +138,14 @@ export async function inspectControlledProgress(input:{releaseRoot:string;ledger
    ||allocation.minimumNormalTotal!==p.conservativeMessages+21||allocation.normalCeiling!==54||allocation.cleanupReserve!==8||allocation.overallCeiling!==62)refuse('EXACT_OPERATION_AMENDMENT_REQUIRED');
   operationBounds={operationCap:62,normalCeiling:54,cleanupReserve:8};
  }
- const target=(await read(r.targetPacket)).value,approval=(await read(r.adoption)).value,old=h.originalReceipt,start=Date.parse(n.startUtc),end=Date.parse(n.hardStopUtc);
- if(n.version!==1||n.ownerApproved!==true||n.modelCap!==64||n.ciHead!==n.clientSource||n.ciPassed!==true||n.clientSource!==e.clientSource||n.serverSource!==old.serverSource||n.serverSource!==e.serverSource
+ const target=(await read(r.targetPacket)).value,approval=(await read(r.adoption)).value,old=h.originalReceipt,start=Date.parse(n.startUtc),end=n.version===1?Date.parse(n.hardStopUtc):undefined;
+ const workflow=n.version===2&&n.lifetime==='until-complete-or-cancel'&&n.humanReview==='before-claim'&&!Object.hasOwn(n,'hardStopUtc');
+ if(!(n.version===1||workflow)||n.ownerApproved!==true||n.modelCap!==64||n.ciHead!==n.clientSource||n.ciPassed!==true||n.clientSource!==e.clientSource||n.serverSource!==old.serverSource||n.serverSource!==e.serverSource
    ||n.runnerSha256!==e.runnerSha256||n.packetSha256!==e.packetSha256||n.packetSha256!==r.targetPacket.sha256||n.approvalReceiptSha256!==r.adoption.sha256
-   ||!Number.isFinite(start)||!Number.isFinite(end)||start>now||end<=now||end<=start||end-start>5400000||!/^[a-f0-9]{40}$/.test(n.clientSource)||!/^[a-f0-9]{64}$/.test(n.runnerSha256)
+   ||!Number.isFinite(start)||start>now||!workflow&&(!Number.isFinite(end)||end!<=now||end!<=start||end!-start>5400000)||!/^[a-f0-9]{40}$/.test(n.clientSource)||!/^[a-f0-9]{64}$/.test(n.runnerSha256)
    ||target.clientSource!==n.clientSource||target.serverSource!==n.serverSource||target.library?.sha256!==n.runnerSha256||path.resolve(target.oldKitRoot??'')!==path.resolve(input.releaseRoot)
-   ||target.carriedStateSha256!==r.state.sha256||hashReviewedContinuationPlan(target.reviewedGraph)!==ledger.reviewedPlan?.planSha256)refuse('EXACT_CONTROLLED_SOURCE_ADOPTION_REQUIRED');
+   ||target.carriedStateSha256!==r.state.sha256||hashReviewedContinuationPlan(target.reviewedGraph)!==ledger.reviewedPlan?.planSha256
+   ||workflow&&(target.workflowPolicy?.lifetime!=='until-complete-or-cancel'||target.workflowPolicy.humanReview!=='before-claim'))refuse('EXACT_CONTROLLED_SOURCE_ADOPTION_REQUIRED');
  const exact={purpose:'phase-c-explicit-controlled-progress-recovery',version:1,owner:'pjsk02',ownerApproved:true,priorWindow:h.priorWindow,priorExecutionSha256:h.priorExecution.sha256,priorStateSha256:r.state.sha256,
    priorLedgerSha256:h.priorLedger.sha256,checkpointSha256:r.checkpoint.sha256,carrySha256:r.carry.sha256,
    ...(h.startup?{startupStopSha256:h.startup.proof.stop.sha256,startupCheckpointSha256:h.startup.proof.checkpoint.sha256,startupPacketSha256:h.startup.proof.packet.sha256}:{}),
@@ -151,10 +153,12 @@ export async function inspectControlledProgress(input:{releaseRoot:string;ledger
    modelCap:64,operationCap:operationBounds.operationCap,caseCap:9,installationCap:5,assetCap:6,currentModels:ledger.snapshot().chargedAttempts,currentOperations:p.conservativeMessages,currentCanonicalMessages:p.canonicalEffects,currentCases:p.cases,currentAssets:p.assets,
    repeatOnboarding:false,replayAcceptedSends:false,repeatObservedControls:false,...(unforwarded?{distinctFollowupSha256:r.distinctFollowup!.sha256,preserveFailedOriginal:true,...(r.operationAmendment?{normalOperationCap:54,cleanupReserve:8,operationAllocationSha256:r.operationAmendment.allocation.sha256}: {})}: {}),
    ...(accepted?{acceptedCheckpointSha256:r.acceptedCheckpoint!.sha256,preserveFailedOriginal:true,normalOperationCap:54,cleanupReserve:8,operationAllocationSha256:r.operationAmendment!.allocation.sha256}: {})};
- if(Object.keys(approval).sort().join()!==[...Object.keys(exact),'decisionId','receivedAtUtc','timeMode','maximumIntervalMs'].sort().join()||Object.entries(exact).some(([k,v])=>approval[k]!==v)
+ const timeKeys=workflow?['lifetime','humanReview']:['maximumIntervalMs'];
+ if(Object.keys(approval).sort().join()!==[...Object.keys(exact),'decisionId','receivedAtUtc','timeMode',...timeKeys].sort().join()||Object.entries(exact).some(([k,v])=>approval[k]!==v)
    ||typeof approval.decisionId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/.test(approval.decisionId)||!Number.isFinite(Date.parse(approval.receivedAtUtc))||Date.parse(approval.receivedAtUtc)>now)refuse('EXACT_CONTROLLED_RECOVERY_DECISION_REQUIRED');
- if(approval.timeMode==='same-fixed'){if(start!==Date.parse(old.startUtc)||end!==Date.parse(old.hardStopUtc)||approval.maximumIntervalMs!==5400000)refuse('ORIGINAL_CONTROLLED_DEADLINE_REQUIRED');}
- else if(approval.timeMode!=='new-interval'||start<Date.parse(approval.receivedAtUtc)||start<Date.parse(old.startUtc)||!Number.isSafeInteger(approval.maximumIntervalMs)||approval.maximumIntervalMs<1||approval.maximumIntervalMs>5400000||end-start>approval.maximumIntervalMs)refuse('EXPLICIT_NEW_CONTROLLED_INTERVAL_REQUIRED');
+ if(workflow){if(approval.timeMode!=='until-complete-or-cancel'||approval.lifetime!==n.lifetime||approval.humanReview!==n.humanReview||start<Date.parse(approval.receivedAtUtc)||start<Date.parse(old.startUtc))refuse('EXPLICIT_WORKFLOW_APPROVAL_REQUIRED');}
+ else if(approval.timeMode==='same-fixed'){if(start!==Date.parse(old.startUtc)||end!==Date.parse(old.hardStopUtc)||approval.maximumIntervalMs!==5400000)refuse('ORIGINAL_CONTROLLED_DEADLINE_REQUIRED');}
+ else if(approval.timeMode!=='new-interval'||start<Date.parse(approval.receivedAtUtc)||start<Date.parse(old.startUtc)||!Number.isSafeInteger(approval.maximumIntervalMs)||approval.maximumIntervalMs<1||approval.maximumIntervalMs>5400000||end!-start>approval.maximumIntervalMs)refuse('EXPLICIT_NEW_CONTROLLED_INTERVAL_REQUIRED');
  const marker=path.join(path.resolve(input.releaseRoot),'phase-c-recovery-time-'+hash('pjsk02\0'+approval.decisionId)+'.used.json');try{await fs.lstat(marker);refuse('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  return{...h,distinctFollowup,operationBounds,async consume(){const f=await fs.open(marker,'wx',0o600);try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress-recovery',decisionId:approval.decisionId,approvalSha256:r.adoption.sha256,priorWindow:h.priorWindow,window:hash(JSON.stringify(n)),timeMode:approval.timeMode}));await f.sync();}finally{await f.close();}}};
 }
