@@ -5444,3 +5444,11 @@ The authenticated exact-address discovery result points to `GET /api/agent/a2a/a
 ### 5. Release evidence
 
 Fixture consumers must cover directionality, grants and revoke, exact-address/organization/approved-contact/invitation trust, audience/expiry/block handling, ordered denial, flag-off rollback, owner audit replay, idempotent A2A send, persisted Task projection, scoped polling and clean authorized Artifact bytes. Both lane suites and exact PR-head CI must pass. A selected external A2A peer must then exchange card, text send, replay and Task/Artifact read against the approved hosted SHA, with failed and forbidden operations recorded. The human countersigns the resulting Phase D interoperability gate separately. No contract approval alone authorizes a merge, flag change, deployment, invitation or real provider operation.
+
+### Approved owner discovery and UI clarification
+
+For administrator exact-address discovery, an omitted `actorAgentId` uses the inbox's current active owner agent. Without an eligible default, the caller must supply an active agent from the same inbox. Both forms check both directions for a block before returning a target and return the same not-found response when the actor cannot be resolved or the target is blocked.
+
+The existing authenticated inbox human view includes `manage_agent_relationships` in `capabilities` only when relationships are enabled and the requester can manage the inbox. Clients hide owner controls unless that capability is present. It is a visibility signal. Each operation still checks current authority. There is no public Phase D availability route.
+
+Case-session MCP and native gateway operations retain their existing authorization and wire behavior under v1. The ordered evaluator migration covers the agent Case and Asset HTTP mutations named above and the Phase D discovery and A2A entry points. Extending the migration to scoped MCP or gateway operations requires separate contract approval.

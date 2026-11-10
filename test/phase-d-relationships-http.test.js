@@ -13,6 +13,11 @@ for (const backend of backends) {
     t.after(() => server.stop());
     const [alice, bob] = await Promise.all([owner(server.baseUrl, `${backend.prefix}01`), owner(server.baseUrl, `${backend.prefix}02`)]);
     const route = `/api/inboxes/${alice.inbox.id}`;
+    const ownerDiscovery = `${route}/discovery?address=${encodeURIComponent(bob.agent.address)}`;
+    const ownerView = await api(server.baseUrl, `${route}/human-view`, { session: alice.session });
+    assert.equal(ownerView.status, 200, ownerView.text);
+    assert.ok(ownerView.payload.capabilities.includes('manage_agent_relationships'));
+    assert.equal((await api(server.baseUrl, `${route}/human-view`)).status, 401);
     const exact = await api(server.baseUrl, `/api/agent/discovery?address=${encodeURIComponent(bob.agent.address)}`, { token: alice.agentApiToken });
     assert.equal(exact.status, 200, exact.text);
     assert.equal(exact.payload.trust, 'exact_address');
@@ -27,6 +32,14 @@ for (const backend of backends) {
     assert.equal(trusted.status, 200, trusted.text);
     assert.equal(trusted.payload.trust, 'relationship');
     assert.deepEqual(trusted.payload.grants, ['shareAssets']);
+    const inferred = await api(server.baseUrl, ownerDiscovery, { session: alice.session });
+    assert.equal(inferred.status, 200, inferred.text);
+    assert.equal(inferred.payload.trust, 'relationship');
+    const withoutOwnerAgent = await api(server.baseUrl, '/api/inboxes', {
+      session: alice.session, body: { name: 'Phase D workspace without an owner agent' }
+    });
+    assert.equal(withoutOwnerAgent.status, 201, withoutOwnerAgent.text);
+    assert.equal((await api(server.baseUrl, `/api/inboxes/${withoutOwnerAgent.payload.id}/discovery?address=${encodeURIComponent(bob.agent.address)}`, { session: alice.session })).status, 404);
     const reverse = await api(server.baseUrl, `/api/agent/discovery?address=${encodeURIComponent(alice.agent.address)}`, { token: bob.agentApiToken });
     assert.equal(reverse.status, 200, reverse.text);
     assert.equal(reverse.payload.trust, 'exact_address');
@@ -34,6 +47,7 @@ for (const backend of backends) {
     assert.equal((await api(server.baseUrl, `/api/inboxes/${bob.inbox.id}/contacts/${alice.agent.id}/block`, { session: bob.session, body: {} })).status, 200);
     assert.equal((await api(server.baseUrl, `/api/agent/discovery?address=${encodeURIComponent(bob.agent.address)}`, { token: alice.agentApiToken })).status, 404);
     assert.equal((await api(server.baseUrl, `${route}/discovery?address=${encodeURIComponent(bob.agent.address)}&actorAgentId=${alice.agent.id}`, { session: alice.session })).status, 404);
+    assert.equal((await api(server.baseUrl, ownerDiscovery, { session: alice.session })).status, 404);
 
     const revoked = await api(server.baseUrl, `${route}/relationships/${alice.agent.id}/${bob.agent.id}/revoke`, { session: alice.session, body: {} });
     assert.equal(revoked.status, 200, revoked.text);
@@ -50,6 +64,10 @@ for (const backend of backends) {
     const result = await api(server.baseUrl, `/api/agent/discovery?address=${encodeURIComponent(who.agent.address)}`, { token: who.agentApiToken });
     assert.equal(result.status, 404, result.text);
     assert.equal(result.payload.code, 'FEATURE_DISABLED');
+    const view = await api(server.baseUrl, `/api/inboxes/${who.inbox.id}/human-view`, { session: who.session });
+    assert.equal(view.status, 200, view.text);
+    assert.ok(!view.payload.capabilities.includes('manage_agent_relationships'));
+    assert.equal((await api(server.baseUrl, '/api/phase-d/availability')).status, 404);
   });
 
   test(`[${backend.name}] Phase D authorization runs on canonical Case creation and event append`, { timeout: 30000 }, async t => {
