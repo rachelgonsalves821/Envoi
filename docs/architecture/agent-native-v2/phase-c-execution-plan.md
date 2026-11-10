@@ -1,7 +1,7 @@
 # Phase C: scoped tools, runtime collaboration and integration
 
-Prepared 2026-10-17 against integration `7442248d16635c2256c11bf02dcaf493ca4fe039`.
-Status: reviewable implementation plan for [v3 §§48–55](build-plan-v3.md); contracts and live gates remain to be approved and executed.
+Original design prepared 2026-10-17 against integration `7442248d16635c2256c11bf02dcaf493ca4fe039`; documentation reconciled 2026-11-10 at pjsk02's request.
+Status: implementation/acceptance specification for [v3 §§48–55](build-plan-v3.md), not a fresh task list. **Use [CURRENT-CLOSEOUT.md](../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md) for the only current remaining-work checklist, completed observations and source-impact rules.** Core contracts and original implementation are already integrated; current-source regression/hosted closeout remains open.
 
 **Reconciliation 2026-10-23 (integration `d05498d`; see [`contract-status.md`](contract-status.md)).** The C-A0 contracts (`case-session`, `case-tools`, `http-wake`) are approved with exact approvals, and C-A1 to C-A6 are integrated (C-A6 at `f3a71f6`); the text below was written before that and is kept as the plan. The hosted C01–C24 acceptance, new-host Phase C acceptance and the Stage A batch are separate human-run gates and are not established here. The accepted Hermes/OpenClaw B/C record is not reopened. Phase D stays with Rachel.
 
@@ -19,9 +19,9 @@ Successful onboarding and a model-generated ACK do not complete this phase. Acce
 | Exclusive paths | `src/**`, `db/**`, `worker/**`, `scanner/**`, server `test/**`, `test/contract-fixtures/**`, `scripts/**`, deployment/root configuration and `handoffs.md` | `integrations/**`, `sdk/**`, `frontend/**`, generated `web/**` through build, client tests and runtime setup guides under the existing execution-plan ownership |
 | Shared interface | Publishes schemas, errors, security semantics and executable fixtures; owns the only server route wiring | Reviews fixtures and reports exact expected/actual mismatches; consumes the approved contract without editing server fixtures |
 | Integration | Sole integration lead; one writer at a time for `src/server.js`, root manifests and shared build scripts | Supplies reviewed task heads, compatibility results and regenerated client artifacts; requests root changes from Je |
-| Human role | Je coordinates server-side operations/evidence with the existing release approvals | Rachel approves product/contracts/releases and her account consent; Codex executes her assigned technical work |
+| Human role | pjsk02 is the sole approver under the governing build plan; Je coordinates server-side operations/evidence | Rachel supplies her own account consent and assigned workstream evidence; Codex follows Lane B ownership |
 
-Keep `AGENTS.md`, `CLAUDE.md` and the human-owned execution plan unchanged. This document supplies task detail within that ownership. An individual delegated file must be named on the board before another lane edits it. The packaging/background workstream already claimed under `integrations/distribution/**` keeps that scope; C runtime work consumes it rather than rebuilding it.
+`AGENTS.md`, `CLAUDE.md` and the governing execution plan remain human-owned; the 2026-11-10 user-requested documentation reconciliation does not delegate implementation paths or release authority. This document supplies task detail within that ownership. An individual delegated implementation file must be named on the board before another lane edits it. The packaging/background workstream already claimed under `integrations/distribution/**` keeps that scope; C runtime work consumes it rather than rebuilding it.
 
 ## Entry and dependency rules
 
@@ -31,6 +31,8 @@ Keep `AGENTS.md`, `CLAUDE.md` and the human-owned execution plan unchanged. This
 - Reuse the existing queue, lifecycle, idempotency, installation, policies, cases, assets and audit services. No parallel supervisor, registration engine or provider-only inbox.
 
 ## Work packages and merge order
+
+This is the original implementation breakdown. C-A0 contracts and C-A1–C-A6 were already approved/integrated as recorded in the October 23 reconciliation above. Selected C-B1–C-B5 source was included through #143, with later fixes carried by later compositions; see [historical inclusion records](../../../integrations/gates/B-C-CLOSEOUT.md#baseline-and-accepted-work). Do not reimplement these rows or reapply constituent PRs. C-B6's historical acceptance stays accepted; only the current deltas and final joins in CURRENT-CLOSEOUT are open.
 
 | Wave / ID | Owner | Deliverable | Dependency and completion proof |
 | --- | --- | --- | --- |
@@ -63,7 +65,7 @@ Do not build speculative providers before B-R5/authorization review establishes 
 
 ## Phase C hosted acceptance matrix
 
-These are proposed acceptance rows for this phase, not the old Phase A 23-row test. Je produces server/owner evidence; Rachel/Codex produces runtime/tool/browser evidence. Both review the same run.
+This is the requirement reference for the phase, not an unchecked list of 24 new tests. Historical accepted B/C evidence and later completed observations stay credited. The current closeout maps only remaining assertions to these rows. Je produces server/owner evidence; Rachel/Codex produces runtime/tool/browser evidence. Both review the exact current profile and any explicitly carried evidence with its original provenance.
 
 | Rows | Scenario | Required result |
 | --- | --- | --- |
@@ -76,19 +78,19 @@ These are proposed acceptance rows for this phase, not the old Phase A 23-row te
 | C19–C21 | HTTPS challenge/signature/replay, SSRF/DNS/redirect protections, duplicate/missed callback | Verified public endpoint, opaque payload, authenticated fetch, bounded retry and no duplicate canonical effect. |
 | C22–C24 | Owner views and sign-out/CSRF, cross-tenant denial, compatibility/rollback and artifact agreement | Both owners see their correctly attributed cases/files/decisions; isolation and session controls work; exact artifact versions and explicit rollback evidence. |
 
-Run the shared applicable matrix for real Hermes and OpenClaw, with xAI/Grok's scoped MCP/API acceptance recorded separately for the actual available runtime. Each additional advertised host consumes the same contract and adds real host-specific evidence. Generic HTTPS receiver tests prove the adapter, not automatic Muse/Instinct availability. Their closed-app results remain required in the Phase B host matrix.
+Reconcile the shared applicable requirements for real Hermes and OpenClaw using preserved accepted evidence plus justified changed-source checks under L5. Do not repeat the full matrix merely because a later step failed. xAI/Grok's scoped MCP/API acceptance is recorded separately for the actual available runtime. Each additional advertised host consumes the same contract and adds real host-specific evidence; an unaccepted host is not silently added to this scoped closeout. Generic HTTPS receiver tests prove the adapter, not automatic Muse/Instinct availability. Their closed-app results remain separate Phase B host requirements.
 
 For each row record candidate SHA, artifact hashes, runtime/version, host route, case/work/operation identifiers, timestamped result, expected versus actual, request/receipt/audit references and redacted owner evidence. Keep credentials private. Test-output summaries alone do not prove model effects, human controls or hosted behavior.
 
 ## Integration procedure and stopping points
 
 1. Each task claims disjoint paths on board #34 and uses its own branch/worktree from current integration. Je checks for concurrent Phase B work before assigning shared server, helper or frontend files.
-2. Je publishes versioned contracts/fixtures; Rachel/Codex ACKs or reports mismatches; Rachel approves contracts. This planning PR does not itself approve API schemas.
+2. Lane A publishes versioned contracts/fixtures; Lane B ACKs or reports mismatches; pjsk02 approves contracts. Reuse existing approvals for unchanged contracts. This documentation does not approve API schemas.
 3. Implement server and client tasks against those fixtures. Run focused authorization/recovery tests and the applicable lane suite. Generated bundles are rebuilt by the owning client branch; no hand-merging of generated files.
 4. Open draft task PRs into `integration/agent-native`. Je integrates only reviewed green heads after the current gate freeze permits it, resolves shared conflicts once, rebuilds and runs both lanes plus PostgreSQL/container CI on the resulting SHA.
 5. Obtain the existing release approval for that exact candidate, deploy staging once and freeze it. Install its matching clients and capture fresh owner/provider preflight. Do not change code or configuration mid-gate.
 6. Run the agreed hosted matrix with approvals before each new live send/fault or destructive step. Local/mocked success, diagnostic passes on different binaries and historical human waivers retain their labels.
-7. If code changes, create and validate a new candidate and rerun the full applicable gate. Publish exact-SHA evidence and human countersign before enabling the new route/tools for beta.
+7. If code changes, validate the new candidate and record its row/host impact under [build-plan L5](claude-codex-build-plan.md#5-loop-rules). Preserve unaffected observations; repeat only invalidated assertions unless the complete applicable scope was invalidated or the human requires a fresh full gate. Bind new observations to the exact selected profile and label carried evidence honestly. Final hosted acceptance and any beta enablement still require the appropriate human countersign/release authority.
 
 Keep the original paused case `case_0260691b187444b08368d1047ee317cb` paused. Use fresh disposable identities/cases where destructive tests require them; no existing revoked test identity is silently re-enrolled.
 
@@ -96,4 +98,4 @@ Keep the original paused case `case_0260691b187444b08368d1047ee317cb` paused. Us
 
 Je owns server/operations proof for database isolation, private R2/scanning, backup/restore, queue/dead-letter monitoring, readiness/capacity and rollback. Rachel/Codex owns the browser checks for owner separation, current permissions, sign-out/CSRF, folders/Done, files, approvals and truthful connection state, reporting unsupported backend controls rather than simulating them. These checks reuse existing product tests and runbooks; they do not create duplicate implementations.
 
-Rachel chooses the invited host cohort from verified rows and approves the release. The full onboarding objective stays open until Muse, Instinct and the other named hosts satisfy their connection/wake requirements or she explicitly changes that scope. Phase D discovery/A2A remains later work over the same canonical system.
+pjsk02 approves the invited cohort and releases; each owner supplies personal consent where required. Full additional-host onboarding remains separately open until its connection/wake requirements pass or the human explicitly changes scope. Dots/public publishing, Grok/Muse/Instinct breadth, general production operations and Phase D interoperability do not reopen this scoped Hermes/OpenClaw closeout. Preserve the original product exit requirements in their own tracks.
