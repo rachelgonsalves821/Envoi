@@ -1,6 +1,14 @@
 import type {ClosedNativeBinding} from './closed-native-owner';
 function refuse():never{throw Error('ACTUAL_RESTRICTED_NATIVE_CONFIGURATION_REQUIRED');}
 const object=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
+// 2026.10.5 adds these API-key cache defaults even to an explicitly authored
+// model map. They are metadata, not selection authority: modelPolicy below must
+// still name ONLY the bound model, and all dispatch/harness route gates remain.
+const CACHE_DEFAULT_REFS=Object.freeze(['anthropic/claude-sonnet-5-5','anthropic/claude-sonnet-5','anthropic/claude-sonnet-4-6']);
+function nativeCacheMetadata(key:string,value:unknown){
+ if(!CACHE_DEFAULT_REFS.includes(key)||!object(value)||!object(value.params)||Object.keys(value.params).length!==1||value.params.cacheRetention!=='short')return false;
+ return Object.keys(value).every(k=>k==='params'||k==='alias'&&key===CACHE_DEFAULT_REFS[0]&&value.alias==='sonnet');
+}
 /** Inspect ACTUAL native effective config; never populate a loaded-state observation from it. */
 export function assertRestrictedNativeConfiguration(actual:unknown,b:Readonly<ClosedNativeBinding>){
  if(!object(actual)||actual.plugins?.enabled!==false||actual.cloudWorkers||actual.hooks?.enabled||actual.cron?.enabled)refuse();
@@ -12,9 +20,11 @@ export function assertRestrictedNativeConfiguration(actual:unknown,b:Readonly<Cl
  if(!policy(p.agentRuntime)||!Array.isArray(p.models)||p.models.length!==1||p.models[0]?.id!==b.modelId||!policy(p.models[0]?.agentRuntime))refuse();
  const ref='anthropic/'+b.modelId,defaults=actual.agents?.defaults,primary=typeof defaults?.model==='string'?defaults.model:defaults?.model?.primary;
  if(primary!==ref||defaults?.model?.fallbacks?.length||defaults?.imageModel||defaults?.cliBackends&&Object.keys(defaults.cliBackends).length)refuse();
- for(const [key,value]of Object.entries(defaults?.models??{}))if(key!==ref||!object(value)||!policy(value.agentRuntime))refuse();
- const agents=actual.agents?.list;if(!Array.isArray(agents)||agents.length!==1||agents[0]?.id!==b.nativeAgentId)refuse();
- const a=agents[0];if(a.model||a.models||a.agentRuntime||a.subagents||a.runtime||a.tools||a.hooks)refuse();
+ const selection=defaults?.modelPolicy;if(!object(selection)||Object.keys(selection).length!==1||!Array.isArray(selection.allow)||selection.allow.length!==1||selection.allow[0]!==ref)refuse();
+ for(const [key,value]of Object.entries(defaults?.models??{}))if(key===ref?!object(value)||!policy(value.agentRuntime):!nativeCacheMetadata(key,value))refuse();
+ const agents=actual.agents,entries=agents?.entries;
+ if(!object(entries)||Object.keys(entries).length!==1||!Object.hasOwn(entries,b.nativeAgentId)||Object.hasOwn(agents,'list'))refuse();
+ const a=entries[b.nativeAgentId];if(!object(a)||Object.hasOwn(a,'id')||Object.hasOwn(a,'default')||a.model||a.models||a.modelPolicy||a.agentRuntime||a.subagents||a.runtime||a.tools||a.hooks)refuse();
  // Client-supplied Responses functions remain the only permitted tool channel.
  if(actual.tools?.profile!=='minimal'||!Array.isArray(actual.tools?.deny)||!actual.tools.deny.includes('*'))refuse();
  if(actual.gateway?.reload?.mode!=='off')refuse();

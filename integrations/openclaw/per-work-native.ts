@@ -52,9 +52,9 @@ export async function assertOwnedOpenClawFactory(factory:OwnedOpenClawFactory,ex
 export interface PrepareNativeWork{binding:ClosedNativeBinding;canonical:{recipientAgentId:string;installationId:string;fence:number};gatewayPort:number;proxyToken:string;proxyIdentity:string;signal:AbortSignal;}
 type Prepared={factory:OwnedOpenClawFactory;binding:ClosedNativeBinding;paths:{stateDirectory:string;configurationPath:string;workspace:string;agentState:string};target:OpenClawWorkTarget;};
 declare const workBrand:unique symbol;export type PreparedOwnedOpenClawWork=Readonly<{[workBrand]:true}>;const works=new WeakMap<object,Prepared>();
-/** Author canonical 2026.10.5 config; the native loader supplies its runtime list projection. */
+/** Author canonical 2026.10.5 config with explicit model selection, independent of native cache metadata defaults. */
 export function perWorkNativeAgents(b:Pick<ClosedNativeBinding,'nativeAgentId'|'modelId'>,paths:{workspace:string;agentState:string}){
- return{defaults:{workspace:paths.workspace,model:{primary:'anthropic/'+b.modelId,fallbacks:[]},models:{['anthropic/'+b.modelId]:{agentRuntime:{id:'openclaw'}}}},entries:{[b.nativeAgentId]:{workspace:paths.workspace,agentDir:paths.agentState}}};
+ return{defaults:{workspace:paths.workspace,model:{primary:'anthropic/'+b.modelId,fallbacks:[]},modelPolicy:{allow:['anthropic/'+b.modelId]},models:{['anthropic/'+b.modelId]:{agentRuntime:{id:'openclaw'}}}},entries:{[b.nativeAgentId]:{workspace:paths.workspace,agentDir:paths.agentState}}};
 }
 /** Copies private native configuration locally; never copies an Envoi credential/journal store. */
 export async function prepareOwnedOpenClawWork(factory:OwnedOpenClawFactory,input:PrepareNativeWork){const state=factories.get(factory);if(!state)throw Error('PREPARED_OWNED_NATIVE_FACTORY_REQUIRED');await checkFactory(factory,state.pins,input.signal,false);

@@ -9,18 +9,24 @@ import {readUnforwardedPin} from './controlled-unforwarded';
 import type {ControlledProgressRecovery} from './controlled-progress';
 import type {ContinuationReceipt} from './continuation-controller';
 import type {ProgressPin} from './stopped-progress';
+import {inspectAcceptedConfigurationStop} from './accepted-checkpoint-configuration-stop';
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
 const canon=(v:any):any=>Array.isArray(v)?v.map(canon):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
 const equal=(a:any,b:any)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
 const same=(a:any,b:any)=>a?.sha256===b?.sha256&&typeof a?.path==='string'&&typeof b?.path==='string'&&path.resolve(a.path)===path.resolve(b.path);
 function refuse():never{throw Object.assign(Error('EXACT_ACCEPTED_CHECKPOINT_RETRY_REQUIRED'),{code:'EXACT_ACCEPTED_CHECKPOINT_RETRY_REQUIRED'});}
 export interface AcceptedCheckpointCarry {
- descriptor:ProgressPin;workId:string;caseId:string;retainedOriginalWorkId:string;receipt:any;journal:ProgressPin;originalAllocation:ProgressPin;
+ descriptor:ProgressPin;workId:string;caseId:string;retainedOriginalWorkId:string;receipt:any;journal:ProgressPin;originalAllocation:ProgressPin;expectedAttempts:number;
  followup:Readonly<{text:string;senderAgentId:string;recipientAgentId:string;caseId:string}>;
 }
 type Input={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery};
 /** Retains the old strict inspector intact: its input is the exact frozen ledger prefix. */
 export async function inspectAcceptedCheckpointHistory<H extends {workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ContinuationReceipt[];runtimePacket:any}>(input:Input,inspectOriginal:(input:Input)=>Promise<H>){
+ const pin=input.recovery.acceptedCheckpoint;if(!pin)refuse();const descriptor=(await readUnforwardedPin(pin)).value;
+ if(descriptor.purpose==='actual-v3-post-target-pre-model-stop-inspection')return inspectAcceptedConfigurationStop(input,(previous,journal)=>inspectAcceptedCheckpointBaseHistory(previous,inspectOriginal,journal));
+ return inspectAcceptedCheckpointBaseHistory(input,inspectOriginal);
+}
+async function inspectAcceptedCheckpointBaseHistory<H extends {workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ContinuationReceipt[];runtimePacket:any}>(input:Input,inspectOriginal:(input:Input)=>Promise<H>,historicalJournal?:ProgressPin){
  const{recovery:r,ledger}=input;if(!r.acceptedCheckpoint)refuse();
  const d=(await readUnforwardedPin(r.acceptedCheckpoint)).value,p=(await readUnforwardedPin(d.packet)).value,e=(await readUnforwardedPin(d.execution)).value,stop=(await readUnforwardedPin(d.stop)).value,
   state=(await readUnforwardedPin(d.programState)).value,receipt=e.receipt as ContinuationReceipt,base=p.controlledRecoveryBase;
@@ -58,7 +64,7 @@ export async function inspectAcceptedCheckpointHistory<H extends {workId:string;
  const time=await readMarker(path.join(input.releaseRoot,'phase-c-recovery-time-'+hash('pjsk02\0'+adoption.decisionId)+'.used.json'));
  if(admission.purpose!=='phase-c-one-use-controlled-progress'||admission.priorWindow!==historical.priorWindow||admission.nextWindow!==e.window||admission.stateSha256!==r.state.sha256||admission.ledgerSha256!==historical.priorLedger.sha256
   ||time.purpose!=='phase-c-one-use-controlled-progress-recovery'||time.approvalSha256!==receipt.approvalReceiptSha256||time.decisionId!==adoption.decisionId||time.priorWindow!==historical.priorWindow||time.window!==e.window)refuse();
- const current=await fs.readFile(ledger.filename),frozen=(await readUnforwardedPin(d.frozenRequests,false)).raw,prior=await historicalLedger.readInspectionBytes();
+ const current=await ledger.readInspectionBytes(),frozen=(await readUnforwardedPin(d.frozenRequests,false)).raw,prior=await historicalLedger.readInspectionBytes();
  if(!current.equals(frozen)||!current.subarray(0,prior.length).equals(prior)||!current.toString().endsWith('\n'))refuse();
  const tail=current.subarray(prior.length).toString().trimEnd().split('\n').map(line=>JSON.parse(line));
  if(tail.length!==2||tail[0].kind!=='window'||tail[1].kind!=='plan'||tail.some(row=>row.window!==e.window)
@@ -102,7 +108,8 @@ export async function inspectAcceptedCheckpointHistory<H extends {workId:string;
   ||!currentWork||currentWork.length!==1||!priorWork||priorWork.length!==1||currentWork[0].status!=='retryable'||currentWork[0].attempts!==1||currentWork[0].failure?.retryable!==true||currentWork[0].failure.reasonCode!=='HANDLER_FAILED'
   ||currentWork[0].messageStatus!=='acknowledged'||currentWork[0].processedAt!=null||priorWork[0].status!=='failed'||priorWork[0].attempts!==5||priorWork[0].failure?.retryable!==false
   ||priorWork[0].failure.reasonCode!=='HANDLER_FAILED'||!Array.isArray(sessions)||!sessions.some((s:any)=>s.workId===workId)||sessions.some((s:any)=>s.status!=='ended'))refuse();
- const journal=(await readUnforwardedPin(d.checkpointJournal)).value;
+ if(historicalJournal&&historicalJournal.sha256!==d.checkpointJournal.sha256)refuse();
+ const journal=(await readUnforwardedPin(historicalJournal??d.checkpointJournal)).value;
  if(path.resolve(d.checkpointJournal.path)!==path.resolve(p.states.openclaw,'scoped-runs',workId+'.json')||journal.version!==1||journal.workId!==workId||journal.completed!==false||journal.providerCalls!==1
   ||Object.keys(journal).sort().join()!=='completed,input,model,pending,providerCalls,version,workId'
   ||!Array.isArray(journal.pending)||journal.pending.length||typeof journal.model!=='string'||!journal.model.startsWith('openclaw:')||!Array.isArray(journal.input)||journal.input.length!==2
@@ -113,7 +120,7 @@ export async function inspectAcceptedCheckpointHistory<H extends {workId:string;
   ||cleanup.modelsAdded!==0||cleanup.tasksSent!==0||accounting.window!==e.window||accounting.operations!==34||accounting.assets!==0||accounting.counts?.chargedAttempts!==d.models
   ||accounting.counts.pending!==0||accounting.counts.unresolvedDispatches!==0||accounting.counts.knownOpenClawDispatches!==0||accounting.retainedConfigUnchanged!==true||accounting.oldFailedJournalUnchanged!==true
   ||accounting.replayAttempted!==false||accounting.newLiveAdmission!==false||accounting.newWindow!==false)refuse();
- const carry:AcceptedCheckpointCarry={descriptor:r.acceptedCheckpoint,workId,caseId,retainedOriginalWorkId:historical.workId,receipt:accepted,journal:d.checkpointJournal,originalAllocation:base.operationAmendment.allocation,
+ const carry:AcceptedCheckpointCarry={descriptor:r.acceptedCheckpoint,workId,caseId,retainedOriginalWorkId:historical.workId,receipt:accepted,journal:d.checkpointJournal,originalAllocation:base.operationAmendment.allocation,expectedAttempts:1,
   followup:{text:followup.text,senderAgentId:sender,recipientAgentId:actor,caseId}};
  return{...historical,workId,priorWindow:e.window,priorExecution:d.execution as ProgressPin,priorLedger:d.frozenRequests as ProgressPin,originalReceipt:receipt,currentLedgerSha256:hash(current),
   metadataReceipts:[...historical.metadataReceipts,receipt],acceptedCheckpoint:carry};

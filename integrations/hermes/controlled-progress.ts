@@ -104,7 +104,7 @@ export async function inspectControlledProgress(input:{releaseRoot:string;ledger
    ||!Array.isArray(w.sessions)||!w.sessions.length||w.sessions.some((s:any)=>s.status!=='ended'))refuse('FRESH_CANONICAL_RETRYABLE_WORK_REQUIRED');
  if(unforwarded&&(w.attempts!==5||w.failure?.retryable!==false||w.failure.reasonCode!=='HANDLER_FAILED'||canonical.activeCaseSessions!==0))refuse('FAILED_ORIGINAL_MUST_REMAIN_FAILED');
  if(accepted){const old=canonical.retainedOriginal;
-  if(canonical.activeCaseSessions!==0||w.attempts!==1||w.failure?.retryable!==true||w.failure.reasonCode!=='HANDLER_FAILED'||w.messageStatus!=='acknowledged'||w.processedAt!=null
+  if(canonical.activeCaseSessions!==0||w.attempts!==accepted.expectedAttempts||w.failure?.retryable!==true||w.failure.reasonCode!=='HANDLER_FAILED'||w.messageStatus!=='acknowledged'||w.processedAt!=null
    ||old?.workId!==accepted.retainedOriginalWorkId||old.caseId!==h.caseId||old.agentId!==h.actorId||old.status!=='failed'||old.attempts!==5||old.failure?.retryable!==false||old.failure.reasonCode!=='HANDLER_FAILED')refuse('FRESH_ACCEPTED_CHECKPOINT_AND_FAILED_ORIGINAL_REQUIRED');
  }
  let distinctFollowup:any;
