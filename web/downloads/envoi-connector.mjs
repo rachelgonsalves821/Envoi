@@ -10171,18 +10171,18 @@ function Ii(e, t, n, r) {
 		throw Object.assign(/* @__PURE__ */ Error("Required native request gate was not proven on this gateway"), { code: "HERMES_REQUEST_GATE_NOT_PROVEN" });
 	};
 	if (!e || typeof e != "object") return i();
-	let a = e;
-	if (a.version !== 1 || a.required !== !0 || a.ready !== !0 || !Array.isArray(a.fields) || a.fields.length !== 11 || typeof a.mac != "string" || !/^[a-f0-9]{64}$/.test(a.mac)) return i();
-	let o = a.fields;
-	if (o[0] !== 1 || o[1] !== n || o[2] !== r || o[3] !== t.policySha256 || o[4] !== t.moduleSha256 || o[5] !== t.factoriesSha256 || o[6] !== t.profileHash || o[7] !== t.window || o[8] !== t.role || typeof o[9] != "number" || !Number.isSafeInteger(o[9]) || o[9] <= Date.now() || o[10] !== !0 || !/^[a-f0-9]{64}$/.test(t.meterToken)) return i();
-	let s = y("sha256", Buffer.from(t.meterToken, "hex")).update(JSON.stringify(o)).digest();
-	return C(s, Buffer.from(a.mac, "hex")) ? Object.freeze({
+	let a = e, o = t.lifetime === "until-complete-or-cancel" ? 2 : 1;
+	if (a.version !== o || a.required !== !0 || a.ready !== !0 || !Array.isArray(a.fields) || a.fields.length !== 11 || typeof a.mac != "string" || !/^[a-f0-9]{64}$/.test(a.mac)) return i();
+	let s = a.fields, c = o === 2 ? s[9] === "until-complete-or-cancel" : typeof s[9] == "number" && Number.isSafeInteger(s[9]) && s[9] > Date.now();
+	if (s[0] !== o || s[1] !== n || s[2] !== r || s[3] !== t.policySha256 || s[4] !== t.moduleSha256 || s[5] !== t.factoriesSha256 || s[6] !== t.profileHash || s[7] !== t.window || s[8] !== t.role || !c || s[10] !== !0 || !/^[a-f0-9]{64}$/.test(t.meterToken)) return i();
+	let l = y("sha256", Buffer.from(t.meterToken, "hex")).update(JSON.stringify(s)).digest();
+	return C(l, Buffer.from(a.mac, "hex")) ? Object.freeze({
 		instanceId: n,
 		policySha256: t.policySha256,
 		moduleSha256: t.moduleSha256,
 		factoriesSha256: t.factoriesSha256,
 		ready: !0,
-		deadlineUnixMs: o[9]
+		...o === 2 ? { lifetime: "until-complete-or-cancel" } : { deadlineUnixMs: s[9] }
 	}) : i();
 }
 function Li(e, t) {

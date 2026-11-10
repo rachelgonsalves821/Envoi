@@ -12,7 +12,20 @@ Each physical attempt reaches an authenticated loopback meter. It binds the role
 
 The private gateway control proof uses a fresh challenge and the selected gateway instance, loaded gate module/factory fingerprints, profile, immutable policy and window. The receiving adapter checks it before session creation and again before prompt submission. Disk files or an environment flag alone are insufficient; an unpatched/old gateway cannot satisfy the proof. This is an authenticated local process check, not a claim of hardware attestation.
 
-The request ledger carries 30 historical model calls (Hermes24/OpenClaw6), 22 conservative message reservations, 9 canonical effects, 4 cases, all5 new installations and0 assets. Global limits remain48/60/9/5/6. A directory anchor rejects a second fresh ledger filename. Resume must open the same private canonical path, retain its seed and hash chain, reconcile outstanding attempts and the authoritative action inventory, and preserve the old stopped/failure records. A new directory/seed is not a supported resume operation. Uncertain writes/dispatches retain their charge and stop execution; a known not-forwarded reservation is labelled separately. `cumulativeBudgetReport` requires a fresh authoritative action inventory rather than presenting carried baselines as current counts.
+Persistent Phase C workflows use a separately reviewed version 2 gate policy.
+Its exact fields replace `hardStopUnix` with
+`lifetime: "until-complete-or-cancel"`; a fake deadline or both fields refuse.
+The native proof is explicitly version 2 and signs that lifetime in field 9.
+The TypeScript verifier accepts it only when its trusted expectation explicitly
+selects the same lifetime. Old version 1 policies and proofs retain their fixed
+deadline checks. Version 2 removes no per-work HMAC, source/profile/config check,
+120-second physical-request bound, current native admission deadline or durable
+meter charge. Stopping/cancelling the workflow closes its designated hosts and
+forwarding gate. Materializing this new module in an isolated native tree still
+requires exact source review and adoption; changing a policy alone cannot turn an
+old loaded native module into the new one.
+
+The immutable ledger seed carries 30 historical model calls (Hermes24/OpenClaw6), 22 conservative message reservations, 9 canonical effects, 4 cases, all5 new installations and0 assets. These are historical seed values, not perpetual current use. Later human-approved caps and actual cumulative use must be verified from the reviewed receipt and current ledgers. A directory anchor rejects a second fresh ledger filename. Resume must open the same private canonical path, retain its seed and hash chain, reconcile outstanding attempts and the authoritative action inventory, and preserve the old stopped/failure records. A new directory/seed is not a supported resume operation. Uncertain writes/dispatches retain their charge and stop execution; a known not-forwarded reservation is labelled separately. `cumulativeBudgetReport` requires a fresh authoritative action inventory rather than presenting carried baselines as current counts.
 
 `bindNativeBudget` is a trusted operator hook, not a model or public API. Construct it only from the exact authenticated canonical receipt for the reviewed work graph. Never select the first claim by role or allow a model to select its flow. The meter defaults to inactive. The library, patch generator and tests grant no live-window, source-adoption, claim, send, merge or deployment authority. No runnable whole-gate continuation is inferred from passing tests.
 

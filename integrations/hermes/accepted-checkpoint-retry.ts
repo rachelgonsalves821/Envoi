@@ -10,6 +10,7 @@ import type {ControlledProgressRecovery} from './controlled-progress';
 import type {ContinuationReceipt} from './continuation-controller';
 import type {ProgressPin} from './stopped-progress';
 import {inspectAcceptedConfigurationStop} from './accepted-checkpoint-configuration-stop';
+import {inspectAcceptedTargetTimeout,OWNER_TARGET_TIMEOUT_KIND} from './accepted-checkpoint-target-timeout';
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
 const canon=(v:any):any=>Array.isArray(v)?v.map(canon):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
 const equal=(a:any,b:any)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
@@ -21,10 +22,12 @@ export interface AcceptedCheckpointCarry {
 }
 type Input={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery};
 /** Retains the old strict inspector intact: its input is the exact frozen ledger prefix. */
-export async function inspectAcceptedCheckpointHistory<H extends {workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ContinuationReceipt[];runtimePacket:any}>(input:Input,inspectOriginal:(input:Input)=>Promise<H>){
+export async function inspectAcceptedCheckpointHistory<H extends {workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ContinuationReceipt[];runtimePacket:any}>(input:Input,inspectOriginal:(input:Input)=>Promise<H>,depth=0):ReturnType<typeof inspectAcceptedCheckpointBaseHistory<H>>{
+ if(depth>2)refuse();
  const pin=input.recovery.acceptedCheckpoint;if(!pin)refuse();const descriptor=(await readUnforwardedPin(pin)).value;
- if(descriptor.purpose==='actual-v3-post-target-pre-model-stop-inspection')return inspectAcceptedConfigurationStop(input,(previous,journal)=>inspectAcceptedCheckpointBaseHistory(previous,inspectOriginal,journal));
- return inspectAcceptedCheckpointBaseHistory(input,inspectOriginal);
+ if(descriptor.purpose===OWNER_TARGET_TIMEOUT_KIND)return await inspectAcceptedTargetTimeout(input,previous=>inspectAcceptedCheckpointHistory(previous,inspectOriginal,depth+1));
+ if(descriptor.purpose==='actual-v3-post-target-pre-model-stop-inspection')return await inspectAcceptedConfigurationStop(input,(previous,journal)=>inspectAcceptedCheckpointBaseHistory(previous,inspectOriginal,journal));
+ return await inspectAcceptedCheckpointBaseHistory(input,inspectOriginal);
 }
 async function inspectAcceptedCheckpointBaseHistory<H extends {workId:string;caseId:string;actorId:string;priorWindow:string;priorExecution:ProgressPin;priorLedger:ProgressPin;metadataReceipts:ContinuationReceipt[];runtimePacket:any}>(input:Input,inspectOriginal:(input:Input)=>Promise<H>,historicalJournal?:ProgressPin){
  const{recovery:r,ledger}=input;if(!r.acceptedCheckpoint)refuse();

@@ -17,6 +17,11 @@ export type ContinuationReceipt=Readonly<{
   version:1;ownerApproved:true;approvalReceiptSha256:string;packetSha256:string;clientSource:string;serverSource:string;runnerSha256:string;
   ciHead:string;ciPassed:true;modelCap:54|64;startUtc:string;hardStopUtc:string;
 }>;
+/** Separate authority from historical fixed intervals. No artificial distant deadline. */
+export type ContinuationWorkflowReceipt=Readonly<Omit<ContinuationReceipt,'version'|'hardStopUtc'|'modelCap'> & {
+  version:2;modelCap:64;lifetime:'until-complete-or-cancel';humanReview:'before-claim';hardStopUtc?:never;
+}>;
+export type ActiveContinuationReceipt=ContinuationReceipt|ContinuationWorkflowReceipt;
 export type ContinuationPreflight=Readonly<{
   checkedAtMs:number;allSelectedHostsStopped:true;activeLeases:0;protectedCasePaused:true;originalDispositionMatches:true;
   actualHermesCalls:24;actualOpenClawCalls:6;conservativeMessages:22;canonicalEffects:9;cases:4;newInstallations:5;assets:0;
@@ -55,6 +60,9 @@ const preProgramRestoreHandles=new WeakMap<PreparedPreProgramRestore,PreProgramR
 type ControlledProgressOptions=Omit<ControllerOptions,'preflight'|'reviewedPlan'>&{preflight:StoppedProgressPreflight;recovery:ControlledProgressRecovery;reviewedPlan:ReviewedContinuationPlan;graphApprovalRaw:string};
 export type PreparedControlledProgress=Readonly<{kind:'verified-controlled-progress';window:string;priorWindow:string;ledgerSha256:string;carriedStateSha256:string}>;
 const controlledProgressHandles=new WeakMap<PreparedControlledProgress,ControlledProgressOptions>();
+type ControlledWorkflowOptions=Omit<ControlledProgressOptions,'receipt'>&{receipt:ContinuationWorkflowReceipt};
+export type PreparedControlledWorkflow=Readonly<Omit<PreparedControlledProgress,'kind'>&{kind:'verified-controlled-workflow'}>;
+const controlledWorkflowHandles=new WeakMap<PreparedControlledWorkflow,ControlledWorkflowOptions>();
 const deferred=():Deferred=>{let resolve!:()=>void,reject!:(reason:unknown)=>void;const promise=new Promise<void>((a,b)=>{resolve=a;reject=b;});void promise.catch(()=>{});return {promise,resolve,reject};};
 
 /** Trusted local execution controller. No model-facing API, startup, enrollment or send operation. */
@@ -70,7 +78,7 @@ export class ContinuationController {
   private approvedOperationBounds:Readonly<{operationCap:number;normalCeiling:number;cleanupReserve:number}>=Object.freeze({operationCap:60,normalCeiling:52,cleanupReserve:8});
   get operationBounds(){return this.approvedOperationBounds;}
   private distinctOpenClawFollowup:{text:string;senderAgentId:string;recipientAgentId:string;caseId:string}|undefined;
-  private constructor(readonly ledger:RequestBudgetLedger,readonly receipt:ContinuationReceipt,
+  private constructor(readonly ledger:RequestBudgetLedger,readonly receipt:ActiveContinuationReceipt,
     private flowCases:Readonly<Record<string,string>>,private actorIds:Readonly<Record<Role,string>>,private sameRoleNativeAttribution?:SameRoleNativeAttributionGuard){}
 
   static async open(options:ControllerOptions) {
@@ -80,11 +88,23 @@ export class ContinuationController {
    * Preparation never changes the old partial state, ledger or time authority. */
   static async prepareControlledProgress(input:ControlledProgressOptions):Promise<PreparedControlledProgress>{
     const{sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    if(options.receipt.version!==1)refuse('EXPLICIT_WORKFLOW_ENTRY_REQUIRED');
     const{inspection}=await this.inspectControlledOptions(options);
     const handle=Object.freeze({kind:'verified-controlled-progress' as const,window:hash(JSON.stringify(options.receipt)),priorWindow:inspection.priorWindow,ledgerSha256:inspection.currentLedgerSha256,carriedStateSha256:inspection.stateSha256});
     controlledProgressHandles.set(handle,options);return handle;
   }
-  private static async inspectControlledOptions(options:ControlledProgressOptions){
+  static async prepareControlledWorkflow(input:ControlledWorkflowOptions):Promise<PreparedControlledWorkflow>{
+    const{sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    if(options.receipt.version!==2)refuse('EXPLICIT_WORKFLOW_APPROVAL_REQUIRED');
+    const{inspection}=await this.inspectControlledOptions(options);
+    const handle=Object.freeze({kind:'verified-controlled-workflow' as const,window:hash(JSON.stringify(options.receipt)),priorWindow:inspection.priorWindow,ledgerSha256:inspection.currentLedgerSha256,carriedStateSha256:inspection.stateSha256});
+    controlledWorkflowHandles.set(handle,options);return handle;
+  }
+  static async startControlledWorkflow(handle:PreparedControlledWorkflow){
+    const options=controlledWorkflowHandles.get(handle);if(!options)refuse('PREPARED_CONTROLLED_WORKFLOW_REQUIRED');controlledWorkflowHandles.delete(handle);
+    return this.startInspectedControlledProgress(options,handle);
+  }
+  private static async inspectControlledOptions(options:ControlledProgressOptions|ControlledWorkflowOptions){
     if(options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
     const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl')),inspection=await inspectControlledProgress({...options,ledger}),plan=validateReviewedContinuationPlan(options.reviewedPlan);
     if(Object.keys(options.flowCases).length!==plan.flows.length||plan.flows.some(f=>options.flowCases[f.id]!==plan.flowCases[f.id])
@@ -96,6 +116,9 @@ export class ContinuationController {
   }
   static async startControlledProgress(handle:PreparedControlledProgress){
     const options=controlledProgressHandles.get(handle);if(!options)refuse('PREPARED_CONTROLLED_PROGRESS_REQUIRED');controlledProgressHandles.delete(handle);
+    return this.startInspectedControlledProgress(options,handle);
+  }
+  private static async startInspectedControlledProgress(options:ControlledProgressOptions|ControlledWorkflowOptions,handle:PreparedControlledProgress|PreparedControlledWorkflow){
     const{ledger,inspection,proof}=await this.inspectControlledOptions(options);if(inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
     const filename=path.join(options.releaseRoot,'phase-c-controlled-progress-'+handle.priorWindow+'.used.json'),f=await fs.open(filename,'wx',0o600);
     try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress',priorWindow:handle.priorWindow,nextWindow:handle.window,stateSha256:handle.carriedStateSha256,ledgerSha256:handle.ledgerSha256}));await f.sync();}finally{await f.close();}
@@ -260,14 +283,16 @@ export class ContinuationController {
     await time?.consume();
     return result;
   }
-  private static async openChecked(options:Omit<ControllerOptions,'preflight'> & {
+  private static async openChecked(options:Omit<ControllerOptions,'preflight'|'receipt'> & {receipt:ActiveContinuationReceipt;
     preflight:ContinuationPreflight|RetainedFollowupPreflight|StoppedProgressPreflight;
   },recovering=false,progress=false) {
-    const {receipt:r,preflight:p,expected:e}=options;const start=Date.parse(r.startUtc),stop=Date.parse(r.hardStopUtc),now=Date.now();
-    if(r.version!==1||r.ownerApproved!==true||!digest(r.approvalReceiptSha256)||!digest(r.packetSha256)
+    const {receipt:r,preflight:p,expected:e}=options;const start=Date.parse(r.startUtc),now=Date.now();
+    const timeValid=r.version===2?progress&&r.lifetime==='until-complete-or-cancel'&&r.humanReview==='before-claim'&&!Object.hasOwn(r,'hardStopUtc')&&r.modelCap===64
+      :r.version===1&&Number.isFinite(Date.parse(r.hardStopUtc))&&Date.parse(r.hardStopUtc)>now&&Date.parse(r.hardStopUtc)-start<=90*60*1000;
+    if(!timeValid||r.ownerApproved!==true||!digest(r.approvalReceiptSha256)||!digest(r.packetSha256)
       ||r.clientSource!==e.clientSource||r.serverSource!==e.serverSource||r.runnerSha256!==e.runnerSha256||r.packetSha256!==e.packetSha256
       ||!r.ciPassed||r.ciHead!==r.clientSource||![54,64].includes(r.modelCap)
-      ||!Number.isFinite(start)||!Number.isFinite(stop)||start>now||stop<=now||stop-start>90*60*1000) refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
+      ||!Number.isFinite(start)||start>now) refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
     if(!Number.isFinite(p.checkedAtMs)||p.checkedAtMs>now||now-p.checkedAtMs>300000||!p.allSelectedHostsStopped||p.activeLeases!==0
       ||!p.protectedCasePaused||!p.originalDispositionMatches||!progress&&(p.actualHermesCalls!==24||p.actualOpenClawCalls!==6
       ||p.conservativeMessages!==(recovering?24:22)||p.canonicalEffects!==(recovering?11:9)||p.cases!==4||p.newInstallations!==5||p.assets!==0)) refuse('FRESH_PRESERVED_PREFLIGHT_REQUIRED');
@@ -296,7 +321,9 @@ export class ContinuationController {
       if(approval.approvalHash!==reviewed.ownerApprovalHash)refuse('GRAPH_SOURCE_APPROVAL_HASH_MISMATCH');}
     return new ContinuationController(ledger,Object.freeze({...r}),Object.freeze({...options.flowCases}),Object.freeze({...options.actorIds}),options.sameRoleNativeAttribution);
   }
-  active(){return !this.control.signal.aborted&&Date.now()<Date.parse(this.receipt.hardStopUtc);}
+  active(){return !this.control.signal.aborted&&(this.receipt.version===2||Date.now()<Date.parse(this.receipt.hardStopUtc));}
+  /** Technical operation bounds stay finite even when human/workflow waiting is untimed. */
+  operationDeadline(maximumMs:number){if(!Number.isSafeInteger(maximumMs)||maximumMs<1||maximumMs>120000)refuse('BOUNDED_OPERATION_REQUIRED');return this.receipt.version===2?Date.now()+maximumMs:Math.min(Date.now()+maximumMs,Date.parse(this.receipt.hardStopUtc));}
   modelActive(){return this.active()&&!!this.group&&this.group.ready.size===this.group.ids.length&&this.group.ids.some(id=>{const b=this.bindings.get(id);return b?.submitted&&!b.finished&&!b.forwardingClosed;});}
   allowMeterWork(role:Role,token:string){return this.modelActive()&&[...this.bindings.values()].some(b=>b.role===role&&b.nativeToken===token&&b.submitted&&!b.finished&&!b.forwardingClosed&&this.group?.ids.includes(b.flowId));}
   private live(){if(!this.active())refuse('CONTINUATION_WINDOW_CLOSED');}
