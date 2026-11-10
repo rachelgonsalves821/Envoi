@@ -1,7 +1,7 @@
 """Inert pinned native/transport tests. --sdk additionally requires real httpx/anthropic.
 Only disposable temporary profiles and authenticated loopback HTTP are used.
 """
-import ast, asyncio, hashlib, hmac, importlib.util, json, os, re, socket, sys, tempfile, threading, time, types, unittest
+import ast, asyncio, difflib, hashlib, hmac, importlib.util, json, os, re, socket, sys, tempfile, threading, time, types, unittest
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -131,6 +131,37 @@ class Base(unittest.TestCase):
                 else:sys.modules[k]=v
 
 class CoreTests(Base):
+    def persistent(self):
+        self.policy_data.pop('hardStopUnix');self.policy_data.update(version=2,lifetime='until-complete-or-cancel')
+        self.save_policy();os.environ['ENVOI_HERMES_GATE_POLICY_SHA256']=hashlib.sha256(self.file.read_bytes()).hexdigest()
+    def test_persistent_policy_survives_wait_but_keeps_exact_work_binding_and_transport(self):
+        self.persistent();p=self.gate.policy();self.assertIsNone(p.deadline)
+        with patch.object(self.gate.time,'time',return_value=time.time()+7*86400):
+            self.assertIs(p.verify(),p)
+            with patch.object(self.gate,'_loaded_factories_sha256','c'*64),patch.object(self.gate,'_factory_sha256',return_value='c'*64):
+                proof=self.gate.runtime_status('inert-instance','1'*32)
+                self.assertEqual((proof['version'],proof['fields'][0],proof['fields'][9]),(2,2,'until-complete-or-cancel'))
+                self.assertEqual(proof['mac'],hmac.new(bytes.fromhex('b'*64),json.dumps(proof['fields'],separators=(',',':')).encode(),hashlib.sha256).hexdigest())
+            response=self.forward('POST','https://api.anthropic.com/v1/messages',{},self.body())
+            self.assertLessEqual(response.deadline-time.monotonic(),120)
+            self.assertEqual(json.loads(b''.join(response.chunks()))['content'][0]['text'],'ok')
+        self.assertEqual(len(self.server.requests),1)
+        with self.assertRaises(self.gate.RequestGateRefused):self.gate.forward('POST','https://api.anthropic.com/v1/messages',{},self.body(),session_id=lambda:None)
+        self.assertEqual(len(self.server.requests),1)
+        self.file.write_text('changed')
+        with self.assertRaises(self.gate.RequestGateRefused):p.verify()
+    def test_persistent_policy_refuses_fake_deadlines_and_unknown_lifetime(self):
+        self.persistent()
+        for change in ({'hardStopUnix':9999999999},{'lifetime':'forever'},{'version':1}):
+            original=dict(self.policy_data);self.policy_data.update(change);self.save_policy();os.environ['ENVOI_HERMES_GATE_POLICY_SHA256']=hashlib.sha256(self.file.read_bytes()).hexdigest()
+            with self.subTest(change=change),self.assertRaises(self.gate.RequestGateRefused):self.gate.policy()
+            self.policy_data=original
+        self.assertEqual(len(self.server.requests),0)
+    def test_mirrored_patch_contains_exact_current_gate_module(self):
+        module=(HERE/'envoi_request_gate.py').read_text(encoding='utf-8')
+        expected=''.join(difflib.unified_diff([],module.splitlines(True),fromfile='/dev/null',tofile='b/agent/envoi_request_gate.py'))
+        patch_bytes=(HERE/'native-request-gate.patch').read_text(encoding='utf-8')
+        self.assertTrue(patch_bytes.endswith(expected))
     def test_actual_constructor_binds_the_later_session_without_preexisting_identity(self):
         for sid in ('native_inert_session',None):
             with self.subTest(explicit_session=sid):

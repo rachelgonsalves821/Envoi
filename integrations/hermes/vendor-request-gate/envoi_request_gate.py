@@ -50,7 +50,7 @@ class Policy:
     origin: str
     token: str
     models: tuple[str, ...]
-    deadline: float
+    deadline: float | None
     config_digest: str
     eager_case_tools: bool
 
@@ -63,7 +63,7 @@ class Policy:
             raise
         except Exception:
             raise RequestGateRefused('PROVIDER_GATE_POLICY_UNAVAILABLE') from None
-        if time.time() >= self.deadline:
+        if self.deadline is not None and time.time() >= self.deadline:
             raise RequestGateRefused('PROVIDER_GATE_HARD_STOP')
         try:
             if os.path.normcase(os.path.realpath(os.environ['HERMES_HOME']))!=self.profile or hashlib.sha256((Path(self.profile)/'config.yaml').read_bytes()).hexdigest()!=self.config_digest:
@@ -92,8 +92,10 @@ def policy():
             if len(b) > 16384 or hashlib.sha256(b).hexdigest() != digest:
                 raise ValueError()
             data = json.loads(b)
-            fields = {'version','window','profile','role','origin','token','models','hardStopUnix','upstream','configSha256','eagerCaseTools'}
-            if set(data) != fields or data['version'] != 1 or data['upstream'] != UPSTREAM:
+            fields = {'version','window','profile','role','origin','token','models','upstream','configSha256','eagerCaseTools'}
+            legacy = data.get('version') == 1 and set(data) == fields | {'hardStopUnix'}
+            persistent = data.get('version') == 2 and set(data) == fields | {'lifetime'} and data['lifetime'] == 'until-complete-or-cancel'
+            if not (legacy or persistent) or data['upstream'] != UPSTREAM:
                 raise ValueError()
             u = urlsplit(data['origin'])
             if u.scheme != 'http' or u.hostname != '127.0.0.1' or not u.port or u.username or u.password or u.query or u.fragment or u.path not in ('','/'):
@@ -108,9 +110,9 @@ def policy():
             if type(data['eagerCaseTools']) is not bool:raise ValueError()
             if not isinstance(data['models'],list) or not 1 <= len(data['models']) <= 8 or any(not isinstance(m,str) or not re.fullmatch('[A-Za-z0-9_.:/-]{1,160}',m) for m in data['models']):
                 raise ValueError()
-            if type(data['hardStopUnix']) not in (int,float) or not time.time() < data['hardStopUnix'] <= time.time()+5400:
+            if legacy and (type(data['hardStopUnix']) not in (int,float) or not time.time() < data['hardStopUnix'] <= time.time()+5400):
                 raise ValueError()
-            _anchor = Policy(filename,digest,data['window'],data['profile'],data['role'],data['origin'].rstrip('/'),data['token'],tuple(data['models']),data['hardStopUnix'],data['configSha256'],data['eagerCaseTools'])
+            _anchor = Policy(filename,digest,data['window'],data['profile'],data['role'],data['origin'].rstrip('/'),data['token'],tuple(data['models']),data['hardStopUnix'] if legacy else None,data['configSha256'],data['eagerCaseTools'])
             return _anchor.verify()
         except RequestGateRefused:
             raise
@@ -169,10 +171,11 @@ def runtime_status(instance_id,challenge):
     p=policy()
     if p is None:return {'version':1,'required':False,'ready':False}
     ready=bool(_loaded_factories_sha256 and _factory_sha256()==_loaded_factories_sha256)
-    fields=[1,instance_id,challenge,p.digest,_loaded_module_sha256,_loaded_factories_sha256,
-        hashlib.sha256(p.profile.encode()).hexdigest(),p.window,p.role,int(p.deadline*1000),ready]
+    version = 2 if p.deadline is None else 1
+    fields=[version,instance_id,challenge,p.digest,_loaded_module_sha256,_loaded_factories_sha256,
+        hashlib.sha256(p.profile.encode()).hexdigest(),p.window,p.role,int(p.deadline*1000) if p.deadline is not None else 'until-complete-or-cancel',ready]
     mac=hmac.new(bytes.fromhex(p.token),json.dumps(fields,separators=(',',':')).encode(),hashlib.sha256).hexdigest()
-    return {'version':1,'required':True,'ready':ready,'fields':fields,'mac':mac}
+    return {'version':version,'required':True,'ready':ready,'fields':fields,'mac':mac}
 
 class CancelableReader(io.RawIOBase):
     def __init__(self,connection):self.connection=connection
@@ -278,7 +281,9 @@ def forward(method,url,headers,body,p=None,register=lambda _:None,unregister=lam
         h.pop(key,None)
     h.update({'x-phase-c-meter':p.token,'x-envoi-meter-role':p.role,'x-envoi-meter-window':p.window,'x-envoi-meter-work':native_work_token(p,session_id)})
     u=urlsplit(p.origin)
-    deadline=time.monotonic()+min(120,p.deadline-time.time())
+    # Workflow authority is untimed; each physical operation remains <=120s.
+    # The authenticated meter additionally enforces the original work deadline.
+    deadline=time.monotonic()+(120 if p.deadline is None else min(120,p.deadline-time.time()))
     limits={}
     for key in ('connect','read','write','pool'):
         value=(timeouts or {}).get(key)
