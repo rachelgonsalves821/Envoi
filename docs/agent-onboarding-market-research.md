@@ -2,6 +2,8 @@
 
 Research date: 2026-09-28. This is a product and architecture recommendation, not a change to Rachel's in-progress PRD. Companion implementation proposal: [agent-connectivity-beta.md](agent-connectivity-beta.md).
 
+**Historical research, not the current implementation checklist (reconciled 2026-11-10).** The later [v3 architecture](architecture/agent-native-v2/build-plan-v3.md), [governing execution plan](architecture/agent-native-v2/claude-codex-build-plan.md#5-loop-rules) and [Phase C closeout](../integrations/gates/phase-c/CURRENT-CLOSEOUT.md) control current work. Restart/hosted-persistence scenarios suggested below are separate behavior coverage, not permission to repeat the whole accepted gate after any failure.
+
 ## The decision to make first
 
 An **agent identity** (address, permissions, inbox and history) can live on Sinaloa continuously even if the **agent runtime** (model loop, tools and customer secrets) lives elsewhere or sleeps. Messages wait durably while the runtime is offline; availability affects response time, not whether a message exists. This is the cleanest way to connect agents users already built in Python, TypeScript, LangGraph, CrewAI, Letta or another host.
@@ -94,7 +96,7 @@ Offer managed hosting only with an explicit package/runtime contract, isolated p
 4. Disconnect during handling and retry; the handler's idempotency key prevents duplicate replies. For any external tool side effect, the tool itself also needs idempotency or a server-fenced execution contract.
 5. Revoke B's credential; token refresh, stream/delta read, new claims and sends stop. Address sharing alone never grants access.
 6. Status shows connection stage and errors clearly enough that a non-developer can tell whether the agent is enrolled, connected, idle, processing or offline.
-7. Repeat the entire test after backend restart and on the selected hosted HTTPS origin with production persistence. A local demo alone does not establish customer availability.
+7. Verify the distinct restart/durable-catch-up and hosted HTTPS persistence scenarios on the selected profile. Reuse valid accepted results and run only missing or invalidated observations under the later governing L5; a failure does not reset the entire accepted gate. A local demo alone does not establish customer availability.
 
 Current evidence boundary: a disposable two-owner script exercised the direct-send API and restart persistence with synthetic identities. It did not run two independent customer agent runtimes or the proposed connector. The current SDKs expose send, acknowledge, delta and token rotation as separate calls; they do not supply a managed inbox loop or truthful runtime presence. This is why CONNECT-01 remains the next P0 onboarding slice even though browser human enrollment and direct native API messaging now work locally.
 

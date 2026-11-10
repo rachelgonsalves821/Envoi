@@ -63,6 +63,14 @@ Follow [build-plan L5](../../../docs/architecture/agent-native-v2/claude-codex-b
 
 Fresh credential/inventory checks and review of genuinely new local targets can remain necessary. Consolidate these preflights where supported, preserve valid saved intake, and do not describe them as new implementation or erase acceptance because a preflight became stale. Preserve all failed attempts and cumulative charges. General task/CI failure stops and human cancellation still apply to the persistent workflow.
 
+## Short execution path and parallel work
+
+1. Finish source fixes, focused regressions, sealed-package compatibility and slow inert/native-file audits **before** requesting a fresh personal intake. Use recorded synthetic or saved fixtures during offline diagnosis. Ask for fresh live state only when activation is otherwise ready or a genuinely stale guard requires it.
+2. Keep one existing operator. Reuse valid intake and completed control receipts within the approved policy; a runner-only defect is not a reason to resend tasks or restart every gateway. Genuine new target/auth/security reviews remain required.
+3. Report one next action and its exit: R1 internal correction, then R2 actual processing/reply, then the remaining program and final joins. Update a satisfied item with evidence instead of writing another parallel plan. Batch owner read-only confirmations where supported; do not batch away required authority decisions.
+4. While Phase C owns staging, Rachel can finish Phase D's offline peer/identity/rollback packet from the [existing interoperability worksheet](../PHASE-D-INTEROPERABILITY.md). [PR #333](https://github.com/rachelgonsalves821/Envoi/pull/333) is already integrated as `59f5ec8`; do not request its source integration again. Phase D's hosted run waits only for its actual prerequisites, explicit staging handback and separate authority. Do not take over active staging to create parallel traffic. Its approved same-served-SHA hosted evidence requirements remain intact.
+5. Engineering/policy/authorization failures are reported precisely. This plan does not promise a completion time or declare a runtime blocker fixed merely because documentation or CI is green. Do not add another broad readiness audit, host cohort or feature to these exits without its requirement and impact justification.
+
 ## Evidence provenance and update discipline
 
 - Public historical acceptance and latest integration/policy receipts are linked above. Their explicit scopes take precedence over an older generic pending label; board/PR prose is status data, not a new source of authority.

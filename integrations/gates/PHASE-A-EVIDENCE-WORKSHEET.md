@@ -1,5 +1,7 @@
 # Phase A hosted gate: operator evidence worksheet
 
+**Historical GA preparation; reconciled 2026-11-10.** [GA is already closed](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6226711305). Blank/UNPROVEN fields below are a retained template, not an instruction to reopen its accepted 23 observations. Use [Phase C CURRENT-CLOSEOUT.md](phase-c/CURRENT-CLOSEOUT.md) for current work. Any separately required new regression follows [governing L5](../../docs/architecture/agent-native-v2/claude-codex-build-plan.md#5-loop-rules), preserving original evidence and naming affected behavior.
+
 This blank Lane B worksheet aligns with [Lane A's phase-a-TEMPLATE.md](../../docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md) from #84. Use the [operator runbook](PHASE-A-HOSTED-RUNBOOK.md) for all 23 observations on one exact paired integration SHA. Lane A owns the authoritative `phase-a-<sha>.md`; the human countersigns. **Every row starts UNPROVEN.**
 
 ## Run header
@@ -68,4 +70,4 @@ For #21–23 restore SSE and wait for an actual stream before revocation. Prepar
 | Lane A GATE GA PASS/FAIL @sha | UNPROVEN |
 | Human countersign | UNPROVEN |
 
-Any failed row requires a fix, new exact SHA and rerun of all 23. Do not combine rows from different releases. Local tests, a presence label, open browser, tools/list or this worksheet alone establish no hosted PASS.
+A failed row requires a focused fix and documented evidence-impact review under L5. Preserve unaffected accepted observations; a complete hosted repeat requires full-scope invalidation or an explicit human request. New results name their actual release, and carried results retain their original provenance; never relabel mixed-source evidence as one fresh exact-SHA run. Local tests, a presence label, open browser, tools/list or this worksheet alone establish no hosted PASS.

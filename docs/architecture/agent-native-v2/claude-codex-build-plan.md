@@ -27,7 +27,7 @@ This dated table is retained for provenance. Do not execute its pending actions 
 | Staging | `/health` and `/ready` OK, but `releaseSha: null`. |
 | Primary checkout `D:\vsc\NEU\Sinaloa` | Human-only. Agents never work in it. |
 
-Re-fetch and re-check this table at the start of every session. Do not trust it blindly.
+At session start, fetch actual refs and read current board/closeout receipts. Do not treat the historical values above as required targets or pending tasks.
 
 ## 1. Decisions recorded here
 
@@ -142,7 +142,7 @@ Exit condition: `INTEGRATED` posted with an all-green SHA.
 
 The following graph records the original build sequence. GA and historical B/C acceptance are preserved in the current closeout; completed source increments are not a new backlog. Refresh only actual deltas and their required evidence.
 
-### Wave 0 — foundation (start now, in parallel)
+### Historical Wave 0 — foundation (original entry tasks)
 
 | ID | Lane | Task | Done when |
 | --- | --- | --- | --- |
