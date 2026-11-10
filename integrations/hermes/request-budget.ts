@@ -96,7 +96,7 @@ export class RequestBudgetLedger {
   async inspectReadOnlyPrefix(filename:string,sha256:string){
     if(!path.isAbsolute(filename)||!exactHash(sha256))refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
     const stat=await fs.lstat(filename);if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1||stat.size>1000000)refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
-    const raw=await fs.readFile(filename),current=await fs.readFile(this.filename),canonical=Buffer.from(this.lines.map(line=>JSON.stringify(line)+'\n').join(''));
+    const raw=await fs.readFile(filename),current=await this.readInspectionBytes(),canonical=Buffer.from(this.lines.map(line=>JSON.stringify(line)+'\n').join(''));
     if(!raw.toString().endsWith('\n')||hash(raw)!==sha256||!current.equals(canonical)||!current.subarray(0,raw.length).equals(raw))refuse('EXACT_READ_ONLY_LEDGER_PREFIX_REQUIRED');
     const count=raw.toString().trimEnd().split('\n').length,view=new RequestBudgetLedger(this.filename,structuredClone(this.lines.slice(0,count)),sha256,async()=>{refuse('READ_ONLY_LEDGER_PREFIX');});
     view.readOnly=true;view.historicalPrefix=Object.freeze({filename,sha256});view.validate();return view;

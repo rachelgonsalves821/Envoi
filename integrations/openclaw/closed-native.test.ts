@@ -72,7 +72,7 @@ it('refuses paused/revoked/deadline requests before dispatch and never uses a sp
  s.ports.assertLive.mockImplementation(()=>{throw Error('OWNER_PAUSED');});await expect(fetcher(s.b.proxyOrigin+'/v1/messages',physical(s.b))).rejects.toThrow('OWNER_PAUSED');s.ports.assertLive.mockImplementation(()=>{});vi.advanceTimersByTime(90000);await expect(fetcher(s.b.proxyOrigin+'/v1/messages',physical(s.b))).rejects.toThrow('NATIVE_DEADLINE_EXPIRED');expect(s.reserved).toHaveLength(1);
 });
 it('refuses unsupported effective selector/environment state without changing actual config',()=>{
- const b=binding(),config={plugins:{enabled:false},models:{mode:'replace',providers:{anthropic:{api:'anthropic-messages',baseUrl:b.proxyOrigin,models:[{id:b.modelId}]}}},agents:{defaults:{model:{primary:'anthropic/'+b.modelId,fallbacks:[]}},list:[{id:'main'}]},tools:{profile:'minimal',deny:['*']},gateway:{reload:{mode:'off'}}};
+ const b=binding(),config={plugins:{enabled:false},models:{mode:'replace',providers:{anthropic:{api:'anthropic-messages',baseUrl:b.proxyOrigin,models:[{id:b.modelId}]}}},agents:{defaults:{model:{primary:'anthropic/'+b.modelId,fallbacks:[]},modelPolicy:{allow:['anthropic/'+b.modelId]}},entries:{main:{}}},tools:{profile:'minimal',deny:['*']},gateway:{reload:{mode:'off'}}};
  expect(()=>assertRestrictedNativeConfiguration(config,b)).not.toThrow();expect(()=>assertRestrictedNativeConfiguration({...config,plugins:{enabled:true}},b)).toThrow();expect(()=>assertRestrictedNativeEnvironment({NODE_OPTIONS:'--import unreviewed'})).toThrow();
 });
 it('orders real Gateway bootstrap module seams after source/path authorization and exposes pending-harness readiness honestly',async()=>{
