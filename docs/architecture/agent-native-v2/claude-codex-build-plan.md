@@ -2,6 +2,8 @@
 
 **Prepared:** 2026-10-08 · **Human owner and sole approver:** you (pjsk02) · **Executors:** Claude Code (Lane A) and Codex (Lane B)
 
+**Documentation reconciliation, 2026-11-10, requested by pjsk02:** use the [Phase C current closeout](../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md) as the single remaining-work checklist. Accepted GA, real Hermes/OpenClaw B-local and historical B/C results remain credited. The original phase definitions and safety contracts are unchanged. Historical implementation tables below are design/inclusion references, not instructions to repeat completed implementation or tests. The revised L5 governs whether a later change requires a regression run.
+
 This file turns the reviewed plans into tasks that two coding agents can run at the same time without colliding. It does not replace them. Where they disagree, this precedence applies:
 
 1. Decisions recorded in this file (§1).
@@ -9,7 +11,9 @@ This file turns the reviewed plans into tasks that two coding agents can run at 
 3. `docs/architecture/agent-native-v2/build-plan-v3.md` (product/architecture contract).
 4. `docs/architecture/agent-native-v2/handoffs.md` (published API/error/event contracts).
 
-## 0. Verified starting state (2026-10-08)
+## 0. Historical starting state (2026-10-08; not a current backlog)
+
+This dated table is retained for provenance. Do not execute its pending actions again without checking their source-inclusion and acceptance records. Current Phase C work is listed only in the linked closeout above.
 
 | Item | State |
 | --- | --- |
@@ -33,7 +37,7 @@ Re-fetch and re-check this table at the start of every session. Do not trust it 
   - Cases with no held outbound message follow v3 §12 normally: the message is delivered to the paused recipient's inbox and only the work is held.
   - Human cancellation of a held message releases the case barrier immediately.
   - **Additions to the A3 gate:** (1) a test proving the counterparty's reply waits behind the held message and is delivered in order after resume; (2) a test proving that cancelling the held message releases the case without resuming the agent; (3) both tests pass on PostgreSQL and FileStore.
-- **D2 — Lane mapping.** Rachel is not executing. Owner A in the two-owner plan is **Lane A = Claude**. Owner B is **Lane B = Codex**. Wherever the two-owner plan says "Owner B signs off", read it as: Codex reviews and posts `CONTRACT-ACK` or `MISMATCH`, then the human approves.
+- **D2 — Lane mapping.** Owner A in the two-owner plan is **Lane A = Claude**. Owner B is **Lane B = Codex**. Human workstream assignments, including Rachel's Phase D work, do not change file ownership or the sole approval authority of pjsk02. Wherever the two-owner plan says "Owner B signs off", read it as: Codex reviews and posts `CONTRACT-ACK` or `MISMATCH`, then the human approves.
 - **D3 — The human is the only release authority.** Agents may push task branches, push the integration branch and open **draft** PRs. Only the human:
   - merges anything to `main`;
   - deploys to staging or beta;
@@ -115,7 +119,12 @@ Exit condition: `CONTRACT-ACK` from Lane B, then `CONTRACT-APPROVED` from the hu
 
 Exit condition: `INTEGRATED` posted with an all-green SHA.
 
-**L5 — Gate loop.** Each gate in §6 is evaluated on **one exact integration SHA**. If any item fails, open fix tasks in the responsible lane, re-integrate, then rerun the **whole** gate, not just the failed item. A hosted gate counts as passed only after the human posts the countersigned `GATE … PASS`.
+**L5 — Gate loop and preservation of accepted evidence (reconciled 2026-11-10).**
+1. Preserve the accepted baseline and each completed native, canonical, owner and control observation with its actual source, host, route, configuration and evidence category. Historical human attestation and waived checks keep those labels. Missing transcription, an open historical PR, a later failed step or an expired operator window does not erase a result.
+2. For a failure, create a focused fix and reproduction in the responsible lane. Before requesting any repeated acceptance action, record the affected requirement/host, prior evidence, changed code or configuration, why that change invalidates that evidence, and the smallest sufficient regression. Keep unaffected observations credited. A fresh inventory or genuinely new local-target review is a preflight, not a repeated product test.
+3. Validate fixes with focused reproductions and affected integration/security checks; retain the required lane suites and exact resulting-source CI. Re-run a complete applicable hosted gate only when an impact review shows its whole scope was invalidated, or the human explicitly requires a fresh complete gate. Do not broaden the host cohort or weaken assertions to close a phase.
+4. Record one exact selected server/client/artifact profile for **new** observations. Carry-forward evidence must name its original profile and the compatibility/impact justification; never describe mixed-source evidence as one newly executed exact-SHA run. Freeze the approved live profile while executing. A new candidate or action still needs any applicable source/release/host approval.
+5. Reconcile every applicable requirement as new PASS, preserved accepted evidence, partial/fail/not-run, or explicitly approved N/A. All actual remaining assertions, final preservation/cleanup and the human countersigned `GATE … PASS` are required for the current scoped closeout. CI or preparation alone is not a hosted pass. Use the [current closeout](../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md) for Phase C; do not restart the historical matrix from zero.
 
 **Stop conditions (no looping — post `BLOCKED` and wait):**
 - missing secrets or credentials;
@@ -130,6 +139,8 @@ Exit condition: `INTEGRATED` posted with an all-green SHA.
 ## 6. Task graph
 
 `→` means "depends on". Tasks in the same wave run at the same time in separate worktrees.
+
+The following graph records the original build sequence. GA and historical B/C acceptance are preserved in the current closeout; completed source increments are not a new backlog. Refresh only actual deltas and their required evidence.
 
 ### Wave 0 — foundation (start now, in parallel)
 
@@ -186,18 +197,18 @@ Exit condition: `INTEGRATED` posted with an all-green SHA.
 2. The human runs a real Hermes runtime with a **disposable** test agent.
 3. Lane B supplies a step-by-step runner script and the connector logs.
 4. Lane A collects request IDs, audit records and the `/health` SHA into `docs/architecture/agent-native-v2/evidence/phase-a-<sha>.md`.
-5. Any failure → L5 (fix → redeploy → rerun everything).
+5. Any failure → L5 (fix, assess evidence impact, obtain any required release authority, and run the justified regression scope).
 6. The human posts the countersigned `GATE GA PASS`.
 
 **Phase B cannot become the default before this.**
 
-### Later waves (planned when GA passes, using the same pattern)
+### Later-wave architecture (original sequence; consult current closeout for status)
 
 - **Phase B:** A-4.x owns the single registration/claim/activation/installation backend, durable rate limit, migration, and the reviewed remote MCP/OAuth plus scoped provider/REST contract. B-4.x owns `envoi-link`, `/connect`, claim UI, runtime-neutral skill/JSON, and host adapters. Keep Quick Connect under Advanced. Integrate the common claim path first; add local helper, remote MCP/OAuth, then reviewed provider connector/authenticated REST as separate reviewed tasks. Do not make an unfinished route appear selectable. The core Hermes/OpenClaw gate remains, followed by v3 §47's multi-route breadth gate using a cloud-only MCP host, a real reviewed connector host and a generic HTTPS client. A host is advertised as automatically reachable only after its own closed-app wake fixture passes; otherwise show on-demand status.
 - **Phase C:** CaseSession, case-scoped tools and an SSRF-safe HTTPS wake adapter in Lane A. Host claim/renew moved out of the model, plus adapter migration, in Lane B.
 - **Phase D:** relationships and A2A, after C.
 
-Do not start these waves' implementation early. Contract drafts are fine.
+The original entry gates are recorded above. They do not reopen completed waves. Existing separately approved Phase D source work remains separate from Phase C runtime adoption and its staging hold; this documentation grants no new merge, deployment, flag or host authority.
 
 ## 7. Commands
 
@@ -215,7 +226,7 @@ Run tests from **PowerShell**, not Git Bash. In Git Bash, `whoami` resolves to t
 | --- | --- | --- |
 | H-1 | Wave 0 | Close or freeze #21 with a comment that it is a non-integrated Muse experiment. Merge or close #29. |
 | H-2 | Wave 0 | Cloudflare dashboard: point staging Builds at `integration/agent-native`, or disable auto-build and deploy staging only via `npm run cf:deploy:staging` from an exact SHA. |
-| H-3 | Each hosted gate | Deploy the gate's exact integration SHA to staging and confirm `/health` `releaseSha` matches. |
+| H-3 | When a hosted gate requires deployment | Deploy only the exact human-approved server/client/artifact profile and verify served identity. A reviewed minimal staging server may differ from integration; record the pairing and do not deploy integration wholesale to make SHAs converge. Existing approved deployment needs no repeat solely for documentation. |
 | H-4 | Each contract | Post `CONTRACT-APPROVED` after reading the contract and Codex's ACK. |
 | H-5 | A1 release (after GA, or earlier by decision) | Coordinated release: publish the rebuilt connector bundles, notify beta users to update and restart (old binaries get `ROTATION_ID_REQUIRED`), merge integration to `main` and deploy beta. Write down the rollback target before you start. |
 | H-6 | Hosted gates | Run real Hermes/OpenClaw on a host and countersign the evidence file. |

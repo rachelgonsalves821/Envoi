@@ -1,16 +1,18 @@
-# Phase C client preparation (C-B0)
+# Phase C client preparation and evidence tools
 
-**Current status (2026-10-23 America/New_York):** selected C-B1–C-B5 source is integrated through combined PR #143. Prior B/C testing is human-attested complete/countersigned; see [the attributed acceptance record](EVIDENCE.md). Later Windows, normal-entry and supervised wake corrections are integrated through #199, and authorization/consent #203/#173 are merged at source baseline `d05498d8dc13c6f07dc151da7a41a1619ff62436`. Resulting integration CI is a separate receipt. [The B/C closure checklist](../B-C-CLOSEOUT.md) tracks pending client composition, applicable changed-behavior checks and host/provider dependencies. Preserve historical acceptance; assess later changed bytes on their own scope. Phase D belongs to Rachel and is outside this closure task.
+**Remaining work: [CURRENT-CLOSEOUT.md](CURRENT-CLOSEOUT.md), reconciled 2026-11-10.** That file is the single current checklist, with accepted results preserved and only remaining assertions open. This README documents historical C-B0 preparation and reusable offline tools. Its October candidate/dependency text and `not_run` template examples are not instructions to restart completed implementation or live tests.
+
+**Historical status (2026-10-23 America/New_York):** selected C-B1–C-B5 source is integrated through combined PR #143. Prior B/C testing is human-attested complete/countersigned; see [the attributed acceptance record](EVIDENCE.md). Later Windows, normal-entry and supervised wake corrections are integrated through #199, and authorization/consent #203/#173 are merged at source baseline `d05498d8dc13c6f07dc151da7a41a1619ff62436`. Resulting integration CI is a separate receipt. [The historical B/C closure record](../B-C-CLOSEOUT.md) preserves source inclusion and earlier pending snapshots; it is not a second current checklist. Preserve historical acceptance; assess later changed bytes on their own scope. Phase D remains outside this closure task.
 
 Publication baseline: integration `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. This separate preparation branch preserves PR #114's published history and carries its client-owned source inventory and tests alongside the reviewed evidence preparation.
 
 This directory prepares Rachel/Codex's client work from the [Phase C execution plan](../../../docs/architecture/agent-native-v2/phase-c-execution-plan.md). It neither implements unpublished server protocols nor enables a route. Je retains server contracts, fixtures, root/release wiring and integration. Existing CSP-fix and distribution workstreams retain their claimed files.
 
-## Current dependency result
+## Historical dependency result
 
 The canonical contract ids are `case-session`, `case-tools` and `http-wake`, each version 1. The inventory uses those actual ids, not the earlier planning suffixes. PR #116 at `15fff09f336fe941858287511471b07b9f5184f8` completes all nine case tools and amends CaseSession. PR #121 at `269d9697cb8dd2d6ddd77f49e671c7fff69164ca` publishes HTTPS wake with 140 executable fixtures. Exact-version human approvals are recorded on board #34 at comments 6257953866 and 6257954193. Contract/source inclusion does not establish extra provider support.
 
-C-B0's source inventory and evidence preparation can proceed. Independent consuming ACKs for these publications are recorded separately; this inventory does not recreate or certify them. C-B1 through C-B5 implementation requires the appropriate approved contract and published fixtures; C-B6 additionally requires Je's combined candidate and the real hosted/runtime gates. A planning merge does not approve wire schemas.
+C-B0's inventory/preparation and selected C-B1–C-B5 implementation are already included as recorded above. Independent consuming ACKs are retained separately; this inventory does not recreate or certify them. Do not restart those source tasks. Later changed-source checks and current C-B6 closeout use CURRENT-CLOSEOUT and governing L5. A documentation merge does not approve wire schemas or live operations.
 
 ## Read-only source check
 
