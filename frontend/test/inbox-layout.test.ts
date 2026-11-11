@@ -121,3 +121,22 @@ it('does not use the wide layout without a window', async () => {
   const Probe = () => createElement('i', null, String(useWideLayout()));
   expect(renderToStaticMarkup(createElement(Probe))).toBe('<i>false</i>');
 });
+
+it('shows historical attachments in workspace Files from an empty agent inbox', () => {
+  const createdAt = '2026-11-05T12:00:00Z';
+  const root = { id: 'root_files', name: 'My inbox', status: 'active', createdAt } as Inbox;
+  const selected = { ...root, id: 'selected_files', name: 'Empty inbox', kind: 'agent', parentInboxId: root.id } as Inbox;
+  const historical = { ...selected, id: 'history_files', name: 'Historical inbox' };
+  const view = { inbox: selected, recentEvents: [], invitations: [], agents: [], caseQueue: [], cases: [], messages: [], assets: [], folders: [], summary: { agents: 0, cases: 0, messages: 0, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 0, waiting: 0, completed: 0 } } as unknown as HumanView;
+  const historicalView = { ...view, inbox: historical, assets: [{ id: 'obj_history', workspaceId: historical.id, filename: 'older-report.csv', mimeType: 'text/csv', size: 30, state: 'clean', createdAt }] } as HumanView;
+  const props = {
+    config: { provider: 'local' as const, hosted: false }, human: { id: 'human_files', displayName: 'Human' }, organizations: [], workspaces: [root, selected, historical], workspace: selected, view,
+    initialSection: 'documents' as const, onSelectWorkspace: vi.fn(), onRefresh: vi.fn(), onLogout: vi.fn(), syncNotice: ''
+  };
+  const pending = renderToStaticMarkup(createElement(AppShell, props));
+  expect(pending).toContain('Loading files from your agent inboxes');
+  expect(pending).not.toContain('No files yet');
+  const markup = renderToStaticMarkup(createElement(AppShell, { ...props, initialChildViews: { [root.id]: { ...view, inbox: root }, [historical.id]: historicalView } }));
+  expect(markup).toContain('older-report.csv');
+  expect(markup).not.toContain('No files yet');
+});

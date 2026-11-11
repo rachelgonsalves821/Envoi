@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
+import { ManagedFiles } from './onboarding/ManagedFiles';
 import { fileFolderFor, fileSourceView } from './file-folders';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
@@ -889,7 +890,7 @@ export function AppShell(props: ShellProps) {
     }))
   ];
   const aggregateViews = [view, ...[rootWorkspace, ...agentInboxes].filter(inbox => inbox.id !== workspace.id).map(inbox => childViews[inbox.id]).filter((item): item is HumanView => Boolean(item))];
-  const queueView: HumanView = workspace.id === rootWorkspace.id ? {
+  const workspaceAggregate: HumanView = {
     ...view,
     sourceViews: aggregateViews,
     agents: agentEntries.map(entry => entry.agent),
@@ -897,13 +898,18 @@ export function AppShell(props: ShellProps) {
     messages: aggregateViews.flatMap(item => item.messages),
     assets: aggregateViews.flatMap(item => item.assets),
     participantDirectory: Object.assign({}, ...aggregateViews.map(item => item.participantDirectory || {}))
-  } : view;
+  };
+  const queueView = workspace.id === rootWorkspace.id ? workspaceAggregate : view;
   const counts = caseCounts({ ...queueView, caseQueue: filterInboxCases(queueView.caseQueue) });
   const caseSources = aggregateViews.flatMap(item => item.caseQueue.map(workCase => ({ workCase, sourceView: item, key: `${item.inbox.id}:${workCase.id}` })));
   const inboxCases = filterInboxCases(queueView.caseQueue, { view: section === 'completed' ? 'done' : 'main', ...(selectedFolderId ? { folderId: selectedFolderId } : {}) });
   const missingAgentViews = agentInboxes.filter(inbox => inbox.status !== 'removed' && !childViews[inbox.id]);
   const doneLoadStatus = section === 'completed' && workspace.id === rootWorkspace.id && missingAgentViews.length
     ? missingAgentViews.some(inbox => childViewFailures.includes(inbox.id)) ? 'error' : 'loading' : undefined;
+  const filesInboxes = [rootWorkspace, ...agentInboxes].filter(inbox => inbox.status !== 'removed');
+  const missingFileViews = filesInboxes.filter(inbox => inbox.id !== workspace.id && !childViews[inbox.id]);
+  const filesLoadStatus = missingFileViews.some(inbox => childViewFailures.includes(inbox.id))
+    ? 'error' : missingFileViews.length ? 'loading' : undefined;
   const sectionCases = section === 'completed' ? inboxCases : casesForSection(inboxCases, section, queueView.assets);
   const visibleCaseEntries = sectionCases.flatMap(item => {
     const source = caseSources.find(entry => entry.workCase === item);
@@ -967,6 +973,12 @@ export function AppShell(props: ShellProps) {
     return () => document.removeEventListener('pointerdown', closeMenu);
   }, [folderMenuId]);
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
+
+  useEffect(() => {
+    if (section !== 'documents' || workspace.id === rootWorkspace.id || childViews[rootWorkspace.id] || rootWorkspace.id === previewWorkspace.id) return;
+    void refreshAgentInbox(rootWorkspace.id).catch(() => setChildViewFailures(current =>
+      current.includes(rootWorkspace.id) ? current : [...current, rootWorkspace.id]));
+  }, [section, workspace.id, rootWorkspace.id, childViews[rootWorkspace.id]]);
 
   function chooseSection(next: NavSection) {
     setSelectedFolderId(null);
@@ -1101,7 +1113,17 @@ export function AppShell(props: ShellProps) {
         {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
-{section === 'documents' && <SharedFilesPage view={queueView} notify={setToast} onOpenCase={openCaseFromUtility} />}
+{section === 'documents' && <SharedFilesPage view={workspaceAggregate} notify={setToast} onOpenCase={openCaseFromUtility}
+              loadStatus={filesLoadStatus} onRetry={() => {
+                setChildViewFailures(current => current.filter(id => !missingFileViews.some(inbox => inbox.id === id)));
+                for (const inbox of missingFileViews) void refreshAgentInbox(inbox.id).catch(() =>
+                  setChildViewFailures(current => current.includes(inbox.id) ? current : [...current, inbox.id]));
+              }}
+              managedInboxes={agentEntries.filter(({ inbox, agent, view: agentView }) =>
+                inbox.ownerAgentId === agent.id && inbox.status !== 'removed' && agentView.canManageInbox
+              ).map(({ inbox, agent, view: agentView }) => ({ id: inbox.id, name: agent.name, assets: agentView.assets.filter(asset =>
+                asset.workspaceId === inbox.id && asset.state === 'clean' && asset.id.startsWith('obj_')
+              ) }))} />}
 {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={openConnect} onRefresh={refreshAgentInbox} notify={setToast} />}
             {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onConnect={openConnect} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
@@ -1616,7 +1638,15 @@ export function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   );
 }
 
-function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void }) {
+function SharedFilesPage({ view, notify, onOpenCase, managedInboxes, loadStatus, onRetry }: {
+  view: HumanView;
+  notify: (message: string) => void;
+  onOpenCase: (workCase: WorkCase) => void;
+  managedInboxes: Parameters<typeof ManagedFiles>[0]['inboxes'];
+  loadStatus?: 'loading' | 'error';
+  onRetry: () => void;
+}) {
+  const [accessOpen, setAccessOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [direction, setDirection] = useState<'all' | 'received' | 'sent'>('all');
   const [kind, setKind] = useState('');
@@ -1640,11 +1670,14 @@ function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify
     return (!folder || folderFor(asset).id === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset).label}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || Boolean(localId) && (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
   }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return <div className="files-page">
-    <div className="files-heading"><div><h1>Files</h1><p>Files shared in your agents’ conversations.</p></div>{assets.length > 0 && <div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div>}</div>
+    <div className="files-heading"><div><h1>Files</h1><p>Files shared in your agents’ conversations.</p></div>{assets.length > 0 && <div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div>}{managedInboxes.length > 0 && <button className="button secondary files-access-button" onClick={() => setAccessOpen(true)}>Manage access</button>}</div>
+    {accessOpen && <Modal title="Agent file access" onClose={() => setAccessOpen(false)}><ManagedFiles inboxes={managedInboxes} /></Modal>}
+    {loadStatus === 'loading' && <p role="status">Loading files from your agent inboxes…</p>}
+    {loadStatus === 'error' && <p role="status">Some inbox files could not load. <button className="button secondary compact" onClick={onRetry}>Retry</button></p>}
     {assets.length > 0 && <><div className="files-toolbar"><div className="files-segment" aria-label="File direction">{([['all','All'],['received','Received'],['sent','Sent by my agents']] as const).map(([value,label]) => <button key={value} aria-pressed={direction === value} onClick={() => setDirection(value)}>{label}</button>)}</div><div className="files-types">{kinds.map(item => <button key={item.label} aria-pressed={kind === item.match} onClick={() => setKind(current => current === item.match ? '' : item.match)}>{item.label}</button>)}</div><div className="files-segment layout-toggle"><button aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button></div></div>
     {folder && <div className="files-breadcrumb"><button onClick={() => setFolder('')}>Files</button><ChevronRight size={16} /><span>{selectedFolder?.label || 'Other files'}</span></div>}</>}
     {!folder && folders.length > 0 && <section className="files-folders"><h2>Folders</h2><div className="folder-grid">{folders.map((item, index) => <button key={item.id} onClick={() => setFolder(item.id)}><Folder size={22} fill={AGENT_COLORS[index % AGENT_COLORS.length]} color={AGENT_COLORS[index % AGENT_COLORS.length]} /><span>{item.label}</span><small>{assets.filter(asset => folderFor(asset).id === item.id).length}</small></button>)}</div></section>}
-    <section className="recent-files">{assets.length > 0 && <h2>{selectedFolder?.label || 'Recent files'}</h2>}{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={sourceFor(asset).agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={sourceFor(asset).inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><span className="empty-icon"><FileText size={25} /></span><strong>{assets.length ? 'No matching files' : 'No files yet'}</strong><span>{assets.length ? 'Try another search or filter.' : 'Files shared in conversations will appear here.'}</span></div>}</section>
+    <section className="recent-files">{assets.length > 0 && <h2>{selectedFolder?.label || 'Recent files'}</h2>}{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={sourceFor(asset).agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={sourceFor(asset).inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : !loadStatus && <div className="files-empty"><span className="empty-icon"><FileText size={25} /></span><strong>{assets.length ? 'No matching files' : 'No files yet'}</strong><span>{assets.length ? 'Try another search or filter.' : 'Files shared in conversations will appear here.'}</span></div>}</section>
   </div>;
 }
 
