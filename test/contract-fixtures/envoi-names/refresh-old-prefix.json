@@ -1,6 +1,6 @@
 {
   "contract": "envoi-names",
-  "version": 1,
+  "version": 2,
   "id": "refresh-old-prefix",
   "description": "A refresh token issued before the cutover is refused; the identity is kept and the owner reconnects.",
   "kind": "http",

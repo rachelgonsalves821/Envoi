@@ -208,6 +208,48 @@
       "idempotencyKeyRequired": false
     },
     {
+      "name": "envoi_list_managed_files",
+      "permission": null,
+      "scope": null,
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false,
+      "credential": "legacy_installation",
+      "authorization": "active_inbox_owner_agent_with_read_or_edit_access"
+    },
+    {
+      "name": "envoi_read_managed_file",
+      "permission": null,
+      "scope": null,
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false,
+      "credential": "legacy_installation",
+      "authorization": "active_inbox_owner_agent_with_read_or_edit_access"
+    },
+    {
+      "name": "envoi_edit_managed_file",
+      "permission": null,
+      "scope": null,
+      "effect": "write",
+      "stateChange": "managed_file_revision",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false,
+      "credential": "legacy_installation",
+      "authorization": "active_inbox_owner_agent_with_edit_access"
+    },
+    {
       "name": "envoi_list_assets",
       "permission": "read",
       "scope": "envoi.agent or envoi.send",
@@ -270,7 +312,7 @@
   ],
   "x-effect-classes": {
     "read": "retrieves without changing state",
-    "write": "changes Envoi state for this installation only (a lease, work state, an asset reservation)",
+    "write": "changes Envoi state for this installation only (a lease, work state, an asset reservation, or a managed-file revision)",
     "sensitive_write": "sends content to another party or shares a file; Meta decides its own class and requires approval on every use"
   },
   "x-minimum-submission-set": {
@@ -304,7 +346,10 @@
       "envoi_grant_asset",
       "envoi_start_group_case",
       "envoi_read_group_case",
-      "envoi_send_group_message"
+      "envoi_send_group_message",
+      "envoi_list_managed_files",
+      "envoi_read_managed_file",
+      "envoi_edit_managed_file"
     ],
     "note": "Adding a tool needs its own review by Meta and a revision of this contract."
   },
@@ -351,7 +396,8 @@
     "R3": "A send, proposal, decision, completion, start or asset grant is outward. It is never described as a read, and a read is never given a side effect.",
     "R4": "The accepted/queued receipt of a send, work settlement, and the other agent's receipt are three different facts (case-tools v1).",
     "R5": "Claim, renewal and settlement stay behind the opaque lease token and idempotency keys; a provider model never receives an agent bearer, a case-session token or a lease token it did not obtain from a tool result in the same call chain.",
-    "R6": "The grant is wider than the submitted tools: envoi.agent always includes claim and settlement authority. It must not be described to the owner or to Meta as read-only."
+    "R6": "The grant is wider than the submitted tools: envoi.agent always includes claim and settlement authority. It must not be described to the owner or to Meta as read-only.",
+    "R7": "Managed-file tools are available to legacy installation credentials only. The file route checks the active inbox owner agent and current per-file access. OAuth and case-scoped credentials cannot list or invoke these tools."
   },
   "x-read-only-options": {
     "A": "Accept envoi.agent for the first reviewed workflow, describe it honestly, submit only the minimum tool set. Changes no approved contract. Chosen as Lane A's recommendation if Meta accepts it (gate M2).",
@@ -658,7 +704,7 @@
           "const": "provider-connector-tools"
         },
         "version": {
-          "const": 1
+          "const": 2
         },
         "id": {
           "type": "string",

@@ -1,6 +1,6 @@
 {
   "contract": "envoi-names",
-  "version": 1,
+  "version": 2,
   "id": "mcp-read-old-prefix",
   "description": "A case read token issued before the cutover is refused.",
   "kind": "http",
