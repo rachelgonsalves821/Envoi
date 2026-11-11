@@ -40,6 +40,22 @@ function row(view: HumanView, item = workCase) {
 }
 
 describe('case inbox perspective', () => {
+  it('shows the latest contact block and unblock even when the directory still says active', () => {
+    const view = source('agent_je');
+    const block = { id: 'block', type: 'contact.blocked', agentId: 'agent_rachel', createdAt, sequence: 1 };
+    const unblock = { ...block, id: 'unblock', type: 'contact.unblocked', sequence: 2 };
+    const unrelated = { ...block, id: 'other', agentId: 'agent_other', sequence: 3 };
+
+    expect(thread(view)).toContain('>Block agent</button>');
+    const blocked = thread({ ...view, recentEvents: [block, unrelated] });
+    expect(blocked).toContain('>Unblock agent</button>');
+    expect(blocked).toContain('class="participant-access">Blocked</span>');
+
+    const unblocked = thread({ ...view, recentEvents: [block, unrelated, unblock] });
+    expect(unblocked).toContain('>Block agent</button>');
+    expect(unblocked).not.toContain('class="participant-access">Blocked</span>');
+  });
+
   it.each([
     ['agent_je', 'Je', 'Rachel probe', 'Recipient organization', 'mine', 'theirs', 'outbound'],
     ['agent_rachel', 'Rachel probe', 'Je', 'Sender organization', 'theirs', 'mine', 'inbound']
