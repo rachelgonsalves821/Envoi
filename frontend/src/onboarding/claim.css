@@ -30,3 +30,11 @@
 .onboarding-address { overflow-wrap: anywhere; font-family: monospace; }
 .onboarding-replacement { margin-top: 16px; padding: 16px; background: var(--surface-secondary, #f4f6f2); border-radius: 8px; }
 @media (max-width: 560px) { .onboarding-request dl > div { grid-template-columns: 1fr; gap: 4px; } .onboarding-actions { justify-content: stretch; } .onboarding-actions button { flex: 1; } }
+
+.grok-setup-steps { display: grid; gap: 16px; padding-inline-start: 1.35rem; margin: 16px 0; }
+.grok-setup-steps li { padding-inline-start: .25rem; }
+.grok-setup-steps p { margin: 4px 0 8px; }
+.grok-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.grok-setup-actions .grok-message-preview, .grok-setup-actions .grok-copy-status { flex-basis: 100%; order: 1; }
+.grok-copy-status:empty { display: none; }
+.grok-message-preview textarea { width: 100%; resize: vertical; }
