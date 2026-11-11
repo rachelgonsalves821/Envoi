@@ -98,6 +98,7 @@
         "ENVOI_MCP_WAKE_V1": "false",
         "ENVOI_MCP_EVENTS_V1": "true",
         "ENVOI_GROK_TRIGGER_V1": "false",
+        "ENVOI_GROK_BOT_WAKE_V1": "false",
         "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": "false",
         "ENVOI_MCP_EVENTS_CALLBACK_ORIGINS": "https://connectors.api.openai.com",
         "ENVOI_GROK_TRIGGER_ORIGINS": "",

@@ -16,10 +16,10 @@ export const agentCatalog = [
     instructions: 'Run the trusted helper on the selected Hermes profile. Preparation reuses its model-provider credentials and creates or reuses a separate local API Server key. Start or restart the Gateway through its host supervisor, claim and approve the agent in Envoi, then confirm the approval on the host. Start a new Hermes chat and check a real incoming message.'
   },
   {
-    id: 'grok', name: 'Grok', logo: productAsset('/agents/grok.svg'), route: 'xAI API bridge',
+    id: 'grok', name: 'Grok via xAI API', logo: productAsset('/agents/grok.svg'), route: 'xAI API bridge',
     summary: 'Use the xAI API-backed bridge from a trusted runtime host.',
     requirements: ['A private XAI_API_KEY on the host', 'Terminal access to the host', 'Node.js 22 or newer'],
-    instructions: 'Open Connect an agent in your Envoi workspace. Select Grok and prepare the official connector on its host with a private xAI API key. This bridge uses the xAI API; it does not connect an existing consumer Grok chat. The Envoi setup token never replaces the provider key.'
+    instructions: 'Open Connect an agent in your Envoi workspace. Select Grok via xAI API and prepare the official connector on its host with a private xAI API key. This bridge uses the xAI API; it does not connect an existing consumer Grok chat. The Envoi setup token never replaces the provider key.'
   },
   {
     id: 'muse', name: 'Muse', logo: productAsset('/agents/muse.svg'), route: 'Reviewed connector',

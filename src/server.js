@@ -1124,7 +1124,7 @@ async function handleConsentRoute(req, res, route) {
 
 const httpWakeEnabled = onboardingFlags.httpWake;
 const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installationsEnabled: onboardingFlags.installations,
-  mcpWakeEnabled: Boolean(onboardingFlags.mcpWake), mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger),
+  mcpWakeEnabled: Boolean(onboardingFlags.mcpWake), mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger), grokBotWakeEnabled: Boolean(onboardingFlags.grokBotWake),
   facts: async sub => {
     const [family, agent] = await Promise.all([store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)),
       store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`))]);
@@ -1140,7 +1140,7 @@ const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installations
 });
 const mcpWakeTools = createMcpWakeTools({ httpWake, enabled: Boolean(onboardingFlags.mcpWake), clientFor: identity => oauthClients.get(identity.family?.oauthClientId) });
 const providerEventWake = createProviderEventWake({ httpWake, store, key: connectorEncryptionKey(),
-  mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger),
+  mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger), grokBotWakeEnabled: Boolean(onboardingFlags.grokBotWake),
   validateCursor: async (identity, cursor) => {
     try { await resumeEventCursor(identity.inboxId, cursor); }
     catch (error) { if (error.code === 'EVENT_CURSOR_INVALID') throw Object.assign(new Error('Invalid cursor'), { rpcCode: -32602 }); throw error; }
@@ -4344,9 +4344,11 @@ async function route(req, res) {
   if (groupRoute) return handleGroupCaseRoute(req, res, groupRoute);
   if (wakeRoute) return handleHttpWakeRoute(req, res, url);
   if (caseSessionRoute) return handleCaseSessionRoute(req, res, caseSessionRoute);
-  const grokTargetRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/agents\/([^/]+)\/wake-targets\/grok$/);
+  const grokTargetRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/agents\/([^/]+)\/wake-targets\/(grok|grok-bot)$/);
   if (grokTargetRoute) {
-    if (!onboardingFlags.grokTrigger) throw codedError(404, 'FEATURE_DISABLED', 'Provider wake is not available.');
+    const isGrokBot = grokTargetRoute[3] === 'grok-bot';
+    const profile = isGrokBot ? 'grok_bot' : 'grok_trigger';
+    if (!(isGrokBot ? onboardingFlags.grokBotWake : onboardingFlags.grokTrigger)) throw codedError(404, 'FEATURE_DISABLED', 'Provider wake is not available.');
     if (!['PUT', 'GET', 'DELETE'].includes(req.method)) return fail(res, 405, 'Method not allowed');
     if (bearerToken(req) || parseCookies(req.headers.cookie)['__Host-envoi_agent_gateway']) throw credentialError('AUTHENTICATION_REQUIRED');
     const human = await auth.getHuman(req);
@@ -4356,16 +4358,18 @@ async function route(req, res) {
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
     if (!inbox || !agent || !await canManageInbox(human, inbox, { maxAgeMs: 0 })) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'Workspace access is required.');
     let family = null, installationId = null;
+    const input = req.method === 'PUT' ? await body(req, 8192) : null;
+    const requestedInstallation = isGrokBot && req.method === 'PUT' ? assertSafeIdentifier(input?.installationId, 'installationId') : null;
     if (req.method === 'PUT') for (const installation of await installations.list(inboxId, agent)) {
-      if (installation.status !== 'active') continue;
+      if (installation.status !== 'active' || (requestedInstallation && (installation.id !== requestedInstallation || installation.connectionRoute !== 'remote_mcp_oauth'))) continue;
       const candidate = await store.getJson(agentCredentialFamilyPath(inboxId, agentId, installation.familyId));
       if (candidate && !candidate.revokedAt && Date.parse(candidate.refreshExpiresAt) > Date.now()) { family = candidate; installationId = installation.id; break; }
     }
     if (req.method === 'PUT' && (!family || !canAct(agent, 'receive_agent_messages'))) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'An active installation is required.');
     const identity = { inboxId, agent, family, installationId, ownerRequest: req, ownerHumanId: human.id };
     let result;
-    try { result = req.method === 'PUT' ? await providerEventWake.putGrok(identity, await body(req, 8192))
-      : req.method === 'DELETE' ? await providerEventWake.deleteGrok(identity) : await providerEventWake.getGrok(identity); }
+    try { result = req.method === 'PUT' ? await providerEventWake.putGrok(identity, isGrokBot ? { url: input.url, secret: input.secret } : input, profile)
+      : req.method === 'DELETE' ? await providerEventWake.deleteGrok(identity, profile, isGrokBot ? assertSafeIdentifier(url.searchParams.get('installationId'), 'installationId') : null) : await providerEventWake.getGrok(identity, profile); }
     catch (error) {
       if (error.statusCode) {
         const retry = Math.min(86400, Math.max(0, Math.ceil(Number(error.retryAfter) || 0)));

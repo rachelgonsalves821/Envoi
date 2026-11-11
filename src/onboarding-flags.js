@@ -3,7 +3,7 @@
 // the Phase C sessions flag, which clients learn about from GET /api/agent/status. http-wake v1
 // adds the HTTPS wake flag, which clients learn about from the same status route. agent-remote-auth
 // v1 §1 adds the two remote route flags, which change only the routes body and their own endpoints.
-export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_HTTP_WAKE_V1', 'ENVOI_PROVIDER_BROWSER_POLL', 'ENVOI_REMOTE_MCP_OAUTH', 'ENVOI_PROVIDER_CONNECTORS', 'ENVOI_MCP_WAKE_V1', 'ENVOI_MCP_EVENTS_V1', 'ENVOI_GROK_TRIGGER_V1', 'ENVOI_PROVIDER_GATEWAY_NATIVE_V1', 'ENVOI_RELATIONSHIPS_V2', 'ENVOI_A2A_GATEWAY'];
+export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_HTTP_WAKE_V1', 'ENVOI_PROVIDER_BROWSER_POLL', 'ENVOI_REMOTE_MCP_OAUTH', 'ENVOI_PROVIDER_CONNECTORS', 'ENVOI_MCP_WAKE_V1', 'ENVOI_MCP_EVENTS_V1', 'ENVOI_GROK_TRIGGER_V1', 'ENVOI_GROK_BOT_WAKE_V1', 'ENVOI_PROVIDER_GATEWAY_NATIVE_V1', 'ENVOI_RELATIONSHIPS_V2', 'ENVOI_A2A_GATEWAY'];
 // Internal capability, never accepted from a registration or activation HTTP body.
 export const providerGatewayAuthority = Symbol('provider-browser-poll');
 export const browserPollAvailable = flags => Boolean(flags.providerBrowserPoll && flags.registration && flags.installations && flags.authenticatedRest);
@@ -36,6 +36,7 @@ export function onboardingFlagErrors(env = process.env) {
   const dependencies = {
     ENVOI_MCP_WAKE_V1: ['ENVOI_HTTP_WAKE_V1', 'ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_PROVIDER_CONNECTORS'],
     ENVOI_MCP_EVENTS_V1: ['ENVOI_HTTP_WAKE_V1', 'ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2'],
+    ENVOI_GROK_BOT_WAKE_V1: ['ENVOI_HTTP_WAKE_V1', 'ENVOI_REMOTE_MCP_OAUTH'],
     ENVOI_GROK_TRIGGER_V1: ['ENVOI_HTTP_WAKE_V1', 'ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2'],
     ENVOI_PROVIDER_GATEWAY_NATIVE_V1: ['ENVOI_PROVIDER_BROWSER_POLL', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2']
   };
@@ -70,6 +71,7 @@ export function readOnboardingFlags(env = process.env) {
     ...(env.ENVOI_PROVIDER_CONNECTORS === 'true' ? { providerConnectors: true } : {}),
     ...(env.ENVOI_MCP_WAKE_V1 === 'true' ? { mcpWake: true } : {}),
     ...(env.ENVOI_MCP_EVENTS_V1 === 'true' ? { mcpEvents: true } : {}),
+    ...(env.ENVOI_GROK_BOT_WAKE_V1 === 'true' ? { grokBotWake: true } : {}),
     ...(env.ENVOI_GROK_TRIGGER_V1 === 'true' ? { grokTrigger: true } : {}),
     ...(env.ENVOI_PROVIDER_GATEWAY_NATIVE_V1 === 'true' ? { providerGatewayNative: true } : {}),
     ...(env.ENVOI_RELATIONSHIPS_V2 === 'true' ? { relationships: true } : {}),
@@ -92,6 +94,7 @@ export function routeAvailability(flags, asOf = new Date().toISOString()) {
     contract: { id: 'agent-registration', version: 1 },
     registrationEnabled: flags.registration,
     installationsEnabled: flags.installations,
+    ...(flags.grokBotWake ? { grokBotAvailable: true } : {}),
     routes: connectionRoutes.map(connectionRoute => ({ connectionRoute, available: routeAvailable(flags, connectionRoute) || remoteRouteAvailable(flags, connectionRoute) })),
     deliveryModes: deliveryModes.map(deliveryMode => ({ deliveryMode, available: deliveryModeAvailable(flags, deliveryMode) || remoteModeAvailable(flags, deliveryMode) }))
   };

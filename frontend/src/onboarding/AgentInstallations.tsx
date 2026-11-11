@@ -1,3 +1,4 @@
+import { GrokBotMonitoring } from './GrokBotSetup';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Agent } from '../types';
 import { agentLabel, connectionLabel } from '../agent-presence';
@@ -30,6 +31,7 @@ function InstallationsSession({ humanId, inboxId, agent, canManage, onReconnect,
       <p>Activated <time dateTime={installation.activatedAt}>{new Date(installation.activatedAt).toLocaleString()}</time>{installation.endedAt && <> · Ended <time dateTime={installation.endedAt}>{new Date(installation.endedAt).toLocaleString()}</time></>}</p>
       {installation.status === 'active' && (confirmId === installation.id ? <div className="onboarding-notice" role="group" aria-label="Confirm installation revocation"><p>Revoke this installation’s access? Its runtime will stop processing Envoi work. The agent’s identity, address, cases and history remain; it can reconnect through a new approved registration.</p><div className="onboarding-actions"><button type="button" className="button secondary compact" disabled={locked} onClick={() => setConfirmId(null)}>Cancel</button><button type="button" className="button danger compact" disabled={locked} onClick={() => void controller.revoke(installation.id).then(success => { if (success) { setConfirmId(null); void onRefresh?.(); } })}>Confirm revoke</button></div></div>
         : <button type="button" className="button secondary compact" disabled={locked} onClick={() => setConfirmId(installation.id)}>Revoke installation</button>)}
+      {installation.status === 'active' && installation.connectionRoute === 'remote_mcp_oauth' && <GrokBotMonitoring inboxId={inboxId} agent={agent} installationId={installation.id} />}
     </article>)}</div>
     {onReconnect && canReconnectAgent(agent) && <><p>To move this identity to another runtime, start a new registration there and choose this existing agent when claiming its code.</p><button type="button" className="button secondary" disabled={locked} onClick={onReconnect}>Reconnect this identity</button></>}
     {agent.onboardingStatus === 'revoked' && <p>This identity is frozen by agent-wide revocation. Use Quick Connect under Advanced to re-onboard it.</p>}

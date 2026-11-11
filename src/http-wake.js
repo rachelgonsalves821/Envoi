@@ -17,7 +17,7 @@ const retryable = new Set(['timeout','connect_failed','tls_failed','address_reje
 const challengeRetryable = new Set(['interrupted','http_retryable']);
 const schedule = [10,30,120,600,1800];
 const publicSub = sub => Object.fromEntries(['id','installationId','agentId','url','status','endedReason','endedAt','createdAt','activatedAt','expiresAt','challengeExpiresAt','replacesSubscriptionId','delivery'].map(key => [key, sub[key]]));
-export function createHttpWake({ store, enabled = false, installationsEnabled = false, mcpWakeEnabled = false, mcpEventsEnabled = false, grokTriggerEnabled = false, env = process.env, facts, audit = async () => {}, observe = record => console.info(JSON.stringify(record)), now = () => new Date().toISOString(), random = Math.random, resolveDestination, transport, signingKeys } = {}) {
+export function createHttpWake({ store, enabled = false, installationsEnabled = false, mcpWakeEnabled = false, mcpEventsEnabled = false, grokTriggerEnabled = false, grokBotWakeEnabled = false, env = process.env, facts, audit = async () => {}, observe = record => console.info(JSON.stringify(record)), now = () => new Date().toISOString(), random = Math.random, resolveDestination, transport, signingKeys } = {}) {
   if (enabled && !installationsEnabled) throw new Error('ENVOI_HTTP_WAKE_V1 requires ENVOI_INSTALLATIONS_V2');
   if (enabled && ['1','true'].includes(env.NODE_USE_ENV_PROXY)) throw new Error('Wake cannot use environment proxy transport');
   const destination = createWakeDestination({ env });
@@ -27,9 +27,10 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
   const time = () => Date.parse(now());
   const admission = createWakeAdmission({store,now:time});
   const profiles = new Map();
-  const flags = { mcp:mcpWakeEnabled, mcp_events:mcpEventsEnabled, grok_trigger:grokTriggerEnabled };
+  const flags = { mcp:mcpWakeEnabled, mcp_events:mcpEventsEnabled, grok_trigger:grokTriggerEnabled, grok_bot:grokBotWakeEnabled };
   const profileEpochPath = name => `config/http-wake-${name}-epoch`;
   const profileOf = sub => sub.profile ? profiles.get(sub.profile) : null;
+  const isGrokTarget = profile => profile === 'grok_trigger' || profile === 'grok_bot';
   const extension = sub => Boolean(sub.profile || sub.createdVia==='mcp');
   const extensionLive = ({family,agent,installation}) => Boolean(family&&!family.revokedAt
     &&Number.isFinite(Date.parse(family.refreshExpiresAt))&&Date.parse(family.refreshExpiresAt)>time()
@@ -96,7 +97,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     const bodyText = JSON.stringify(profile?.body ? profile.body(sub, body) : body);
     if (Buffer.byteLength(bodyText) > 1024) throw new Error('Wake event exceeds opaque notification limit');
     const targetAttemptAt=sub.grokLastAttemptAt||sub.delivery.lastAttemptAt;
-    const event = { ...body, ...(sub.generation?{generation:sub.generation}:{}), inboxId:sub.inboxId, agentId:sub.agentId, lane, bodyText, status:'queued', attempts:0, availableAt:iso(Math.max(time() + (challenge ? 2000 : 0), sub.profile === 'grok_trigger' && targetAttemptAt ? Date.parse(targetAttemptAt)+5000 : 0)), deadline:challenge ? sub.challengeExpiresAt : iso(time()+3600000) };
+    const event = { ...body, ...(sub.generation?{generation:sub.generation}:{}), inboxId:sub.inboxId, agentId:sub.agentId, lane, bodyText, status:'queued', attempts:0, availableAt:iso(Math.max(time() + (challenge ? 2000 : 0), isGrokTarget(sub.profile) && targetAttemptAt ? Date.parse(targetAttemptAt)+5000 : 0)), deadline:challenge ? sub.challengeExpiresAt : iso(time()+3600000) };
     sub.liveEvents = { ...sub.liveEvents, [lane]:event.id };
     await save(sub); await putEvent(event);
   }
@@ -188,8 +189,8 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     if(!sub||event.generation!==sub.generation){event.status='cancelled';event.finishedAt=now();event.claimToken=null;event.lockedUntil=null;await putEvent(event);return;}
     const at=time(); event.lastFailureClass=result.failureClass || null;
     if(sub.profile==='grok_trigger'&&result.status===425)result={...result,failureClass:'http_rejected'};
-    if (sub.profile === 'grok_trigger' && [400,401,413].includes(result.status) && sub.status !== 'ended') {
-      sub.targetState=result.status===401?'needs_secret':'needs_attention';sub.stateReason=result.status===401?'receiver_unauthorized':'sender_rejected';
+    if (isGrokTarget(sub.profile) && [400,401,413,...(sub.profile === 'grok_bot' ? [403] : [])].includes(result.status) && sub.status !== 'ended') {
+      sub.targetState=[401,403].includes(result.status)?'needs_secret':'needs_attention';sub.stateReason=[401,403].includes(result.status)?'receiver_unauthorized':'sender_rejected';
       result={...result,failureClass:'http_rejected'};
       await audit(sub.inboxId,'agent.wake_target_attention',{agentId:sub.agentId,installationId:sub.installationId,subscriptionId:sub.id,state:sub.targetState,status:result.status},now());
     }
@@ -227,7 +228,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
         const {family,agent}=await facts(sub);
         if (event.generation!==sub.generation || sub.status === 'ended' || (sub.targetState && sub.targetState!=='active') || Date.parse(family?.refreshExpiresAt)<=time() || (event.lane==='work' && agent?.status==='paused') || (sub.status==='pending' && event.lane!=='challenge') || (sub.status==='active' && event.lane==='challenge')) { await finish(event,sub,{notSent:true});return; }
         const targetAttemptAt=sub.grokLastAttemptAt||sub.delivery.lastAttemptAt;
-        if(sub.profile==='grok_trigger'&&targetAttemptAt&&time()-Date.parse(targetAttemptAt)<5000){event.availableAt=iso(Date.parse(targetAttemptAt)+5000);await putEvent(event);return;}
+        if(isGrokTarget(sub.profile)&&targetAttemptAt&&time()-Date.parse(targetAttemptAt)<5000){event.availableAt=iso(Date.parse(targetAttemptAt)+5000);await putEvent(event);return;}
         if (Date.parse(event.deadline)<time()) { event.attempts=6;event.startedAt=now();await finish(event,sub,{failureClass:'interrupted'});return; }
         event.status='processing';event.attempts++;event.startedAt=now();event.claimToken=crypto.randomUUID();event.lockedUntil=iso(time()+15000);await putEvent(event);claimed={event,sub};
       });
@@ -254,7 +255,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
               && Date.parse(state.family?.refreshExpiresAt)>time()
               && !(event.lane==='work' && state.agent?.status==='paused')
               && (event.lane==='challenge' ? current.status==='pending' : current.status==='active');
-            if(permitted&&current.profile==='grok_trigger'){
+            if(permitted&&isGrokTarget(current.profile)){
               const next=Date.parse(current.grokLastAttemptAt||current.delivery.lastAttemptAt||'1970-01-01T00:00:00Z')+5000;
               if(next>time()){queued.status='queued';queued.availableAt=iso(next);queued.attempts--;queued.claimToken=null;queued.lockedUntil=null;await putEvent(queued);permitted=false;}
               else{current.grokLastAttemptAt=now();await save(current);}
@@ -292,7 +293,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     for(const event of await store.listJson(wakeQueueDir))if(!live(event)&&event.finishedAt&&time()-Date.parse(event.finishedAt)>86400000){await store.deleteJson(eventPath(event.id));await store.deleteJson(wakeLivePath(event.id));}
   }
   return { enabled, startup, heartbeat, create, activate, trigger, pause, runOnce,
-    registerProfile(name,hooks){if(!['mcp_events','grok_trigger'].includes(name)||profiles.has(name))throw new Error('Invalid or duplicate wake profile');profiles.set(name,hooks);},
+    registerProfile(name,hooks){if(!['mcp_events','grok_trigger','grok_bot'].includes(name)||profiles.has(name))throw new Error('Invalid or duplicate wake profile');profiles.set(name,hooks);},
     async profileRecords(identity,profile){return store.withTransaction([lock(identity.inboxId)],async()=>(await listFor(identity,true)).filter(sub=>sub.profile===profile));},
     async reserveProfileCreate(identity,profile,id){return store.withTransaction([lock(identity.inboxId)],async()=>{available();if(!flags[profile])throw wakeError(404,'FEATURE_DISABLED');const current=await derive(await store.getJson(subPath(identity.agentId,id)));if(!current||current.status==='ended')await consumeCreate(identity);});},
     async createProfile(identity,profile,{id,url,expiresAt=null,allowPaused=false,quotaReserved=false,beforeCommit,resetGeneration=false,...fields}){return store.withTransaction([lock(identity.inboxId)],async()=>{
@@ -302,9 +303,11 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       if(!allowPaused&&state.agent.status==='paused')throw wakeError(409,'AGENT_PAUSED');
       const records=await listFor(identity,true);const current=records.find(sub=>sub.id===id&&sub.profile===profile);
       if(!quotaReserved&&(!current||current.status==='ended'))await consumeCreate(identity);
-      for(const old of records)if(old.profile===profile&&old.id!==id&&old.status!=='ended'&&(profile==='grok_trigger'||old.eventName===fields.eventName))await endRecord(old,'replaced');
+      for(const old of records)if(old.profile===profile&&old.id!==id&&old.status!=='ended'&&(isGrokTarget(profile)||old.eventName===fields.eventName))await endRecord(old,'replaced');
       if(resetGeneration&&current)for(const event of await liveEventsOf(current)){event.status='cancelled';event.finishedAt=now();event.claimToken=null;event.lockedUntil=null;await putEvent(event);}
-      const at=now();const sub={...(current?.status!=='ended'?current:{}),id,...identity,generation:current?.status==='active'&&!resetGeneration?current.generation:crypto.randomUUID(),...(resetGeneration?{liveEvents:{}}:{}),profile,url,status:'active',endedReason:null,endedAt:null,createdAt:current?.status!=='ended'?current?.createdAt||at:at,activatedAt:current?.status!=='ended'?current?.activatedAt||at:at,expiresAt:expiresAt||iso(time()+2592000000),challengeExpiresAt:null,delivery:current?.delivery||{state:'healthy',lastAttemptAt:null,lastSuccessAt:null,consecutiveFailures:0,lastFailureClass:null},sequence:current?.sequence||0,dirty:{},...fields};
+      // An owner-configured Bot routine follows its live OAuth installation.
+      const profileExpiresAt = profile === 'grok_bot' ? null : expiresAt || iso(time()+2592000000);
+      const at=now();const sub={...(current?.status!=='ended'?current:{}),id,...identity,generation:current?.status==='active'&&!resetGeneration?current.generation:crypto.randomUUID(),...(resetGeneration?{liveEvents:{}}:{}),profile,url,status:'active',endedReason:null,endedAt:null,createdAt:current?.status!=='ended'?current?.createdAt||at:at,activatedAt:current?.status!=='ended'?current?.activatedAt||at:at,expiresAt:profileExpiresAt,challengeExpiresAt:null,delivery:current?.delivery||{state:'healthy',lastAttemptAt:null,lastSuccessAt:null,consecutiveFailures:0,lastFailureClass:null},sequence:current?.sequence||0,dirty:{},...fields};
       await save(sub);await index(sub);return sub;
     });},
     async endProfile(identity,id,reason='ended_by_host',beforeCommit){return store.withTransaction([lock(identity.inboxId)],async()=>{await beforeCommit?.();const sub=await owned(identity,id,true);if(!sub.profile)throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND');return endRecord(sub,reason);});},

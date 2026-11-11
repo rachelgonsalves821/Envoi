@@ -34,7 +34,7 @@ async function harness(t,kind='file',overrides={},providerOverrides={}){
   const resolveDestination=async url=>{await beforeResolve?.();return {url,addresses:['192.0.43.11']};};
   const options={store,enabled:true,installationsEnabled:true,mcpWakeEnabled:true,mcpEventsEnabled:true,grokTriggerEnabled:true,env:{ENVOI_WAKE_SIGNING_KEYS:keys},facts:async()=>state,now,random:()=>0.5,resolveDestination,observe:()=>{},audit:async(...args)=>audits.push(args),transport:async request=>{sent.push(request);await beforeSend?.(request);const body=JSON.parse(request.bodyText);return body.type==='verification'?(verificationResponse||{status:200,failureClass:null,bodyText:JSON.stringify({challenge:body.challenge})}):response;},...overrides};
   const http=createHttpWake(options);
-  const providerOptions={httpWake:http,store,mcpEventsEnabled:options.mcpEventsEnabled,grokTriggerEnabled:options.grokTriggerEnabled,key:Buffer.alloc(32,7),env:{ENVOI_MCP_EVENTS_CALLBACK_ORIGINS:'https://callbacks.envoi-provider.com',ENVOI_GROK_TRIGGER_ORIGINS:'https://triggers.envoi-provider.com'},now,resolveDestination,audit:options.audit,observe:record=>diagnostics.push(record),eventHistory:async()=>({cursor:'00000000000000000012',truncated:false,events:[]}),...providerOverrides};
+  const providerOptions={httpWake:http,store,mcpEventsEnabled:options.mcpEventsEnabled,grokTriggerEnabled:options.grokTriggerEnabled,grokBotWakeEnabled:options.grokBotWakeEnabled,key:Buffer.alloc(32,7),env:{ENVOI_MCP_EVENTS_CALLBACK_ORIGINS:'https://callbacks.envoi-provider.com',ENVOI_GROK_TRIGGER_ORIGINS:'https://triggers.envoi-provider.com',ENVOI_GROK_BOT_WAKE_ORIGINS:'https://routines.envoi-provider.com'},now,resolveDestination,audit:options.audit,observe:record=>diagnostics.push(record),eventHistory:async()=>({cursor:'00000000000000000012',truncated:false,events:[]}),...providerOverrides};
   const provider=createProviderEventWake(providerOptions);await http.startup();
   const tx=fn=>store.withTransaction([`inbox:${identity.inboxId}:mutations`],fn);
   return {store,http,provider,options,providerOptions,now,tx,state,sent,audits,diagnostics,advance:ms=>clock+=ms,response:r=>response=r,beforeResolve:fn=>beforeResolve=fn,beforeSend:fn=>beforeSend=fn,verificationResponse:r=>verificationResponse=r};
@@ -362,4 +362,61 @@ test('metadata validation follows Events qualification and cannot bypass an empt
   let resolved=0;const inert=createProviderEventWake({...h.providerOptions,httpWake:createHttpWake(h.options),env:{},resolveDestination:async()=>{resolved++;throw Error('must not resolve');}});
   await assert.rejects(()=>inert.subscribe(identity,parameters({_meta:{delivery:{url:'https://callbacks.envoi-provider.com/events'},callbackOriginAllowlist:['https://callbacks.envoi-provider.com']}}),protocol),{rpcCode:-32015,reason:'origin_not_allowed'});
   assert.equal(resolved,0);
+});
+
+
+parity('Grok Bot routine delivery retries and rotates the webhook key on the same installation', async (t, kind) => {
+  const h = await harness(t, kind, { grokBotWakeEnabled: true });
+  const profile = 'grok_bot';
+  const url = 'https://routines.envoi-provider.com/run/private-id';
+  const secret = 'test-bot-routine-key';
+  await assert.rejects(h.provider.putGrok(identity, { url: 'https://other.example/run', secret }, profile), { code: 'WAKE_URL_REJECTED' });
+  const { target } = await h.provider.putGrok(identity, { url, secret }, profile);
+  assert.equal(target.installationId, identity.installationId);
+  const otherInstallation = { ...identity, installationId: 'other_installation' };
+  await assert.rejects(h.provider.putGrok(otherInstallation, { url, secret }, profile), { statusCode: 409 });
+  await h.provider.deleteGrok({ ...identity, installationId: null, family: null }, profile, otherInstallation.installationId);
+  assert.equal(target.url, undefined);
+  assert.equal(JSON.stringify(await h.store.getJson(wakeSubscriptionPath(binding.agentId, target.id))).includes(secret), false);
+
+  h.response({ status: 429, failureClass: 'http_retryable', retryAfterSeconds: 60 });
+  assert.equal(await h.http.runOnce(), true);
+  assert.deepEqual(h.sent[0].headers, { authorization: `Bearer ${secret}`, 'content-type': 'application/json' });
+  assert.equal(JSON.parse(h.sent[0].bodyText).type, 'wake.work_available');
+  assert.equal(h.sent[0].bodyText.includes(identity.agent.id), false);
+  h.advance(59000);
+  assert.equal(await h.http.runOnce(), false);
+  h.advance(1000);
+  h.response({ status: 200, failureClass: null });
+  const restartedWake = createHttpWake(h.options);
+  const restartedProvider = createProviderEventWake({ ...h.providerOptions, httpWake: restartedWake });
+  await restartedWake.startup();
+  assert.equal(await restartedWake.runOnce(), true);
+  assert.equal(h.sent[1].bodyText, h.sent[0].bodyText);
+  assert.equal((await restartedProvider.getGrok(identity, profile)).target.lastAcceptedAt, h.now());
+
+  h.advance(5000);
+  h.response({ status: 401, failureClass: 'http_rejected' });
+  await h.tx(() => h.http.trigger({ ...binding, reason: 'message_delivered' }));
+  assert.equal(await h.http.runOnce(), true);
+  assert.equal((await h.provider.getGrok(identity, profile)).target.state, 'needs_secret');
+  const rotated = await h.provider.putGrok(identity, { url, secret: 'new-routine-key' }, profile);
+  assert.equal(rotated.target.id, target.id);
+  assert.equal(rotated.target.installationId, target.installationId);
+  h.advance(5000);
+  h.response({ status: 200, failureClass: null });
+  assert.equal(await h.http.runOnce(), true);
+  assert.equal(h.sent.at(-1).headers.authorization, 'Bearer new-routine-key');
+
+  h.advance(31 * 86400 * 1000);
+  assert.equal((await h.provider.getGrok(identity, profile)).target.state, 'active');
+  h.state.agent.status = 'paused';
+  await h.tx(() => h.http.trigger({ ...binding, reason: 'message_delivered' }));
+  h.advance(5000);
+  assert.equal(await h.http.runOnce(), false);
+  h.state.family.revokedAt = h.now();
+  const ended = (await h.provider.getGrok(identity, profile)).target;
+  assert.equal(ended.state, 'ended');
+  assert.equal(ended.secretSet, false);
+  assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId, target.id))).secretEncrypted, undefined);
 });

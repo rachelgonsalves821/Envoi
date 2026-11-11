@@ -3,7 +3,7 @@ import { quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime,
 export const RUNTIME_OPTIONS: { id: ConnectorRuntime; label: string; prerequisite: string }[] = [
   { id: 'openclaw', label: 'OpenClaw', prerequisite: 'A working OpenClaw Gateway and access to its host.' },
   { id: 'hermes', label: 'Hermes', prerequisite: 'A Hermes profile that can complete a normal chat. The installer reuses its model provider configuration and prepares its local API Server.' },
-  { id: 'grok', label: 'Grok', prerequisite: 'The xAI API-backed bridge. Configure XAI_API_KEY privately on the runtime host; consumer Grok chats are not connected by this bridge.' }
+  { id: 'grok', label: 'Grok via xAI API', prerequisite: 'The xAI API-backed bridge. Configure XAI_API_KEY privately on the runtime host; consumer Grok chats are not connected by this bridge.' }
 ];
 export const runtimeLabel = (runtime: ConnectorRuntime) => RUNTIME_OPTIONS.find(option => option.id === runtime)!.label;
 export function isLoopbackOrigin(origin: string) {
