@@ -94,7 +94,6 @@ export function routeAvailability(flags, asOf = new Date().toISOString()) {
     contract: { id: 'agent-registration', version: 1 },
     registrationEnabled: flags.registration,
     installationsEnabled: flags.installations,
-    ...(flags.grokBotWake ? { grokBotAvailable: true } : {}),
     routes: connectionRoutes.map(connectionRoute => ({ connectionRoute, available: routeAvailable(flags, connectionRoute) || remoteRouteAvailable(flags, connectionRoute) })),
     deliveryModes: deliveryModes.map(deliveryMode => ({ deliveryMode, available: deliveryModeAvailable(flags, deliveryMode) || remoteModeAvailable(flags, deliveryMode) }))
   };

@@ -10,15 +10,20 @@ type WakeTarget = {
   lastAcceptedAt: string | null;
 };
 
+export function readGrokBotSetup(signal: AbortSignal) {
+  return request<{ available: boolean; hostedRequired: boolean; clientId?: string }>('/api/onboarding/grok-bot', { signal }, false);
+}
+
 export function GrokBotSetup({ address }: { address?: string }) {
   const [status, setStatus] = useState<'checking' | 'available' | 'unavailable' | 'error'>('checking');
   const [clientId, setClientId] = useState<string>();
   useEffect(() => {
     const stop = new AbortController();
-    void request<{ grokBotAvailable?: boolean; grokBotOAuthClientId?: string; routes: { connectionRoute: string; available: boolean }[] }>('/api/onboarding/routes', { signal: stop.signal }, false)
+    void readGrokBotSetup(stop.signal)
       .then(result => {
-        setClientId(result.grokBotOAuthClientId);
-        setStatus(result.grokBotAvailable && result.routes.some(route => route.connectionRoute === 'remote_mcp_oauth' && route.available) ? 'available' : 'unavailable');
+        if (stop.signal.aborted) return;
+        setClientId(result.clientId);
+        setStatus(result.available ? 'available' : 'unavailable');
       })
       .catch(() => { if (!stop.signal.aborted) setStatus('error'); });
     return () => stop.abort();
@@ -52,7 +57,7 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
   return <section className="onboarding-panel" aria-label="Grok Bot setup">
-    <p>Connect your signed-in Grok Bot with one Envoi approval. You can close any installer or Secrets prompt from an earlier attempt.</p>
+    <p>Connect your signed-in Grok Bot with one Envoi approval. Close any Secrets prompt or setup chat from an earlier attempt. After approval, open a fresh chat in the same Bot for the receiving setup message.</p>
     <ol className="grok-setup-steps">
       <li>
         <strong>Add Envoi in Grok Bot</strong>

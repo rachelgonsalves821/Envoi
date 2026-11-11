@@ -97,6 +97,9 @@ const productionConfig = validateProductionConfiguration();
 const onboardingFlags = readOnboardingFlags();
 // agent-remote-auth v1 §3.2: pre-registered clients are operator configuration; an invalid entry fails closed.
 const oauthClients = parsePreRegisteredClients(process.env.ENVOI_OAUTH_CLIENTS);
+const hostedGrokSetupRequired = process.env.ENVOI_DEPLOYMENT_ENVIRONMENT === 'staging'
+  && process.env.ENVOI_GROK_BOT_WAKE_V1 === 'true';
+const hostedGrokSetupMessage = 'Use the hosted Grok Bot connection at /connect?platform=grok. It uses Envoi approval and requires no model API key.';
 const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
 const deploymentIdentity = configuredDeploymentIdentity();
 // Connectors refuse to start unless /health reports exactly this identity, so it changes
@@ -5111,14 +5114,18 @@ async function route(req, res) {
 
   // agent-registration v1 §1: what Envoi offers, for /connect, skill.json and the helper.
   if (req.method === 'GET' && url.pathname === '/api/onboarding/routes') {
-    const availability = routeAvailability(onboardingFlags, store.now());
-    const grokBotClient = availability.grokBotAvailable && [...oauthClients.values()].find(client =>
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=60' });
+    return res.end(JSON.stringify(routeAvailability(onboardingFlags, store.now())));
+  }
+  if (req.method === 'GET' && url.pathname === '/api/onboarding/grok-bot') {
+    const available = Boolean(onboardingFlags.grokBotWake && remoteRouteAvailable(onboardingFlags, 'remote_mcp_oauth'));
+    const grokBotClient = available && [...oauthClients.values()].find(client =>
       client.provider === 'Grok Bot' && client.connectionRoute === 'remote_mcp_oauth'
       && client.tokenEndpointAuthMethod === 'none');
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=60' });
     return res.end(JSON.stringify({
-      ...availability,
-      ...(grokBotClient ? { grokBotOAuthClientId: grokBotClient.clientId } : {})
+      available, hostedRequired: hostedGrokSetupRequired,
+      ...(grokBotClient ? { clientId: grokBotClient.clientId } : {})
     }));
   }
   if (req.method === 'GET' && url.pathname === '/api/phase-d/availability') {
@@ -5149,6 +5156,7 @@ async function route(req, res) {
     const tokenPath = path.join('auth', 'enrollment-tokens', `${tokenHash}.json`);
     const pendingRecord = await store.getJson(tokenPath);
     if (!pendingRecord || pendingRecord.usedAt || pendingRecord.revokedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
+    if (hostedGrokSetupRequired && pendingRecord.runtime === 'grok') return fail(res, 409, hostedGrokSetupMessage);
     if (input.runtime !== undefined && validateConnectorRuntime(input.runtime) !== (pendingRecord.runtime || 'openclaw')) return fail(res, 400, 'Setup runtime does not match this enrollment');
     if (pendingRecord.kind === 'reconnect' || pendingRecord.kind === 'reenroll') {
       const reconnected = await withInboxMutation(pendingRecord.inboxId, async writeAudit => {
@@ -5570,6 +5578,7 @@ async function route(req, res) {
     await assertActiveAgentSlot(human.id);
     const input = await body(req);
     const runtime = validateConnectorRuntime(input.runtime);
+    if (hostedGrokSetupRequired && runtime === 'grok') return fail(res, 409, hostedGrokSetupMessage);
     const requested = Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages'];
     const permissions = requested.filter(permission => allowedPermissions.has(permission));
     if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
@@ -5604,6 +5613,7 @@ async function route(req, res) {
     }
     const input = await body(req);
     const runtime = validateConnectorRuntime(input.runtime, agent.runtime || 'openclaw');
+    if (hostedGrokSetupRequired && runtime === 'grok') return fail(res, 409, hostedGrokSetupMessage);
     const permissions = reenroll ? (Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages']).filter(permission => allowedPermissions.has(permission)) : null;
     if (reenroll && !permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
     const rawToken = crypto.randomBytes(32).toString('base64url');

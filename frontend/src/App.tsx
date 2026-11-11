@@ -16,7 +16,7 @@ import { fileFolderFor, fileSourceView } from './file-folders';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
-import { GrokBotSetup } from './onboarding/GrokBotSetup';
+import { GrokBotSetup, readGrokBotSetup } from './onboarding/GrokBotSetup';
 import { canReconnectAgent } from './onboarding/types';
 import { ClaimPage } from './onboarding/ClaimPage';
 import { AuthorizationEntry, AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
@@ -1938,6 +1938,14 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   const [runtime, setRuntime] = useState<ConnectorRuntime>(reconnectAgent?.runtime || 'openclaw');
   const [dotsSelected, setDotsSelected] = useState(false);
   const [grokBotOpen, setGrokBotOpen] = useState(false);
+  const [hostedGrokRequired, setHostedGrokRequired] = useState(false);
+  useEffect(() => {
+    const stop = new AbortController();
+    void readGrokBotSetup(stop.signal).then(setup => {
+      if (!stop.signal.aborted) setHostedGrokRequired(setup.hostedRequired);
+    }).catch(() => {});
+    return () => stop.abort();
+  }, []);
   const [dotsGuideOpen, setDotsGuideOpen] = useState(false);
   const [dotsRoute, setDotsRoute] = useState<'checking' | 'available' | 'unavailable' | 'unknown'>('checking');
   const addressEdited = useRef(false);
@@ -2030,9 +2038,10 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch { setError('The skill file could not be downloaded. Copy the setup prompt instead.'); }
   }
-  if (grokBotOpen) return <Modal title="Connect Grok Bot" onClose={onClose}>
+  const redirectLegacyGrok = hostedGrokRequired && (handoff?.runtime === 'grok' || runtime === 'grok');
+  if (grokBotOpen || redirectLegacyGrok) return <Modal title="Connect Grok Bot" onClose={onClose}>
     <GrokBotSetup address={reconnectAgent?.address} />
-    <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setGrokBotOpen(false)}>Back</button></div>
+    <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => { if (redirectLegacyGrok) { setResult(null); setRuntime('openclaw'); setStep(0); } setGrokBotOpen(false); }}>Back</button></div>
   </Modal>;
   return <Modal title={dotsGuideOpen ? reconnectAgent ? 'Reconnect with Dots' : 'Connect Dots' : result ? 'Agent ready to connect' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Connect an agent'} onClose={onClose}>
     <div className="enroll-steps" aria-label="Enrollment steps">{['Agent type', 'Email address', 'Setup instructions'].map((stepName, index) => { const current = result || dotsGuideOpen ? 2 : step; return <span key={stepName} className={current === index ? 'current' : current > index ? 'complete' : ''}>{index + 1}<b>{stepName}</b></span>; })}</div>
@@ -2097,7 +2106,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
           <p>Using the Grok Bot app? Connect through your signed-in account. No API key or enrollment token is needed.</p>
           <button type="button" className="button primary" onClick={() => setGrokBotOpen(true)}>Connect Grok Bot</button>
         </section>
-        <RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={dotsReconnectAllowed ? () => setDotsSelected(true) : undefined} dotsUnavailableReason={reconnectAgent && !dotsReconnectAllowed ? 'This agent cannot reconnect through OAuth' : undefined} />
+        <RuntimePicker runtime={runtime} hideLocalGrok={hostedGrokRequired} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={dotsReconnectAllowed ? () => setDotsSelected(true) : undefined} dotsUnavailableReason={reconnectAgent && !dotsReconnectAllowed ? 'This agent cannot reconnect through OAuth' : undefined} />
         {dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}
         {!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}
       </div>}
@@ -2108,8 +2117,8 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   </Modal>;
 }
 
-export function RuntimePicker({ runtime, onChange, selectedId, onSelectDots, dotsUnavailableReason }: { runtime: ConnectorRuntime; onChange: (value: ConnectorRuntime) => void; selectedId?: string; onSelectDots?: () => void; dotsUnavailableReason?: string }) {
-  return <fieldset className="runtime-picker"><legend>What runs your agent?</legend><p className="runtime-picker-help">Choose a platform. Available connections continue to address and permission setup.</p><div className="runtime-options">{agentCatalog.map(item => { const option = RUNTIME_OPTIONS.find(candidate => candidate.id === item.id); const dots = item.id === 'dots' && Boolean(onSelectDots); const available = Boolean(option || dots); return <label key={item.id} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={item.id} checked={item.id === (selectedId || runtime)} disabled={!available} onChange={() => { if (option) onChange(option.id); else if (dots) onSelectDots?.(); }} /><img src={item.logo} alt="" width="40" height="40" /><span><strong>{item.name}</strong><small>{item.summary}</small><em>{dots ? 'On-demand setup' : item.id === 'dots' && dotsUnavailableReason ? dotsUnavailableReason : available ? 'Setup available' : 'Connection coming later'}</em></span></label>; })}</div></fieldset>;
+export function RuntimePicker({ runtime, onChange, selectedId, onSelectDots, dotsUnavailableReason, hideLocalGrok }: { runtime: ConnectorRuntime; onChange: (value: ConnectorRuntime) => void; selectedId?: string; onSelectDots?: () => void; dotsUnavailableReason?: string; hideLocalGrok?: boolean }) {
+  return <fieldset className="runtime-picker"><legend>What runs your agent?</legend><p className="runtime-picker-help">Choose a platform. Available connections continue to address and permission setup.</p><div className="runtime-options">{agentCatalog.filter(item => !hideLocalGrok || item.id !== 'grok').map(item => { const option = RUNTIME_OPTIONS.find(candidate => candidate.id === item.id); const dots = item.id === 'dots' && Boolean(onSelectDots); const available = Boolean(option || dots); return <label key={item.id} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={item.id} checked={item.id === (selectedId || runtime)} disabled={!available} onChange={() => { if (option) onChange(option.id); else if (dots) onSelectDots?.(); }} /><img src={item.logo} alt="" width="40" height="40" /><span><strong>{item.name}</strong><small>{item.summary}</small><em>{dots ? 'On-demand setup' : item.id === 'dots' && dotsUnavailableReason ? dotsUnavailableReason : available ? 'Setup available' : 'Connection coming later'}</em></span></label>; })}</div></fieldset>;
 }
 
 export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
