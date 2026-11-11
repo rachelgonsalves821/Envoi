@@ -1,4 +1,4 @@
-// envoi-names v1 (N1): MCP tool names, credential formats and health identity,
+// envoi-names v2: MCP tool names, credential formats and health identity,
 // checked against a real server and the published contract schemas. Pre-cutover
 // credentials are simulated by writing a credential index record for a
 // sinaloa_-prefixed raw token into the FileStore data dir (credentials are stored

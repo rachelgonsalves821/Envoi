@@ -1,6 +1,6 @@
 {
   "contract": "envoi-names",
-  "version": 1,
+  "version": 2,
   "id": "mcp-tools-list-case-read",
   "description": "A model-held case read token lists only the three Envoi read tools.",
   "kind": "http",

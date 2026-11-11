@@ -1,6 +1,6 @@
 {
   "contract": "provider-connector-tools",
-  "version": 1,
+  "version": 2,
   "id": "send-without-send-scope",
   "kind": "http",
   "description": "§3: calling a send tool without envoi.send is HTTP 403 with the scope it needs (agent-remote-auth §9). Provider approval of the tool does not change this.",

@@ -1,6 +1,6 @@
 {
   "contract": "provider-connector-tools",
-  "version": 1,
+  "version": 2,
   "id": "tools-list-envoi-agent-and-send",
   "kind": "http",
   "description": "§3: adding envoi.send adds the five send tools. A reply therefore needs the owner to have approved send_agent_messages.",
