@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const fileLimit = 5 * 1024 * 1024;
 const accessLevels = new Set(['none', 'read', 'edit']);
@@ -112,7 +113,19 @@ export function createManagedFiles({ store, objectStorage, adapter, auth, canMan
           body: bytes, redirect: 'error', signal: AbortSignal.timeout(30000) });
         if (!put.ok) throw fileError(502, 'File storage rejected the upload');
       }
-      const clean = await objectStorage.scanObject(candidate.object.id);
+      let clean;
+      const scanDeadline = Date.now() + 12000;
+      while (!clean) {
+        try {
+          clean = await objectStorage.scanObject(candidate.object.id);
+        } catch (error) {
+          if (error.code !== 'SCAN_NOT_CLAIMABLE') throw error;
+          const current = await objectStorage.getObject(candidate.object.id);
+          if (['clean', 'infected'].includes(current.state)) clean = current;
+          else if (Date.now() >= scanDeadline) throw fileError(503, 'Malware scanning is busy. Try again.');
+          else await delay(400);
+        }
+      }
       if (clean.state !== 'clean') throw fileError(422, 'File did not pass malware scanning');
       const result = await withInboxMutation(inbox.id, async audit => {
         const human = manager ? await owner() : null;
