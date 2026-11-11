@@ -1570,12 +1570,21 @@ export class EnvoiConnector {
         const streamSignal = AbortSignal.any([stopped, stream.signal]);
         let openedAt = 0, uptime = 0, idle: ReturnType<typeof setTimeout> | undefined;
         let recovery = false, retryAfter = 0;
+        let operation: ConnectorRunOperation = 'wake_stream';
+        let unsupportedWakeResponse: EnvoiError | undefined;
         let session = validSession(await this.store.load());
         const resume = this.cursorFor(session), baseline = !resume;
         const activity = () => { clearTimeout(idle); idle = setTimeout(() => stream.abort(), 60_000); };
+        const checkPausedStatus = async () => {
+          if (!(await this.lifecycle()).paused) return;
+          operation = 'status_check';
+          await this.checkStatus(streamSignal);
+          operation = 'wake_stream';
+          statusAt = Date.now() + 30_000 + Math.random() * 30_000;
+        };
         try {
           // A failed connection still counts as a reconnect for paused recovery.
-          if ((await this.lifecycle()).paused) { await this.checkStatus(streamSignal); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+          await checkPausedStatus();
           if (streamSignal.aborted) break;
           const response = await this.withFreshSession(async current => {
             if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new EnvoiError('Connector session changed while connecting');
@@ -1589,7 +1598,14 @@ export class EnvoiConnector {
               try { response = await (this.options.fetch || fetch)(`${this.origin}/api/inboxes/${encodeURIComponent(current.inboxId)}/events${baseline ? '?from=latest' : ''}`, {
                 headers, credentials: 'omit', redirect: 'error', signal: AbortSignal.any([streamSignal, headerTimeout.signal])
               }); } catch { throw new EnvoiError('Envoi event stream could not be reached', undefined, 'NETWORK_ERROR'); }
-              if (!response.ok) await responsePayload(response, 'Envoi event stream failed');
+              if (!response.ok) {
+                try { await responsePayload(response, 'Envoi event stream failed'); }
+                catch (error) {
+                  if (error instanceof EnvoiError && error.code === undefined && [404, 405, 501].includes(response.status))
+                    unsupportedWakeResponse = error;
+                  throw error;
+                }
+              }
               return response;
             } finally { clearTimeout(timer); }
           }, false, true);
@@ -1616,7 +1632,7 @@ export class EnvoiConnector {
                 if (baseline && !this.cursorFor(validSession(await this.store.load()))) await this.saveCursor(session, frame.data.cursor as string | null);
                 connected = true; safetyAt = Date.now() + safetyDelay();
                 this.wakeTransport = 'connected'; this.lastWakeReadyAt = new Date().toISOString(); this.lastWakeErrorCode = undefined;
-                if ((await this.lifecycle()).paused) { await this.checkStatus(streamSignal); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+                await checkPausedStatus();
                 trigger();
               } else if (frame.type === 'replay_required') { recovery = true; break; }
               else if (frame.type === 'replay_error') throw new EnvoiError('Envoi event replay failed', undefined, 'NETWORK_ERROR');
@@ -1634,9 +1650,9 @@ export class EnvoiConnector {
             retryAfter = error instanceof EnvoiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0;
             // An intermediary may omit the wake route during a rollout. The
             // separately authenticated work queue still supplies safety claims.
-            if (error instanceof EnvoiError && error.code === undefined && [404, 405, 501].includes(error.status ?? 0)) {
+            if (unsupportedWakeResponse && error === unsupportedWakeResponse) {
               this.lastWakeErrorCode = 'WAKE_ENDPOINT_UNAVAILABLE';
-            } else await failure(error, 'wake_stream');
+            } else await failure(error, operation);
           }
         } finally {
           clearTimeout(idle); stream.abort(); this.activeStreams.delete(stream);

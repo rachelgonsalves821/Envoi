@@ -569,6 +569,29 @@ describe('Envoi outbound connector', () => {
     } finally { stop.abort(); }
   });
 
+  it('stops on a plain 404 from paused status without treating it as an unavailable wake endpoint', async () => {
+    vi.useFakeTimers();
+    const memory = memoryStore({ ...session(), lifecycle: { state: 'PAUSED', paused: true, failures: 0, changedAt: new Date().toISOString() } });
+    const stop = new AbortController();
+    const onTerminalFailure = vi.fn();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response('Status endpoint unavailable', { status: 404 }));
+    const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher });
+    const running = connector.run(stop.signal, onTerminalFailure);
+    let error: unknown;
+    const settled = running.catch(value => { error = value; });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(error).toMatchObject({ status: 404 });
+      expect(onTerminalFailure).toHaveBeenCalledOnce();
+      expect(onTerminalFailure).toHaveBeenCalledWith('status_check', error);
+      expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://api.example/api/agent/status']);
+    } finally {
+      stop.abort();
+      await settled;
+      vi.useRealTimers();
+    }
+  });
+
   it.each(['network', '503'])('survives one transient %s renewal failure without cancelling or rerunning work', async failure => {
     vi.useFakeTimers();
     try {
