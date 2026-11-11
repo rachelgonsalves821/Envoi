@@ -68,13 +68,14 @@ describe('hosted wake runner', () => {
     const run = runHostedWake({ connector, session, stateDir, config: { registeredUrl: 'https://hooks.example/envoi/hermes', port,
       installationId: 'installation_example' }, signal: stop.signal });
     try {
-      let response: Response | undefined;
-      for (let attempt = 0; attempt < 50; attempt++) {
-        try { response = await fetch(`http://127.0.0.1:${port}/envoi/hermes`, { method: 'GET' }); break; }
-        catch { await new Promise(resolve => setTimeout(resolve, 20)); }
-      }
-      expect(response?.status).toBe(400);
-      await vi.waitFor(() => expect(paths).toContain('/api/agent/work/claim'));
+      const startup = vi.waitFor(async () => {
+        const response = await fetch(`http://127.0.0.1:${port}/envoi/hermes`, { signal: AbortSignal.timeout(1_000) });
+        await response.body?.cancel();
+        expect(response.status).toBe(400);
+        expect(paths).toContain('/api/agent/work/claim');
+        return true;
+      }, { timeout: 15_000 });
+      expect(await Promise.race([run, startup])).toBe(true);
     } finally { stop.abort(); await run; }
     const reopened = await FileWakeStore.open(path.join(stateDir, 'wake'));
     await reopened.close();
