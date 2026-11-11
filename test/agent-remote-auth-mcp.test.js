@@ -4,6 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { ownerMessages, send, waitForMessageStatus } from './a3-harness.js';
 import {
   accessParts, api, assertOAuthError, assertOnDemand, assertRemote, assertTokenResponse, backends, confidentialClient, connect, documents, edit, exchange, familyParts, installationView, freshOwner, providerClient, providerSecret, publicClient,
   recoveryParts, refreshParams, refreshParts, registrationParts, remoteFixture, remoteServer, restart, stored, tokenPost, PAST
@@ -379,3 +380,44 @@ test('[server] the bootstrap grant and provider clients behave like any OAuth fa
   const { family } = await stored(docs, issued.payload.registrationId);
   assert.deepEqual([family.audience, family.oauthClientId], [server.resource, providerClient.clientId]);
 });
+
+
+for (const backend of backends) {
+  test(`[${backend.name}] Grok Bot reply survives a lost response, OAuth refresh and restart`, { timeout: 180000 }, async t => {
+    const key = crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64');
+    let server = await remoteServer(t, backend, { env: {
+      ENVOI_HTTP_WAKE_V1: 'true', ENVOI_GROK_BOT_WAKE_V1: 'true',
+      ENVOI_WAKE_SIGNING_KEYS: JSON.stringify([{ kid: 'grok-test', privateKey: key, activeFrom: '2026-01-01T00:00:00.000Z' }])
+    } });
+    const docs = documents(t, server);
+    const sender = await freshOwner(server);
+    const receiver = await connected(server, docs);
+    const { registration, tokens } = receiver;
+    const recipient = { session: receiver.who.session, inbox: { id: registration.agentInboxId }, agent: { address: registration.target.address } };
+    const sent = await send(server.baseUrl, sender, recipient, { text: 'Axi staging rehearsal request' });
+    assert.equal(sent.status, 202, sent.text);
+    await waitForMessageStatus(server.baseUrl, recipient, sent.payload.id, 'delivered');
+
+    const claimResult = toolResult(await call(server, tokens.access_token, 'envoi_claim_work'));
+    const { workId, leaseToken } = claimResult.payload.work;
+    assert.equal(workId, sent.payload.id);
+    const stale = toolResult(await call(server, tokens.access_token, 'envoi_reply_to_work', { workId, leaseToken: 'wrong-fence', text: 'Stale draft' }));
+    assert.equal(stale.status, 409);
+    const first = toolResult(await call(server, tokens.access_token, 'envoi_reply_to_work', { workId, leaseToken, text: 'Original reply' }));
+    assert.equal(first.status, 201);
+    assert.equal(first.payload.status, 'processed');
+    const replyId = first.payload.replyMessageId;
+    await waitForMessageStatus(server.baseUrl, sender, replyId, 'delivered');
+
+    server = await restart(t, server);
+    const refreshed = assertTokenResponse(await tokenPost(server, refreshParams(receiver.grant.client, tokens.refresh_token)), 'envoi.agent envoi.send');
+    const info = toolResult(await call(server, refreshed.access_token, 'envoi_agent_info'));
+    assert.equal(info.agentId, registration.agentId);
+    assert.equal(info.address, registration.target.address);
+    const replay = toolResult(await call(server, refreshed.access_token, 'envoi_reply_to_work', { workId, leaseToken, text: 'Different draft after restart' }));
+    assert.equal(replay.status, 200);
+    assert.equal(replay.payload.replyMessageId, replyId);
+    const replies = (await ownerMessages(server.baseUrl, sender, sent.payload.caseId)).filter(message => message.causationId === workId);
+    assert.deepEqual(replies.map(message => [message.id, message.text]), [[replyId, 'Original reply']]);
+  });
+}
