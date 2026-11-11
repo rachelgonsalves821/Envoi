@@ -40,6 +40,12 @@
       },
       "vars": {
         "ENVOI_DEPLOYMENT_ENVIRONMENT": "staging",
+        "ENVOI_PUBLIC_URL": "https://sinaloa-staging.rachelgonsalves821.workers.dev",
+        "ENVOI_INSTALLATIONS_V2": "true",
+        "ENVOI_AGENT_REGISTRATION_V2": "true",
+        "ENVOI_REMOTE_MCP_OAUTH": "true",
+        "ENVOI_HTTP_WAKE_V1": "true",
+        "ENVOI_GROK_BOT_WAKE_V1": "true",
         "ENVOI_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan"
       },
       "containers": [
