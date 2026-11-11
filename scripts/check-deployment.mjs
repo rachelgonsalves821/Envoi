@@ -5,15 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS } from '../worker/runtime-config.js';
 import { onboardingFlagNames } from '../src/onboarding-flags.js';
 
-// Explicit beta configuration mirrors the owner's approved live Dots settings.
+// Explicit beta configuration for the live Dots and Grok Bot routes.
 // Server defaults and other deployment environments remain unchanged.
-const betaDotsFlags = new Set(['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_CASE_SESSIONS_V1',
-  'ENVOI_HTTP_WAKE_V1', 'ENVOI_REMOTE_MCP_OAUTH', 'ENVOI_MCP_EVENTS_V1']);
+const betaOnboardingFlags = new Set(['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_CASE_SESSIONS_V1',
+  'ENVOI_HTTP_WAKE_V1', 'ENVOI_REMOTE_MCP_OAUTH', 'ENVOI_MCP_EVENTS_V1', 'ENVOI_GROK_BOT_WAKE_V1']);
 export function validateOnboardingDeploymentProfile(config) {
   const beta = config.env?.beta?.vars;
   for (const name of onboardingFlagNames) {
     assert.ok(CONTAINER_ENV_KEYS.includes(name), `Runtime allowlist must forward ${name}`);
-    assert.equal(beta?.[name], betaDotsFlags.has(name) ? 'true' : 'false', `Beta must retain its reviewed ${name} value`);
+    assert.equal(beta?.[name], betaOnboardingFlags.has(name) ? 'true' : 'false', `Beta must retain its reviewed ${name} value`);
   }
   assert.ok(CONTAINER_ENV_KEYS.includes('ENVOI_MCP_EVENTS_CALLBACK_ORIGINS'));
   assert.equal(beta?.ENVOI_MCP_EVENTS_CALLBACK_ORIGINS, 'https://connectors.api.openai.com',
