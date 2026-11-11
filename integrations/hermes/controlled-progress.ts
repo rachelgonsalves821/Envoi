@@ -11,7 +11,7 @@ import{readControlledStartupFrames,inspectControlledStartupFrames,type Controlle
 export type ControlledProgressRecovery=Readonly<{
   history:StoppedProgressRecovery;runtimePacket:ProgressPin;initialExecution:ProgressPin;execution:ProgressPin;operatorSeal:ProgressPin;
   state:ProgressPin;stop:ProgressPin;ledger:ProgressPin;checkpoint:ProgressPin;carry:ProgressPin;pollGap:ProgressPin;canonicalWork:ProgressPin;adoption:ProgressPin;targetPacket:ProgressPin;
-  startupStops?:readonly ControlledStartupStop[];distinctFollowup?:ProgressPin;acceptedCheckpoint?:ProgressPin;serverAdoption?:ProgressPin;operationAmendment?:Readonly<{operationCap:62;normalCeiling:54;cleanupReserve:8;allocation:ProgressPin}>;
+  startupStops?:readonly ControlledStartupStop[];distinctFollowup?:ProgressPin;acceptedCheckpoint?:ProgressPin;serverAdoption?:ProgressPin;preNativeAdmissionStop?:ProgressPin;operationAmendment?:Readonly<{operationCap:62;normalCeiling:54;cleanupReserve:8;allocation:ProgressPin}>;
 }>;
 /** Separate from historical receipts. The later human decision binds this pin
  * and the target packet, so the descriptor must not contain that packet's hash. */
@@ -27,8 +27,12 @@ const hash=(b:string|Buffer)=>createHash('sha256').update(b).digest('hex'),objec
 const equal=(a:any,b:any)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
 function refuse(code:string):never{throw Object.assign(Error(code),{code});}
 async function read(p:ProgressPin,parse=true){if(!p||!path.isAbsolute(p.path)||!/^[a-f0-9]{64}$/.test(p.sha256))refuse('EXACT_CONTROLLED_PROGRESS_PIN_REQUIRED');const stat=await fs.lstat(p.path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1||stat.size>2000000)refuse('BOUNDED_CONTROLLED_PROGRESS_PIN_REQUIRED');const raw=await fs.readFile(p.path);if(hash(raw)!==p.sha256)refuse('CONTROLLED_PROGRESS_CHANGED');return{raw,value:parse?JSON.parse(raw.toString('utf8')):undefined};}
-async function inspectServerAdoption(r:ControlledProgressRecovery,target:any,priorServerSource:string,receipt:ActiveContinuationReceipt,accepted:AcceptedCheckpointCarry|undefined){
+async function inspectServerAdoption(r:ControlledProgressRecovery,target:any,priorServerSource:string,receipt:ActiveContinuationReceipt,accepted:AcceptedCheckpointCarry|undefined,retained?:ProgressPin){
  const changed=receipt.serverSource!==priorServerSource;
+ if(retained){
+  if(changed||!accepted||!equal(r.serverAdoption,retained)||!equal(target.serverAdoption,retained))refuse('EXACT_RETAINED_SERVER_ADOPTION_REQUIRED');
+  return;
+ }
  if(!changed){if(r.serverAdoption!==undefined||Object.hasOwn(target,'serverAdoption'))refuse('UNEXPECTED_CONTROLLED_SERVER_ADOPTION');return;}
  if(!accepted||!r.serverAdoption||!equal(r.serverAdoption,target.serverAdoption))refuse('EXACT_CONTROLLED_SERVER_ADOPTION_REQUIRED');
  const d=(await read(r.serverAdoption)).value;
@@ -47,8 +51,116 @@ async function inspectServerAdoption(r:ControlledProgressRecovery,target:any,pri
 function originalReceipt(e:any){const r=e?.receipt,start=Date.parse(r?.startUtc),end=Date.parse(r?.hardStopUtc);if(!object(r)||r.version!==1||r.ownerApproved!==true||r.modelCap!==64||r.ciPassed!==true||r.ciHead!==r.clientSource||!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>5400000||e.window!==hash(JSON.stringify(r)))refuse('GENUINE_CONTROLLED_EXECUTION_REQUIRED');return r as ContinuationReceipt;}
 type HistoryInput={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery};
 export async function inspectControlledProgressHistory(input:HistoryInput){
+ if(input.recovery.preNativeAdmissionStop)return inspectPreNativeAdmissionStop(input,input.recovery.preNativeAdmissionStop);
  if(input.recovery.acceptedCheckpoint)return inspectAcceptedCheckpointHistory(input,inspectOriginalControlledProgressHistory);
  return inspectOriginalControlledProgressHistory(input);
+}
+function refuseAdmissionStop():never{ return refuse('EXACT_PRE_NATIVE_ADMISSION_STOP_REQUIRED'); }
+function samePin(left:unknown,right:ProgressPin):boolean{
+ return object(left)&&equal(left,right);
+}
+async function inspectPreNativeAdmissionStop(input:HistoryInput,proof:ProgressPin){
+ const {releaseRoot,ledger,recovery:r}=input;
+ const d=(await read(proof)).value;
+ if(!r.acceptedCheckpoint||!r.serverAdoption||d.purpose!=='actual-phase-c-workflow-admission-stop-before-native-start'||
+   d.reasonCode!=='EXACT_WORKFLOW_ADOPTION_SHAPE_REQUIRED'||d.originalErrorField!=='serverAdoptionSha256'||
+   d.executionAllowed!==false||d.sealedWorkerExited!==true||d.acceptedSendRepeated!==false||
+   d.hostsStarted!==0||d.claimsIssued!==0||d.modelCallsAdded!==0||d.modelCalls!==35||d.operations!==34||
+   !equal(d.appendedRowKinds,['window','plan']))refuseAdmissionStop();
+ const priorLedger=await ledger.inspectReadOnlyPrefix(d.previousLedger.path,d.previousLedger.sha256);
+ const previous=await inspectAcceptedCheckpointHistory({...input,ledger:priorLedger},inspectOriginalControlledProgressHistory);
+ if(!samePin(d.previousLedger,previous.priorLedger)||d.existingCheckpoint!==previous.workId||
+   d.existingAttempts!==previous.acceptedCheckpoint.expectedAttempts)refuseAdmissionStop();
+
+ const [p,seal,arm,e,stop,intake,guards,canonical]=await Promise.all(
+  [d.packet,d.seal,d.arm,d.execution,d.stop,d.ownerIntake,d.postIntakeGuards,d.canonicalWork].map(async pin=>(await read(pin)).value));
+ const start=Date.parse(e.receipt?.startUtc),ended=Date.parse(stop.observedAtUtc),checked=Date.parse(d.checkedAtUtc);
+ const prior=r;
+ const stoppedRecovery=p.controlledRecoveryBase;
+ const historicalKeys=['runtimePacket','initialExecution','execution','operatorSeal','state','stop','ledger','checkpoint','carry','pollGap','distinctFollowup','acceptedCheckpoint','serverAdoption','operationAmendment','startupStops'] as const;
+ if(!object(stoppedRecovery)||stoppedRecovery.preNativeAdmissionStop!==undefined||
+   historicalKeys.some(key=>!equal(stoppedRecovery[key],prior[key])))refuseAdmissionStop();
+ const receipt=e.receipt as ActiveContinuationReceipt;
+ if(!receipt||receipt.version!==2||receipt.ownerApproved!==true||receipt.modelCap!==64||receipt.ciPassed!==true||
+   receipt.ciHead!==receipt.clientSource||receipt.lifetime!=='until-complete-or-cancel'||receipt.humanReview!=='before-claim'||
+   Object.hasOwn(receipt,'hardStopUtc')||!equal(p.workflowPolicy,{lifetime:receipt.lifetime,humanReview:receipt.humanReview})||
+   receipt.clientSource!==p.clientSource||receipt.serverSource!==p.serverSource||receipt.runnerSha256!==p.library?.sha256||
+   receipt.packetSha256!==d.packet.sha256||e.window!==hash(JSON.stringify(receipt))||e.actualStartedAtUtc!==receipt.startUtc||
+   e.purpose!=='actual-controlled-checkpoint-recovery'||!samePin(e.priorExecution,previous.priorExecution)||
+   !samePin(e.carriedState,r.state)||!samePin(e.carriedCheckpoint,r.carry)||e.sealSha256!==d.seal.sha256||
+   p.purpose!=='phase-c-prepared-controlled-progress-session'||path.resolve(p.oldKitRoot)!==path.resolve(releaseRoot)||
+   p.sealPath!==d.seal.path||!samePin(seal.packet,d.packet)||seal.executionAuthorized!==false||
+   !Number.isFinite(start)||!(start<=ended&&ended<=checked&&checked<=Date.now()))refuseAdmissionStop();
+ if(stop.state!=='controlled_recovery_stopped_preserve_originals'||stop.phase!=='checked-controlled-progress-admission'||
+   stop.gateComplete!==false||stop.packetSha256!==d.packet.sha256||d.observedStoppedAtUtc!==stop.observedAtUtc||
+   arm.packetSha256!==d.packet.sha256||arm.sealSha256!==d.seal.sha256||arm.challenge!==p.ownerConsole?.challenge||
+   arm.adoption?.sha256!==receipt.approvalReceiptSha256||path.resolve(arm.adoption.path)!==path.resolve(p.decisionPaths?.adoption)||
+   !samePin(intake.canonicalWork,d.canonicalWork)||intake.packetSha256!==d.packet.sha256||intake.challenge!==arm.challenge||
+   guards.sealSha256!==d.seal.sha256||guards.hostProof?.allSelectedHostsStopped!==true||
+   guards.hostProof?.hostsStarted!==0||guards.hostProof?.claimsIssued!==0||guards.hostProof?.modelsAdded!==0||
+   guards.resources?.admissionWorkRootUnused!==true)refuseAdmissionStop();
+ const expectedFiles={arm:'ARM-APPROVED.private.json',execution:'controlled-execution.private.json',
+  stop:'operator-stopped.private.json',failure:'operator-failure.private.log',ownerIntake:'owner-intake-saved.private.json',
+  postIntakeGuards:'post-intake-guards.actual.private.json'};
+ if(Object.entries(expectedFiles).some(([key,name])=>path.resolve(d[key].path)!==path.resolve(p.directory,name)))refuseAdmissionStop();
+ const failure=(await read(d.failure,false)).raw.toString('utf8');
+ if(!/EXACT_WORKFLOW_ADOPTION_SHAPE_REQUIRED/.test(failure)||!/\+\s+'serverAdoptionSha256'/.test(failure))refuseAdmissionStop();
+ for(const name of ['owner-controls-context.private.json','owner-requests','processing-first-milestone.actual.json']){
+  try{await fs.lstat(path.join(p.directory,name));refuseAdmissionStop();}
+  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ }
+ if((await fs.readdir(p.admissionWorkRoot)).length!==0)refuseAdmissionStop();
+ await read(intake.rawPin,false);
+ if(canonical.database!=='sinaloa_staging'||canonical.readOnly!=='on'||canonical.activeWorkLeases!==0||
+   canonical.activeCaseSessions!==0||canonical.work?.workId!==previous.workId||canonical.work?.caseId!==previous.caseId||
+   canonical.work?.agentId!==previous.actorId||canonical.work?.status!=='retryable'||
+   canonical.work?.attempts!==previous.acceptedCheckpoint.expectedAttempts||canonical.work?.processedAt!=null)refuseAdmissionStop();
+
+ const [adoption,trusted,release]=await Promise.all([arm.adoption,arm.trustedDecision,arm.actualStagingRelease].map(async pin=>(await read(pin)).value));
+ const serverAdoption=await inspectServerAdoption(stoppedRecovery,p,previous.originalReceipt.serverSource,receipt,previous.acceptedCheckpoint);
+ if(!serverAdoption||adoption.serverAdoptionSha256!==serverAdoption||trusted.serverAdoptionSha256!==serverAdoption||
+   adoption.owner!=='pjsk02'||adoption.ownerApproved!==true||adoption.packetSha256!==d.packet.sha256||
+   adoption.clientSource!==receipt.clientSource||adoption.serverSource!==receipt.serverSource||
+   adoption.acceptedCheckpointSha256!==r.acceptedCheckpoint.sha256||adoption.priorWindow!==previous.priorWindow||
+   adoption.priorExecutionSha256!==previous.priorExecution.sha256||adoption.priorLedgerSha256!==previous.priorLedger.sha256||
+   adoption.repeatOnboarding!==false||adoption.replayAcceptedSends!==false||adoption.repeatObservedControls!==false||
+   adoption.currentModels!==35||adoption.currentOperations!==34||adoption.operationCap!==62||adoption.normalOperationCap!==54||
+   adoption.cleanupReserve!==8||adoption.modelCap!==64||adoption.operationAllocationSha256!==r.operationAmendment?.allocation.sha256||
+   trusted.trustedDirectHumanReply!==true||trusted.approvedPersistentWorkflow!==true||trusted.decisionId!==adoption.decisionId||
+   trusted.sealSha256!==d.seal.sha256||trusted.packetSha256!==d.packet.sha256||
+   release.candidateSource!==receipt.serverSource||release.packetSha256!==d.packet.sha256||
+   release.sourceAdoptionDecisionId!==adoption.decisionId||release.sourceAdoptionDecisionSha256!==arm.adoption.sha256||
+   release.registryManifestReadbackVerified!==true||release.stagingHealthVerified!==true)refuseAdmissionStop();
+ if(!/^[A-Za-z0-9_-]{8,100}$/.test(adoption.decisionId)||
+   path.resolve(d.consumed.path)!==path.resolve(releaseRoot,'phase-c-recovery-time-'+hash('pjsk02\0'+adoption.decisionId)+'.used.json')||
+   path.resolve(d.admission.path)!==path.resolve(releaseRoot,'phase-c-controlled-progress-'+previous.priorWindow+'.used.json'))refuseAdmissionStop();
+ const [decision,admission]=await Promise.all([d.consumed,d.admission].map(async pin=>(await read(pin)).value));
+ if(decision.purpose!=='phase-c-one-use-controlled-progress-recovery'||decision.approvalSha256!==arm.adoption.sha256||
+   decision.decisionId!==adoption.decisionId||decision.window!==e.window||decision.priorWindow!==previous.priorWindow||
+   decision.timeMode!==receipt.lifetime||admission.purpose!=='phase-c-one-use-controlled-progress'||
+   admission.priorWindow!==previous.priorWindow||admission.nextWindow!==e.window||admission.stateSha256!==r.state.sha256||
+   admission.ledgerSha256!==previous.priorLedger.sha256)refuseAdmissionStop();
+
+ const activeActionLedger=path.join(releaseRoot,'phase-c-cumulative-actions.jsonl');
+ const [rows,frozen,actions,priorActions]=await Promise.all([
+  ledger.readInspectionBytes(),read(d.actualLedger,false),read(d.actionLedger,false),read(r.history.actionLedger,false),
+ ]);
+ const prefix=await priorLedger.readInspectionBytes();
+ if(!rows.equals(frozen.raw)||!rows.subarray(0,prefix.length).equals(prefix)||!rows.toString().endsWith('\n')||
+   hash(rows)!==ledger.contentSha256||ledger.window!==e.window||ledger.reviewedGraphApprovalRaw!==e.graphApprovalRaw||
+   hashReviewedContinuationPlan(p.reviewedGraph)!==ledger.reviewedPlan?.planSha256||
+   path.resolve(d.actionLedger.path)!==path.resolve(activeActionLedger)||!actions.raw.equals(priorActions.raw))refuseAdmissionStop();
+ const suffix=rows.subarray(prefix.length),append=suffix.toString().trimEnd().split('\n').map(line=>JSON.parse(line));
+ if(append.length!==2||append[0].kind!=='window'||append[1].kind!=='plan'||append.some(row=>row.window!==e.window)||
+   append[0].proof?.approvalReceiptHash!==arm.adoption.sha256||append[1].proof?.graphApprovalRaw!==e.graphApprovalRaw||
+   hash(suffix)!==d.appendedRowsSha256)refuseAdmissionStop();
+ const before=priorLedger.snapshot(),now=ledger.snapshot();
+ if(now.chargedAttempts!==35||now.pending!==0||now.unresolvedDispatches!==0||
+   (['chargedAttempts','knownDispatchedRequests','knownOpenClawDispatches','pending','unresolvedDispatches'] as const)
+    .some(key=>now[key]!==before[key]))refuseAdmissionStop();
+ return {...previous,priorWindow:e.window,priorExecution:d.execution as ProgressPin,priorLedger:d.actualLedger as ProgressPin,
+  originalReceipt:receipt,currentLedgerSha256:hash(rows),metadataReceipts:[...previous.metadataReceipts,receipt],
+  retainedServerAdoption:r.serverAdoption,preNativeMetadataPrefix:{ledger:previous.priorLedger,receipt:previous.originalReceipt}};
 }
 async function inspectOriginalControlledProgressHistory(input:HistoryInput){
  const{recovery:r,ledger}=input,p=(await read(r.runtimePacket)).value,first=(await read(r.initialExecution)).value,current=(await read(r.execution)).value,
@@ -124,8 +236,15 @@ async function inspectOriginalControlledProgressHistory(input:HistoryInput){
 }
 export async function inspectControlledProgress(input:{releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ActiveContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}}){
  const{recovery:r,receipt:n,ledger,preflight:p,expected:e}=input,h=await inspectControlledProgressHistory(input),a=h.initialReceipt;
- const verifiedWorkflowBootstrap=n.version===2&&h.acceptedCheckpoint&&h.originalReceipt.version===2?h.originalReceipt:undefined;
- await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts:h.metadataReceipts},verifiedWorkflowBootstrap);
+ const metadataPrefix='preNativeMetadataPrefix' in h ? h.preNativeMetadataPrefix as {ledger:ProgressPin;receipt:ActiveContinuationReceipt} : undefined;
+ if(metadataPrefix&&n.version!==2)refuse('EXACT_PRE_NATIVE_ADMISSION_STOP_REQUIRED');
+ // The stop inspector verified the two new metadata rows separately. Keep the
+ // existing native-progress verifier on its previously approved exact prefix.
+ const stoppedLedger=metadataPrefix?await ledger.inspectReadOnlyPrefix(metadataPrefix.ledger.path,metadataPrefix.ledger.sha256):ledger;
+ const metadataReceipts=metadataPrefix?h.metadataReceipts.slice(0,-1):h.metadataReceipts;
+ const stoppedReceipt=metadataPrefix?.receipt??h.originalReceipt;
+ const verifiedWorkflowBootstrap=n.version===2&&h.acceptedCheckpoint&&stoppedReceipt.version===2?stoppedReceipt:undefined;
+ await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger:stoppedLedger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts},verifiedWorkflowBootstrap);
  const canonical=(await read(r.canonicalWork)).value,w=canonical?.work,now=Date.now(),accepted=h.acceptedCheckpoint,unforwarded=accepted?undefined:h.startup?.proof.preTarget?.unforwarded;
  if(canonical.database!=='sinaloa_staging'||canonical.readOnly!=='on'||Date.parse(canonical.checkedAt)!==p.checkedAtMs||canonical.activeWorkLeases!==0
    ||w?.workId!==h.workId||w.caseId!==h.caseId||w.agentId!==h.actorId||w.status!==(unforwarded?'failed':'retryable')||!Number.isSafeInteger(w.attempts)||w.attempts<1
@@ -170,7 +289,8 @@ export async function inspectControlledProgress(input:{releaseRoot:string;ledger
  }
  const target=(await read(r.targetPacket)).value,approval=(await read(r.adoption)).value,old=h.originalReceipt,start=Date.parse(n.startUtc),end=n.version===1?Date.parse(n.hardStopUtc):undefined;
  const workflow=n.version===2&&n.lifetime==='until-complete-or-cancel'&&n.humanReview==='before-claim'&&!Object.hasOwn(n,'hardStopUtc');
- const serverAdoptionSha256=await inspectServerAdoption(r,target,old.serverSource,n,accepted);
+ const retainedServerAdoption='retainedServerAdoption' in h ? h.retainedServerAdoption as ProgressPin : undefined;
+ const serverAdoptionSha256=await inspectServerAdoption(r,target,old.serverSource,n,accepted,retainedServerAdoption);
  if(!(n.version===1||workflow)||n.ownerApproved!==true||n.modelCap!==64||n.ciHead!==n.clientSource||n.ciPassed!==true||n.clientSource!==e.clientSource||n.serverSource!==e.serverSource
    ||n.runnerSha256!==e.runnerSha256||n.packetSha256!==e.packetSha256||n.packetSha256!==r.targetPacket.sha256||n.approvalReceiptSha256!==r.adoption.sha256
    ||!Number.isFinite(start)||start>now||!workflow&&(!Number.isFinite(end)||end!<=now||end!<=start||end!-start>5400000)||!/^[a-f0-9]{40}$/.test(n.clientSource)||!/^[a-f0-9]{64}$/.test(n.runnerSha256)
