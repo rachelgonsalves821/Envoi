@@ -725,6 +725,27 @@ describe('authenticated local management', () => {
       runtimeDiagnostic: { errorCode: 'SCOPED_CONFIG_INVALID' } });
     expect(JSON.stringify(status)).not.toMatch(/daemonOrigin|agentApiToken|agentRefreshToken/);
   });
+  it('reports a paused status failure after readiness as a receiving failure', async () => {
+    const f = await fixture();
+    await setupConnection(f.handoff, f.resolver, f.options);
+    const onReady = vi.fn();
+    const fetcher: typeof fetch = async (url, init) => {
+      if (String(url).endsWith('/api/agent/status')) {
+        if (onReady.mock.calls.length) return new Response('Status endpoint unavailable', { status: 404 });
+        return Response.json({ state: 'paused', agent: { id: 'agent_hermes' }, inboxId: 'inbox_hermes' });
+      }
+      return f.options.fetch(url, init);
+    };
+    await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver,
+      { ...f.options, fetch: fetcher, onReady })).rejects.toMatchObject({ status: 404 });
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({
+      status: 'stopped',
+      lastFailure: { phase: 'failed', runtimeChecks: 'deferred_while_paused', errorCode: 'CONNECTOR_RECEIVE_FAILED',
+        failure: { operation: 'status_check', httpStatus: 404 } },
+      nextAction: expect.stringContaining('lastFailure')
+    });
+  });
 });
 
 describe('durable lifecycle in the installed runtimes', () => {

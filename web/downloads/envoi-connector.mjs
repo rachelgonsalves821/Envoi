@@ -12932,18 +12932,18 @@ var ts = /* @__PURE__ */ new Set([
 	"status_check",
 	"receive_loop",
 	"hosted_wake"
-]), as = (e) => typeof e == "number" && Number.isInteger(e) && e >= 100 && e <= 599, os = (e) => typeof e == "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(e);
-function ss(e, t, n) {
+]), as = (e) => is.has(e), os = (e) => typeof e == "number" && Number.isInteger(e) && e >= 100 && e <= 599, ss = (e) => typeof e == "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(e);
+function cs(e, t, n) {
 	return {
 		operation: e,
-		...as(t) ? { httpStatus: t } : {},
-		...os(n) ? { requestId: n } : {}
+		...os(t) ? { httpStatus: t } : {},
+		...ss(n) ? { requestId: n } : {}
 	};
 }
-async function cs(e, t, n = !1) {
+async function ls(e, t, n = !1) {
 	await z(d.join(e, n ? "last-runtime-failure.json" : "runtime-diagnostic.json"), t);
 }
-async function ls(e, t = !1) {
+async function us(e, t = !1) {
 	let r = d.join(e, t ? "last-runtime-failure.json" : "runtime-diagnostic.json"), i = await n(r).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
@@ -12963,7 +12963,7 @@ async function ls(e, t = !1) {
 		].includes(e))) return null;
 		if (e.failure !== void 0) {
 			let { failure: t } = e;
-			if (e.phase !== "failed" || !t || typeof t != "object" || !(ts.has(t.operation) || is.has(t.operation)) || t.httpStatus !== void 0 && !as(t.httpStatus) || t.requestId !== void 0 && !os(t.requestId) || Object.keys(t).some((e) => ![
+			if (e.phase !== "failed" || !t || typeof t != "object" || !(ts.has(t.operation) || as(t.operation)) || t.httpStatus !== void 0 && !os(t.httpStatus) || t.requestId !== void 0 && !ss(t.requestId) || Object.keys(t).some((e) => ![
 				"operation",
 				"httpStatus",
 				"requestId"
@@ -12974,12 +12974,12 @@ async function ls(e, t = !1) {
 		return null;
 	}
 }
-var us = "Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.";
-function ds(e, t, n, r = {}) {
+var ds = "Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.";
+function fs(e, t, n, r = {}) {
 	let i = r.env ?? process.env, a = r.homeDir ?? h(), o = r.platform ?? process.platform, s = v("sha256").update(`${ce(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), c = o === "win32" ? i.LOCALAPPDATA || d.join(a, "AppData", "Local") : o === "darwin" ? d.join(a, "Library", "Application Support") : i.XDG_STATE_HOME && d.isAbsolute(i.XDG_STATE_HOME) ? i.XDG_STATE_HOME : d.join(a, ".local", "state");
 	return d.join(c, "envoi", n, s);
 }
-function fs(e, t = process.platform) {
+function ps(e, t = process.platform) {
 	let n = [
 		process.execPath,
 		d.join(e, "connector.mjs"),
@@ -12989,11 +12989,11 @@ function fs(e, t = process.platform) {
 	];
 	return t === "win32" ? `& ${n.map((e) => `'${e.replaceAll("'", "''")}'`).join(" ")}` : n.map((e) => `'${e.replaceAll("'", "'\"'\"'")}'`).join(" ");
 }
-var ps = (e = fetch) => (t, n) => e(t, {
+var ms = (e = fetch) => (t, n) => e(t, {
 	...n,
 	redirect: "error"
 });
-async function ms(n, r) {
+async function hs(n, r) {
 	if (!r || d.resolve(r) === d.join(n, "connector.mjs")) return;
 	let i = d.join(n, `.connector-${S()}.tmp`);
 	try {
@@ -13002,7 +13002,7 @@ async function ms(n, r) {
 		await l(i, { force: !0 });
 	}
 }
-async function hs(e) {
+async function gs(e) {
 	let t = d.join(e, "session.json"), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
@@ -13024,7 +13024,7 @@ async function hs(e) {
 	].some((e) => typeof i[e] != "string" || !i[e]) || !Number.isFinite(Date.parse(i.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(i.agentRefreshTokenExpiresAt))) throw new I("STATE_INVALID", "Saved credentials are invalid; preserve the connection directory for recovery");
 	return i;
 }
-async function gs(e) {
+async function _s(e) {
 	let t = d.join(e, "connection.json"), r = await n(t);
 	if (!r.isFile() || r.isSymbolicLink() || r.size > 128e3) throw new I("STATE_INVALID", "Choose a regular private saved connection");
 	let i;
@@ -13036,10 +13036,10 @@ async function gs(e) {
 	if (!i || typeof i != "object" || Array.isArray(i) || (i.runtime === "openclaw" && !i.configuration && i.openclaw && (i.configuration = i.openclaw), i.version !== 1 || !P.includes(i.runtime) || !i.configuration || typeof i.configuration != "object" || Array.isArray(i.configuration) || typeof i.address != "string" || typeof i.agentName != "string")) throw new I("STATE_INVALID", "The saved connection is invalid");
 	return i.apiUrl = ce(i.apiUrl), i;
 }
-async function _s(r, i) {
+async function vs(r, i) {
 	let o = await B(r);
 	try {
-		let o = await gs(r), s = await hs(r);
+		let o = await _s(r), s = await gs(r);
 		if (!s || s.address !== o.address || o.activationSetup?.agentId && s.agentId !== o.activationSetup.agentId || o.activationSetup?.inboxId && s.inboxId !== o.activationSetup.inboxId) throw new I("STATE_MISMATCH", "The saved connector identity does not match this installation; preserve the profile and inspect it before updating");
 		let u = await n(i);
 		if (!u.isFile() || u.isSymbolicLink()) throw new I("STATE_INVALID", "Choose a regular candidate connector bundle");
@@ -13062,7 +13062,7 @@ async function _s(r, i) {
 				await l(i, { force: !0 });
 			}
 		}
-		return await ms(r, i), {
+		return await hs(r, i), {
 			candidateHash: m,
 			previousHash: h,
 			changed: !0
@@ -13071,7 +13071,7 @@ async function _s(r, i) {
 		await o();
 	}
 }
-async function vs(e, t) {
+async function ys(e, t) {
 	let n;
 	try {
 		n = await t(`${ce(e)}/health`, { signal: AbortSignal.timeout(1e4) });
@@ -13084,7 +13084,7 @@ async function vs(e, t) {
 		throw new I("ENVOI_UNREACHABLE", "The selected URL did not return Envoi health. Check the deployment origin before enrolling");
 	}
 }
-async function ys(e, t, n, r, i) {
+async function bs(e, t, n, r, i) {
 	await t.reportConnectionStatus({
 		version: 1,
 		runtime: e.runtime,
@@ -13093,9 +13093,9 @@ async function ys(e, t, n, r, i) {
 		...i ? { errorCode: i } : {}
 	});
 }
-async function bs(e, t, n, r = {}) {
-	let i = ps(r.fetch);
-	await vs(t, i);
+async function xs(e, t, n, r = {}) {
+	let i = ms(r.fetch);
+	await ys(t, i);
 	let a = n(e), o = await a.discover({
 		...r,
 		fetch: i
@@ -13111,9 +13111,9 @@ async function bs(e, t, n, r = {}) {
 		note: "Preparation did not enroll an agent or prove unattended receiving"
 	};
 }
-async function xs(e, t, n, r) {
+async function Ss(e, t, n, r) {
 	if (e.runtime !== "hermes" || r.installService) return;
-	let i = await gs(t), a = await hs(t);
+	let i = await _s(t), a = await gs(t);
 	if (!a) return;
 	if (i.apiUrl !== e.apiUrl || i.address !== e.address || i.runtime !== e.runtime || a.address !== e.address) throw new I("STATE_MISMATCH", "This directory belongs to another connection. Use a separate agent-specific directory");
 	let o = e.operation === "reconnect" ? v("sha256").update(e.enrollmentToken).digest("hex") : void 0;
@@ -13132,7 +13132,7 @@ async function xs(e, t, n, r) {
 	if (u.agentId !== a.agentId || u.inboxId !== a.inboxId) return;
 	if (Object.entries(s).some(([e, t]) => u[e] !== t)) throw new I("STATE_MISMATCH", "The running runtime selection differs from saved setup. Preserve the connection and inspect its status");
 	if (u.phase !== "ready" || !["running", "paused"].includes(String(u.status))) throw new I("TOOLS_NOT_READY", "The existing connector is still recovering. Keep it running and check status; do not repeat enrollment");
-	let f = ps(r.fetch), p = async (e) => {
+	let f = ms(r.fetch), p = async (e) => {
 		await l.assertActive();
 		let t;
 		try {
@@ -13153,7 +13153,7 @@ async function xs(e, t, n, r) {
 		m = await p(a);
 	} catch (e) {
 		if (!(e instanceof L) || e.code !== "ACCESS_TOKEN_EXPIRED") throw e;
-		let n = await hs(t);
+		let n = await gs(t);
 		if (!n || n.agentId !== a.agentId || n.inboxId !== a.inboxId || n.agentApiToken === a.agentApiToken) throw e;
 		m = await p(n);
 	}
@@ -13168,27 +13168,27 @@ async function xs(e, t, n, r) {
 		alreadyRunning: !0
 	};
 }
-async function Ss(e, t, n = {}) {
-	let r = le(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? Se)(await Qo(n.stateDir ?? ds(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a;
+async function Cs(e, t, n = {}) {
+	let r = le(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? Se)(await Qo(n.stateDir ?? fs(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a;
 	try {
 		a = await B(i);
 	} catch (e) {
 		if (!(e instanceof xe)) throw e;
-		let a = await xs(r, i, t, n);
+		let a = await Ss(r, i, t, n);
 		if (a) return a;
 		throw e;
 	}
-	let o = ps(n.fetch), s, c, u;
+	let o = ms(n.fetch), s, c, u;
 	try {
 		let a = new Er(i);
 		await a.init();
-		let f = await hs(i), p = await gs(i).catch((e) => {
+		let f = await gs(i), p = await _s(i).catch((e) => {
 			if (e.code !== "ENOENT") throw e;
 		});
 		if (p && (p.apiUrl !== r.apiUrl || p.address !== r.address || p.runtime !== r.runtime) || f && f.address !== r.address) throw new I("STATE_MISMATCH", "This directory belongs to another connection. Use a separate agent-specific directory");
 		if (f && !p) throw new I("STATE_INVALID", "Saved credentials have no connection configuration; preserve this directory and inspect it");
 		let m = r.operation === "reconnect" ? v("sha256").update(r.enrollmentToken).digest("hex") : void 0, h = f?.setupRedemptionId, g = !f || !!m && h !== m && p?.lastReconnectId !== m;
-		g && le(e), n.installService && await ko(), n.onProgress?.("Checking Envoi reachability"), await vs(r.apiUrl, o);
+		g && le(e), n.installService && await ko(), n.onProgress?.("Checking Envoi reachability"), await ys(r.apiUrl, o);
 		let _ = t(r.runtime), y = {
 			...n,
 			apiUrl: r.apiUrl,
@@ -13205,7 +13205,7 @@ async function Ss(e, t, n = {}) {
 			agentName: r.agentName,
 			configuration: b,
 			...p?.lastReconnectId ? { lastReconnectId: p.lastReconnectId } : {}
-		}, await z(d.join(i, "connection.json"), c), await ms(i, n.executableFile), g) {
+		}, await z(d.join(i, "connection.json"), c), await hs(i, n.executableFile), g) {
 			n.onProgress?.(r.operation === "reconnect" ? "Reconnecting the existing agent" : "Enrolling the agent");
 			let e = {
 				load: () => a.load(),
@@ -13228,7 +13228,7 @@ async function Ss(e, t, n = {}) {
 		if (!f || f.address !== r.address) throw new I("STATE_MISMATCH", "The enrolled address differs from this handoff. Inspect Agent connections before starting");
 		await l(d.join(i, "enrollment-error.json"), { force: !0 }), u = new ur(c.apiUrl, a, { fetch: o }), await _.configure?.(b, y), await z(d.join(i, "connection.json"), c), n.onProgress?.("Verifying runtime tools and Envoi access"), s = await _.createBridge(b, y), await s.connector.start(), await s.connector.checkStatus(n.signal);
 		let x = (await s.connector.lifecycle()).paused;
-		x || (await s.verify?.(n.signal), await ys(c, s.connector, "ready", o));
+		x || (await s.verify?.(n.signal), await bs(c, s.connector, "ready", o));
 		let S = x ? "deferred_while_paused" : "passed";
 		return await z(d.join(i, "setup-check.json"), {
 			runtime: c.runtime,
@@ -13242,7 +13242,7 @@ async function Ss(e, t, n = {}) {
 			checks: S
 		};
 	} catch (e) {
-		throw !n.signal?.aborted && c && (s || u) && await ys(c, s?.connector ?? u, "error", o, e instanceof I ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
+		throw !n.signal?.aborted && c && (s || u) && await bs(c, s?.connector ?? u, "error", o, e instanceof I ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
 	} finally {
 		try {
 			await s?.close();
@@ -13251,9 +13251,9 @@ async function Ss(e, t, n = {}) {
 		}
 	}
 }
-async function Cs(e, t, n, r = {}) {
+async function ws(e, t, n, r = {}) {
 	uo(r.env ?? process.env);
-	let i = await (r.secureDirectory ?? Se)(await Qo(e, r.secureDirectory)), a = await B(i), o = ps(r.fetch), s = new AbortController(), c = () => s.abort();
+	let i = await (r.secureDirectory ?? Se)(await Qo(e, r.secureDirectory)), a = await B(i), o = ms(r.fetch), s = new AbortController(), c = () => s.abort();
 	t.addEventListener("abort", c, { once: !0 }), t.aborted && s.abort();
 	let l, u, f, p = {
 		status: "starting",
@@ -13276,13 +13276,13 @@ async function Cs(e, t, n, r = {}) {
 			runtimeChecks: t,
 			errorCode: c,
 			retryAt: r
-		}, await cs(i, l).catch(() => {}), a && await cs(i, l, !0).catch(() => {});
+		}, await ls(i, l).catch(() => {}), a && await ls(i, l, !0).catch(() => {});
 	};
 	try {
 		await v("starting");
 		let e = await go(i, r.env ?? process.env);
-		f = await gs(i);
-		let t = await hs(i);
+		f = await _s(i);
+		let t = await gs(i);
 		if (!t) throw new I("STATE_INVALID", "Saved credentials are missing; reconnect through Envoi before starting");
 		let a = new ur(f.apiUrl, new Er(i), { fetch: o });
 		await a.start();
@@ -13310,7 +13310,7 @@ async function Cs(e, t, n, r = {}) {
 		for (y.retryAt && await T(Math.max(0, Date.parse(y.retryAt) - Date.now()), void 0, { signal: s.signal }).catch((e) => {
 			if (!s.signal.aborted) throw e;
 		}); !s.signal.aborted;) try {
-			await v("service_check"), await vs(f.apiUrl, o), await v("runtime_check");
+			await v("service_check"), await ys(f.apiUrl, o), await v("runtime_check");
 			let t = await m.discover(h, f.configuration);
 			await (m.startupCheck ?? m.preflight)(t, h), await m.configure?.(t, h), f.configuration = t, await z(d.join(i, "connection.json"), f), l = await m.createBridge(t, h), e && l.connector.scopedWakeWorkDriver(), l.connector.onState((e) => {
 				p = {
@@ -13328,10 +13328,10 @@ async function Cs(e, t, n, r = {}) {
 						status: "waiting",
 						runtimeChecks: "pending",
 						errorCode: e,
-						guidance: e === "TOOLS_PROOF_PARKED" ? us : "Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged."
+						guidance: e === "TOOLS_PROOF_PARKED" ? ds : "Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged."
 					}, r.onWaiting?.(e);
 				}
-			}) : await l.verify?.(s.signal), (await l.connector.lifecycle()).paused || await ys(f, l.connector, "ready", o));
+			}) : await l.verify?.(s.signal), (await l.connector.lifecycle()).paused || await bs(f, l.connector, "ready", o));
 			let n = await l.connector.lifecycle();
 			p = {
 				status: n.state.toLowerCase(),
@@ -13384,10 +13384,10 @@ async function Cs(e, t, n, r = {}) {
 	} catch (e) {
 		if (!s.signal.aborted) {
 			h = !0;
-			let t = _?.error ?? e, n = t instanceof L || t instanceof er || t instanceof rr ? t : void 0, r = t instanceof rr ? "WORK_CONTRACT_ERROR" : t instanceof er ? "STATE_PERSISTENCE_FAILED" : t instanceof I || t instanceof L ? t.code : void 0, i = p.runtimeChecks === "passed" ? "passed" : "pending";
-			await v("failed", i, r ?? (i === "passed" ? "CONNECTOR_RECEIVE_FAILED" : "CONNECTOR_START_FAILED"), void 0, ss(_?.operation ?? g, n?.status, n?.requestId));
+			let t = _?.error ?? e, n = t instanceof L || t instanceof er || t instanceof rr ? t : void 0, r = t instanceof rr ? "WORK_CONTRACT_ERROR" : t instanceof er ? "STATE_PERSISTENCE_FAILED" : t instanceof I || t instanceof L ? t.code : void 0, i = p.runtimeChecks === "passed" || p.runtimeChecks === "deferred_while_paused" ? p.runtimeChecks : "pending", a = _?.operation ?? g;
+			await v("failed", i, r ?? (as(a) ? "CONNECTOR_RECEIVE_FAILED" : "CONNECTOR_START_FAILED"), void 0, cs(a, n?.status, n?.requestId));
 		}
-		if (f && l && !s.signal.aborted && await ys(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
+		if (f && l && !s.signal.aborted && await bs(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
 	} finally {
 		t.removeEventListener("abort", c);
 		try {
@@ -13397,15 +13397,15 @@ async function Cs(e, t, n, r = {}) {
 		}
 	}
 }
-async function ws(e) {
-	let t = d.resolve(e), n = await gs(t), r = await hs(t), i = null, o = "absent";
+async function Ts(e) {
+	let t = d.resolve(e), n = await _s(t), r = await gs(t), i = null, o = "absent";
 	try {
 		let e = await Vo(t, "status");
 		!Ho(e, n) || typeof e.status != "string" ? o = "identity_mismatch" : (i = e, o = "responding");
 	} catch (e) {
 		o = e instanceof I && e.code === "CONTROL_INVALID" ? "invalid" : e?.code === "ENOENT" ? "absent" : "unreachable";
 	}
-	let s = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), c = await qo(t), l = await ls(t), u = await ls(t, !0), f = n.configuration, p = n.runtime === "hermes" && f.scopedTools === !0, m = p && typeof f.home == "string" && typeof f.daemonOrigin == "string" && typeof f.scopedCwd == "string" ? {
+	let s = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), c = await qo(t), l = await us(t), u = await us(t, !0), f = n.configuration, p = n.runtime === "hermes" && f.scopedTools === !0, m = p && typeof f.home == "string" && typeof f.daemonOrigin == "string" && typeof f.scopedCwd == "string" ? {
 		home: f.home,
 		origin: f.daemonOrigin,
 		cwd: f.scopedCwd
@@ -13417,11 +13417,11 @@ async function ws(e) {
 		connection: "unverified",
 		supervisor: "unknown",
 		originMatches: null
-	} : void 0)]), _ = i?.status ?? (o === "invalid" || o === "identity_mismatch" || "managerState" in h && h.managerState === "running" ? "unverified" : "stopped"), v = i ? i.errorCode : l?.errorCode, y = typeof v == "string" ? v : void 0, b = i ? i.phase : l?.phase, x = r ? r.lifecycle?.state === "REVOKED" ? "Ask the owner to review the revoked installation; preserve its saved state." : r.lifecycle?.state === "NEEDS_RECONNECT" ? "Ask the owner to reconnect this existing agent through Envoi." : o === "invalid" || o === "identity_mismatch" ? "Inspect the private connector control record and preserve this installation; its live identity is unverified." : _ === "unverified" ? "The host manager reports a running connector without a responding control channel; inspect that process and retry status." : r.lifecycle?.paused ? _ === "stopped" ? "Start the existing connector so it can observe the owner resuming this agent." : "Wait for the owner to resume this existing agent." : y === "SCOPED_CONFIG_INVALID" ? "Preserve the connection and ask the owner to review the selected scoped Gateway." : [
+	} : void 0)]), _ = i?.status ?? (o === "invalid" || o === "identity_mismatch" || "managerState" in h && h.managerState === "running" ? "unverified" : "stopped"), v = i ? i.errorCode : l?.errorCode, y = typeof v == "string" ? v : void 0, b = i ? i.phase : l?.phase, x = r ? r.lifecycle?.state === "REVOKED" ? "Ask the owner to review the revoked installation; preserve its saved state." : r.lifecycle?.state === "NEEDS_RECONNECT" ? "Ask the owner to reconnect this existing agent through Envoi." : o === "invalid" || o === "identity_mismatch" ? "Inspect the private connector control record and preserve this installation; its live identity is unverified." : _ === "unverified" ? "The host manager reports a running connector without a responding control channel; inspect that process and retry status." : y === "SCOPED_CONFIG_INVALID" ? "Preserve the connection and ask the owner to review the selected scoped Gateway." : [
 		"HERMES_EXECUTION_UNCERTAIN",
 		"HERMES_CREATION_UNCERTAIN",
 		"SCOPED_MODEL_CHANGED"
-	].includes(y ?? "") ? "Preserve the turn journal and use the supported settlement recovery procedure." : b === "failed" && l?.runtimeChecks === "passed" ? "Check the saved operation and error in lastFailure before restarting the existing connector." : "enabled" in h && h.enabled === !1 ? "Ask the owner to enable the existing startup service." : "managerState" in h && h.managerState === "failed" ? "Inspect the startup service failure; preserve enrollment and credentials." : y === "GATEWAY_UNREACHABLE" ? "Restore the selected Gateway; the connector will retry its saved connection." : y === "TOOLS_PROOF_PARKED" ? us : b === "failed" ? "Inspect the saved runtime error code and repair the selected runtime before restarting." : "recoveryPolicy" in h && h.recoveryPolicy === "outdated" ? "Ask the owner to reinstall the existing connector startup service with this build; preserve its saved profile and enrollment." : _ === "stopped" && h.registration === "not_installed" ? "Start the existing connector or ask the owner to install its startup service." : _ === "stopped" ? "Restart the existing connector using its saved state directory." : _ === "waiting" ? "Wait for the saved retry, then verify a real agent exchange." : void 0 : "Preserve the connection directory and ask the owner to recover its missing credentials.";
+	].includes(y ?? "") ? "Preserve the turn journal and use the supported settlement recovery procedure." : b === "failed" && l?.failure && as(l.failure.operation) ? "Check the saved operation and error in lastFailure before restarting the existing connector." : r.lifecycle?.paused ? _ === "stopped" ? "Start the existing connector so it can observe the owner resuming this agent." : "Wait for the owner to resume this existing agent." : "enabled" in h && h.enabled === !1 ? "Ask the owner to enable the existing startup service." : "managerState" in h && h.managerState === "failed" ? "Inspect the startup service failure; preserve enrollment and credentials." : y === "GATEWAY_UNREACHABLE" ? "Restore the selected Gateway; the connector will retry its saved connection." : y === "TOOLS_PROOF_PARKED" ? ds : b === "failed" ? "Inspect the saved runtime error code and repair the selected runtime before restarting." : "recoveryPolicy" in h && h.recoveryPolicy === "outdated" ? "Ask the owner to reinstall the existing connector startup service with this build; preserve its saved profile and enrollment." : _ === "stopped" && h.registration === "not_installed" ? "Start the existing connector or ask the owner to install its startup service." : _ === "stopped" ? "Restart the existing connector using its saved state directory." : _ === "waiting" ? "Wait for the saved retry, then verify a real agent exchange." : void 0 : "Preserve the connection directory and ask the owner to recover its missing credentials.";
 	return {
 		runtime: n.runtime,
 		address: n.address,
@@ -13429,7 +13429,7 @@ async function ws(e) {
 		agentId: r?.agentId,
 		credentialState: r ? "saved" : "missing",
 		lifecycle: r?.lifecycle,
-		guidance: r?.lifecycle?.guidance ?? (y === "TOOLS_PROOF_PARKED" ? us : void 0),
+		guidance: r?.lifecycle?.guidance ?? (y === "TOOLS_PROOF_PARKED" ? ds : void 0),
 		...c ? { enrollmentError: c } : {},
 		stateDir: t,
 		status: _,
@@ -13451,8 +13451,8 @@ async function ws(e) {
 		note: "A running connector is not proof of successful message delivery. Verify a real agent exchange"
 	};
 }
-async function Ts(e, t, n = {}) {
-	let r = d.resolve(e), i = await ws(r);
+async function Es(e, t, n = {}) {
+	let r = d.resolve(e), i = await Ts(r);
 	if (i.status === "unverified") return {
 		...i,
 		runtimeChecks: "unverified",
@@ -13473,8 +13473,8 @@ async function Ts(e, t, n = {}) {
 	};
 	let o = await B(r);
 	try {
-		let e = await gs(r), i = t(e.runtime), a = ps(n.fetch);
-		await vs(e.apiUrl, a);
+		let e = await _s(r), i = t(e.runtime), a = ms(n.fetch);
+		await ys(e.apiUrl, a);
 		let o = {
 			...n,
 			apiUrl: e.apiUrl,
@@ -13484,7 +13484,7 @@ async function Ts(e, t, n = {}) {
 		await (i.startupCheck ?? i.preflight)(s, o);
 		let c = new Er(r);
 		return await new ur(e.apiUrl, c, { fetch: a }).checkStatus(n.signal), {
-			...await ws(r),
+			...await Ts(r),
 			runtimeChecks: "preflight_only",
 			note: "No connector is running. Preflight cannot prove MCP tool discovery, inbox wake, or agent processing",
 			...i.describe(s)
@@ -13493,7 +13493,7 @@ async function Ts(e, t, n = {}) {
 		await o();
 	}
 }
-async function Es(e) {
+async function Ds(e) {
 	let t = d.resolve(e), n, r = Date.now() + 15e3;
 	for (; !n;) try {
 		n = await B(t);
@@ -13507,7 +13507,7 @@ async function Es(e) {
 		await n();
 	}
 }
-async function Ds(e, t = {}) {
+async function Os(e, t = {}) {
 	let n = t.source ?? process, r = [
 		"SIGINT",
 		"SIGTERM",
@@ -13522,7 +13522,7 @@ async function Ds(e, t = {}) {
 		for (let e of r) n.removeListener(e, a);
 	}
 }
-var Os = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|configure-wake|clear-wake|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", ks = [
+var ks = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|configure-wake|clear-wake|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", As = [
 	"--handoff",
 	"--state-dir",
 	"--runtime",
@@ -13531,26 +13531,26 @@ var Os = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --
 	"--profile",
 	"--agent",
 	"--gateway-url"
-], As = [
+], js = [
 	"--handoff-stdin",
 	"--install-service",
 	"--prepare-runtime"
 ];
-async function js(e = process.argv.slice(2)) {
+async function Ms(e = process.argv.slice(2)) {
 	if (!e.length || e.length === 1 && e[0] === "--help") {
-		process.stdout.write(Os);
+		process.stdout.write(ks);
 		return;
 	}
 	if (Number(process.versions.node.split(".")[0]) < 22) throw new I("NODE_UNSUPPORTED", "Install Node.js 22 or newer before connecting");
 	let [t, ...r] = e, i = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Set();
 	for (let e = 0; e < r.length; e++) {
 		let t = r[e];
-		if (As.includes(t)) {
+		if (js.includes(t)) {
 			if (o.has(t)) throw new I("ARGUMENT_INVALID", "Duplicate option");
 			o.add(t);
 			continue;
 		}
-		if (!ks.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new I("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
+		if (!As.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new I("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
 		i.set(t, r[++e]);
 	}
 	let s = {
@@ -13562,7 +13562,7 @@ async function js(e = process.argv.slice(2)) {
 	};
 	if (t === "prepare") {
 		if (!P.includes(i.get("--runtime")) || !i.get("--api-url") || o.has("--install-service") || o.has("--handoff-stdin") || i.has("--handoff") || i.has("--state-dir")) throw new I("ARGUMENT_INVALID", "Supply --runtime and --api-url for prepare. Run --help");
-		let e = await bs(i.get("--runtime"), i.get("--api-url"), Ma, s);
+		let e = await xs(i.get("--runtime"), i.get("--api-url"), Ma, s);
 		process.stdout.write(`${JSON.stringify(e)}\n`);
 		return;
 	}
@@ -13588,7 +13588,7 @@ async function js(e = process.argv.slice(2)) {
 		} catch {
 			throw new I("HANDOFF_INVALID", "Download a valid Envoi setup file");
 		}
-		let r = await Ss(t, Ma, {
+		let r = await Cs(t, Ma, {
 			...s,
 			stateDir: i.get("--state-dir"),
 			installService: o.has("--install-service"),
@@ -13599,7 +13599,7 @@ async function js(e = process.argv.slice(2)) {
 			process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Existing connector left running. Delete the temporary handoff.\n`);
 			return;
 		}
-		if (process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${fs(r.stateDir)}\n`), o.has("--install-service")) {
+		if (process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${ps(r.stateDir)}\n`), o.has("--install-service")) {
 			let e = await Ao(r.stateDir, r.runtime);
 			process.stdout.write(`${JSON.stringify({
 				startupService: e,
@@ -13621,24 +13621,24 @@ async function js(e = process.argv.slice(2)) {
 	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new I("ARGUMENT_INVALID", "Supply a supported command and --state-dir. Run --help");
 	let c = d.resolve(i.get("--state-dir"));
 	if (t === "configure-wake" || t === "clear-wake") {
-		await gs(c), t === "configure-wake" ? await vo(c) : await yo(c), process.stdout.write(`${JSON.stringify({
+		await _s(c), t === "configure-wake" ? await vo(c) : await yo(c), process.stdout.write(`${JSON.stringify({
 			hostedWake: t === "configure-wake" ? "configured" : "disabled",
 			note: "Restart the connector service to apply this change"
 		})}\n`);
 		return;
 	}
 	if (t === "status") {
-		process.stdout.write(`${JSON.stringify(await ws(c))}\n`);
+		process.stdout.write(`${JSON.stringify(await Ts(c))}\n`);
 		return;
 	}
 	if (t === "doctor") {
-		process.stdout.write(`${JSON.stringify(await Ts(c, Ma))}\n`);
+		process.stdout.write(`${JSON.stringify(await Es(c, Ma))}\n`);
 		return;
 	}
 	if (t === "install-service") {
-		let e = await gs(c);
+		let e = await _s(c);
 		await ko();
-		let t = await _s(c, m(import.meta.url)), n = await Ao(c, e.runtime);
+		let t = await vs(c, m(import.meta.url)), n = await Ao(c, e.runtime);
 		process.stdout.write(`${JSON.stringify({
 			startupService: n,
 			startsAt: "user login",
@@ -13647,7 +13647,7 @@ async function js(e = process.argv.slice(2)) {
 		return;
 	}
 	if (t === "stop") {
-		await Uo(c, "stop", await gs(c)).catch((e) => {
+		await Uo(c, "stop", await _s(c)).catch((e) => {
 			throw e instanceof I && e.code === "CONTROL_INVALID" ? e : new I("CONNECTOR_UNREACHABLE", "No responding connector. Use status or stop the installed service through its supervisor");
 		}), process.stdout.write(`${JSON.stringify({
 			status: "stop requested",
@@ -13656,7 +13656,7 @@ async function js(e = process.argv.slice(2)) {
 		return;
 	}
 	if (t === "uninstall") {
-		let e = await gs(c), t = !1;
+		let e = await _s(c), t = !1;
 		try {
 			await Uo(c, "status", e), t = !0;
 		} catch (e) {
@@ -13664,18 +13664,18 @@ async function js(e = process.argv.slice(2)) {
 		}
 		await jo(c, e.runtime), t && await Uo(c, "stop", e).catch((e) => {
 			if (e instanceof I && e.code === "CONTROL_INVALID") throw e;
-		}), await Es(c), process.stdout.write(`${JSON.stringify({
+		}), await Ds(c), process.stdout.write(`${JSON.stringify({
 			status: "startup removed",
 			note: "Credentials and work history are preserved. Revoke access in Envoi to invalidate credentials"
 		})}\n`);
 		return;
 	}
-	await Ds((e) => Cs(c, e, Ma, {
+	await Os((e) => ws(c, e, Ma, {
 		onReady: () => process.stdout.write("Envoi connector started. Waiting for incoming work.\n"),
 		onWaiting: (e) => process.stderr.write(`Connection temporarily unavailable (${e}); retrying automatically.\n`)
 	}));
 }
-function Ms(e) {
+function Ns(e) {
 	if (e instanceof I) return `${e.code}: ${e.message}`;
 	if (e instanceof rr) return "WORK_CONTRACT_ERROR: The connector could not use the Envoi work API. Run status for the saved failure before restarting.";
 	if (e instanceof er) return "STATE_PERSISTENCE_FAILED: The connector could not save private state. Run status and preserve the saved connection for recovery.";
@@ -13686,7 +13686,7 @@ function Ms(e) {
 	}
 	return "Connector failed. Run status on the existing connection to inspect its saved diagnostics.";
 }
-function Ns() {
+function Ps() {
 	if (!process.argv[1]) return !1;
 	try {
 		let e = k(process.argv[1]), t = k(m(import.meta.url));
@@ -13695,7 +13695,7 @@ function Ns() {
 		return !1;
 	}
 }
-Ns() && js().catch((e) => {
-	process.stderr.write(`${Ms(e)}\n`), process.exitCode = 1;
+Ps() && Ms().catch((e) => {
+	process.stderr.write(`${Ns(e)}\n`), process.exitCode = 1;
 });
 export { ur as EnvoiConnector, L as EnvoiError, $a as FileWakeStore, Ya as HttpWakeReceiver, co as createScopedWakeHost, lo as createWakeHttpHandler };

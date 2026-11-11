@@ -23,6 +23,7 @@ const phases = new Set<RuntimePhase>(['starting', 'service_check', 'runtime_chec
 const checks = new Set<RuntimeDiagnostic['runtimeChecks']>(['pending', 'passed', 'deferred_while_paused']);
 const timestamp = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value));
 const receiveOperations = new Set<FailureOperation>(['wake_stream', 'event_recovery', 'work_processing', 'status_check', 'receive_loop', 'hosted_wake']);
+export const isReceiveOperation = (operation: FailureOperation) => receiveOperations.has(operation);
 const httpStatus = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599;
 // Connector requests do not supply a request ID. Envoi generates UUIDs for them.
 const requestId = (value: unknown): value is string => typeof value === 'string'
@@ -53,7 +54,7 @@ export async function readRuntimeDiagnostic(directory: string, lastFailure = fal
     if (value.failure !== undefined) {
       const { failure } = value;
       if (value.phase !== 'failed' || !failure || typeof failure !== 'object'
-        || !(phases.has(failure.operation as RuntimePhase) || receiveOperations.has(failure.operation))
+        || !(phases.has(failure.operation as RuntimePhase) || isReceiveOperation(failure.operation))
         || failure.httpStatus !== undefined && !httpStatus(failure.httpStatus)
         || failure.requestId !== undefined && !requestId(failure.requestId)
         || Object.keys(failure).some(key => !['operation', 'httpStatus', 'requestId'].includes(key))) return null;

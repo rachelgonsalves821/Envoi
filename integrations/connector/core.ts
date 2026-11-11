@@ -18,7 +18,7 @@ import { waitForRuntimeTools } from './runtime-readiness';
 import { parseHostedWakeConfig, runHostedWake } from './hosted-wake-runner';
 import { resolveHostedWakeConfig } from './hosted-wake-config';
 import { createHostTaskSender, HostTaskError } from './host-task';
-import { readRuntimeDiagnostic, runtimeFailureDetails, writeRuntimeDiagnostic, type FailureOperation, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
+import { isReceiveOperation, readRuntimeDiagnostic, runtimeFailureDetails, writeRuntimeDiagnostic, type FailureOperation, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
 import { inspectHermesHost, type HermesHostObservation } from '../hermes/scoped-host';
 
 const hermesProofParkedGuidance = 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.';
@@ -627,9 +627,11 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
       const code = observed instanceof ConnectorContractError ? 'WORK_CONTRACT_ERROR'
         : observed instanceof ConnectorPersistenceError ? 'STATE_PERSISTENCE_FAILED'
         : observed instanceof ConnectorSetupError || observed instanceof EnvoiError ? observed.code : undefined;
-      const runtimeChecks = diagnostics.runtimeChecks === 'passed' ? 'passed' : 'pending';
-      await record('failed', runtimeChecks, code ?? (runtimeChecks === 'passed' ? 'CONNECTOR_RECEIVE_FAILED' : 'CONNECTOR_START_FAILED'),
-        undefined, runtimeFailureDetails(terminalFailure?.operation ?? operation, http?.status, http?.requestId));
+      const runtimeChecks = diagnostics.runtimeChecks === 'passed' || diagnostics.runtimeChecks === 'deferred_while_paused'
+        ? diagnostics.runtimeChecks : 'pending';
+      const failedOperation = terminalFailure?.operation ?? operation;
+      await record('failed', runtimeChecks, code ?? (isReceiveOperation(failedOperation) ? 'CONNECTOR_RECEIVE_FAILED' : 'CONNECTOR_START_FAILED'),
+        undefined, runtimeFailureDetails(failedOperation, http?.status, http?.requestId));
     }
     if (saved && bridge && !stop.signal.aborted) await report(saved, bridge.connector, 'error', fetcher, 'CONNECTOR_START_FAILED').catch(() => {});
     if (!stop.signal.aborted) throw error;
@@ -680,13 +682,14 @@ export async function connectionStatus(stateDir: string) {
     : session.lifecycle?.state === 'NEEDS_RECONNECT' ? 'Ask the owner to reconnect this existing agent through Envoi.'
     : controlChannel === 'invalid' || controlChannel === 'identity_mismatch' ? 'Inspect the private connector control record and preserve this installation; its live identity is unverified.'
     : status === 'unverified' ? 'The host manager reports a running connector without a responding control channel; inspect that process and retry status.'
-    : session.lifecycle?.paused ? status === 'stopped'
-      ? 'Start the existing connector so it can observe the owner resuming this agent.'
-      : 'Wait for the owner to resume this existing agent.'
     : errorCode === 'SCOPED_CONFIG_INVALID' ? 'Preserve the connection and ask the owner to review the selected scoped Gateway.'
     : ['HERMES_EXECUTION_UNCERTAIN', 'HERMES_CREATION_UNCERTAIN', 'SCOPED_MODEL_CHANGED'].includes(errorCode ?? '')
       ? 'Preserve the turn journal and use the supported settlement recovery procedure.'
-    : phase === 'failed' && lastRuntime?.runtimeChecks === 'passed' ? 'Check the saved operation and error in lastFailure before restarting the existing connector.'
+    : phase === 'failed' && lastRuntime?.failure && isReceiveOperation(lastRuntime.failure.operation)
+      ? 'Check the saved operation and error in lastFailure before restarting the existing connector.'
+    : session.lifecycle?.paused ? status === 'stopped'
+      ? 'Start the existing connector so it can observe the owner resuming this agent.'
+      : 'Wait for the owner to resume this existing agent.'
     : 'enabled' in startupService && startupService.enabled === false ? 'Ask the owner to enable the existing startup service.'
     : 'managerState' in startupService && startupService.managerState === 'failed' ? 'Inspect the startup service failure; preserve enrollment and credentials.'
     : errorCode === 'GATEWAY_UNREACHABLE' ? 'Restore the selected Gateway; the connector will retry its saved connection.'
