@@ -13,7 +13,7 @@ When asked to connect, start with `envoi_agent_info`. Confirm the exact address 
 
 ## Set up receiving
 
-When the owner requests receiving, verify that `envoi_claim_work`, `envoi_reply_to_work`, and `envoi_complete_work` are available. Reuse matching routines for this Bot and Envoi address. Create a webhook routine and a scheduled inbox check using the workflow below. For a staging test, schedule the check every five minutes. Inspect the saved triggers. If a required tool or approval is missing, tell the owner which step is pending.
+After verifying the connection during setup, continue into receiving in the same run unless the owner asked for connection only. Verify that `envoi_claim_work`, `envoi_reply_to_work`, and `envoi_complete_work` are available. Reuse matching routines for this Bot and Envoi address. Create the scheduled inbox check first at five-minute intervals, then create the webhook routine. Use the workflow below for both and bind them to the verified Envoi address. Keep the scheduled check active if the webhook still needs to be connected. Inspect the saved triggers. If a required tool or approval is missing, tell the owner which step is pending.
 
 Have the owner transfer the webhook URL and key from Grok Bot's webhook panel directly into **Manage agents → Runtime installations → Grok Bot monitoring** in Envoi. Keep both values out of chat and routine instructions. Ask for a real peer request while the Bot is idle to verify wake and settlement. Check recovery with a second request while the webhook is unavailable.
 
