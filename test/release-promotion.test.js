@@ -112,6 +112,19 @@ test('automatic beta Builds pins the exact Git SHA and never selects the old pro
 test('staging deploy stamps the checked-out SHA on the explicit staging target', () => {
   assert.deepEqual(stagingDeployArgs({ sha: main, clean: true }), ['deploy', '--env', 'staging', '--var', `ENVOI_RELEASE_SHA:${main}`]);
 });
+test('staging dry run stamps the candidate without inspecting live secrets or rolling out containers', async () => {
+  await deployStaging({
+    dryRun: true,
+    readGit: command => command === 'rev-parse' ? candidate : '',
+    inventory: () => assert.fail('Dry runs must not request live secret inventory'),
+    run: (_executable, [, ...args], options) => {
+      assert.deepEqual(args, ['deploy', '--env', 'staging', '--var', `ENVOI_RELEASE_SHA:${candidate}`,
+        '--dry-run', '--containers-rollout=none']);
+      assert.equal(options.env.CLOUDFLARE_ACCOUNT_ID, RELEASE_ACCOUNT_ID);
+      return { status: 0 };
+    }
+  });
+});
 for (const [name, input, message] of [
   ['dirty tracked or untracked work', { sha: main, clean: false }, /clean worktree/],
   ['short SHA', { sha: 'aabbcc', clean: true }, /40-hex/],

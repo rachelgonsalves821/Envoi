@@ -4768,7 +4768,8 @@ async function route(req, res) {
     }
     return a2aJson(res, 501, { error: { code: 'UNSUPPORTED_OPERATION', message: 'A2A operation is not supported' } });
   }
-  if (url.pathname.startsWith('/api/agent/a2a/')) return a2aJson(res, 501, { error: { code: 'UNSUPPORTED_OPERATION', message: 'A2A operation is not supported' } });
+  // phase-d v1 §1: with the A2A flag off, no Phase D route (including this fallback) exists.
+  if (onboardingFlags.a2aGateway && url.pathname.startsWith('/api/agent/a2a/')) return a2aJson(res, 501, { error: { code: 'UNSUPPORTED_OPERATION', message: 'A2A operation is not supported' } });
 
   if (req.method === 'GET' && url.pathname === '/api/agent/status') {
     const identity = await getAgentWorkIdentity(req);
@@ -4997,10 +4998,6 @@ async function route(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/onboarding/routes') {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=60' });
     return res.end(JSON.stringify(routeAvailability(onboardingFlags, store.now())));
-  }
-  if (req.method === 'GET' && url.pathname === '/api/phase-d/availability') {
-    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=60' });
-    return res.end(JSON.stringify({ relationshipsEnabled: Boolean(onboardingFlags.relationships) }));
   }
 
   // agent-registration v1 §3–§5: registration, status polling and the human claim.
@@ -5324,13 +5321,15 @@ async function route(req, res) {
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
     const address = normalizedEmail(url.searchParams.get('address'));
     if (!validEmail(address) || address.length > 254) return fail(res, 400, 'An exact agent address is required');
+    const actorAgentId = url.searchParams.get('actorAgentId') ?? inbox.ownerAgentId;
+    if (!actorAgentId || (await store.getJson(path.join('inboxes', inboxId, 'agents', `${assertSafeIdentifier(actorAgentId, 'actorAgentId')}.json`)))?.status !== 'active') {
+      return fail(res, 404, 'Agent not found');
+    }
     const directory = await store.getJson(nativeAddressDirectoryPath(address));
     if (!directory || directory.address !== address) return fail(res, 404, 'Agent not found');
     const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${directory.agentId}.json`));
-    const actorAgentId = url.searchParams.get('actorAgentId');
-    if (actorAgentId && (await store.getJson(path.join('inboxes', inboxId, 'agents', `${assertSafeIdentifier(actorAgentId, 'actorAgentId')}.json`)))?.status !== 'active') return fail(res, 404, 'Agent not found');
-    const relationship = actorAgentId ? await store.getJson(relationshipPath(inboxId, actorAgentId, directory.agentId)) : null;
-    const reverseContact = actorAgentId ? await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${actorAgentId}.json`)) : null;
+    const relationship = await store.getJson(relationshipPath(inboxId, actorAgentId, directory.agentId));
+    const reverseContact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${actorAgentId}.json`));
     const targetInbox = await store.getJson(path.join('inboxes', directory.inboxId, 'inbox.json'));
     const blocked = contact?.blocked === true || reverseContact?.blocked === true;
     if (blocked) return fail(res, 404, 'Agent not found');
@@ -5727,7 +5726,10 @@ async function route(req, res) {
     const requester = { id: human.id, auth: { provider: auth.provider, assurance: session.assurance || 'provider' } };
     const preferences = await getPrefsForCases(store, { scopeMode: 'personal', organizationId: inbox.organizationId, humanId: human.id, inboxId, cases: view.caseQueue });
     const personalizedView = attachInboxPreferencesToView(view, preferences);
-    return json(res, 200, { ...personalizedView, canManageInbox: requesterCanManage, requester });
+    const capabilities = requesterCanManage && onboardingFlags.relationships
+      ? [...personalizedView.capabilities, 'manage_agent_relationships']
+      : personalizedView.capabilities;
+    return json(res, 200, { ...personalizedView, capabilities, canManageInbox: requesterCanManage, requester });
   }
 
   if (req.method === 'GET' && suffix === 'agent-view') {
