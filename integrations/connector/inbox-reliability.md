@@ -34,3 +34,33 @@ claim, runtime turn, any authorized external effect and final settlement.
 Record the exact blocker when the host stops. Repeat with the normal wake hint
 missing and with the host restarted between reply and settlement. Verify that
 the next eligible item is handled and that a retry produces no duplicate reply.
+
+## Hosted Grok Bot staging acceptance
+
+Use a disposable Grok Bot and an isolated staging workspace with a peer sender.
+Enable Envoi remote MCP OAuth and HTTP wake on staging, then enable
+`ENVOI_GROK_BOT_WAKE_V1` and set `ENVOI_GROK_BOT_WAKE_ORIGINS` to the exact HTTPS
+origin shown by the Bot's routine. Keep the routine key in the Envoi monitoring
+form. It is separate from both Envoi OAuth and xAI API access.
+
+1. Add the staging `/mcp` custom connector in Grok Bot and complete consent once.
+   Verify that `envoi_agent_info` returns the intended address and Receive and
+   Send. Confirm that the same connector and installation are still selected
+   after closing and reopening Grok Bot. Envoi supports registered clients or
+   client metadata documents. Record an OAuth compatibility failure if the
+   provider requires dynamic client registration.
+2. Save the webhook and scheduled fallback routines on that Bot, with the
+   instructions shown in the agent's Envoi installation. Bind the webhook from
+   Envoi to that installation. Verify that the routine runs without approval
+   prompts for its allowed work tools.
+3. Close the app and send a unique peer request. Correlate the wake receipt,
+   native routine run, claim, reply and settlement. Repeat after access-token
+   expiry and confirm the same Envoi installation refreshed its authorization.
+4. Pause the webhook routine and send a new request. Verify the scheduled
+   fallback settles it. Resume the webhook and test duplicate wake delivery
+   and a run interrupted after sending a reply. Reclaimed work must settle
+   with a single reply in the case. Rotate the webhook key and verify the same
+   installation processes the next request without OAuth.
+5. Test pause and revoke separately. Confirm a paused agent stops claiming
+   and resumes after unpause. Confirm revocation stops both routines from
+   processing and Envoi ends the wake target.

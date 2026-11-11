@@ -1125,7 +1125,7 @@ async function handleConsentRoute(req, res, route) {
 
 const httpWakeEnabled = onboardingFlags.httpWake;
 const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installationsEnabled: onboardingFlags.installations,
-  mcpWakeEnabled: Boolean(onboardingFlags.mcpWake), mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger),
+  mcpWakeEnabled: Boolean(onboardingFlags.mcpWake), mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger), grokBotWakeEnabled: Boolean(onboardingFlags.grokBotWake),
   facts: async sub => {
     const [family, agent] = await Promise.all([store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)),
       store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`))]);
@@ -1141,7 +1141,7 @@ const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installations
 });
 const mcpWakeTools = createMcpWakeTools({ httpWake, enabled: Boolean(onboardingFlags.mcpWake), clientFor: identity => oauthClients.get(identity.family?.oauthClientId) });
 const providerEventWake = createProviderEventWake({ httpWake, store, key: connectorEncryptionKey(),
-  mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger),
+  mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger), grokBotWakeEnabled: Boolean(onboardingFlags.grokBotWake),
   validateCursor: async (identity, cursor) => {
     try { await resumeEventCursor(identity.inboxId, cursor); }
     catch (error) { if (error.code === 'EVENT_CURSOR_INVALID') throw Object.assign(new Error('Invalid cursor'), { rpcCode: -32602 }); throw error; }
@@ -4348,9 +4348,11 @@ async function route(req, res) {
   if (groupRoute) return handleGroupCaseRoute(req, res, groupRoute);
   if (wakeRoute) return handleHttpWakeRoute(req, res, url);
   if (caseSessionRoute) return handleCaseSessionRoute(req, res, caseSessionRoute);
-  const grokTargetRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/agents\/([^/]+)\/wake-targets\/grok$/);
+  const grokTargetRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/agents\/([^/]+)\/wake-targets\/(grok|grok-bot)$/);
   if (grokTargetRoute) {
-    if (!onboardingFlags.grokTrigger) throw codedError(404, 'FEATURE_DISABLED', 'Provider wake is not available.');
+    const isGrokBot = grokTargetRoute[3] === 'grok-bot';
+    const profile = isGrokBot ? 'grok_bot' : 'grok_trigger';
+    if (!(isGrokBot ? onboardingFlags.grokBotWake : onboardingFlags.grokTrigger)) throw codedError(404, 'FEATURE_DISABLED', 'Provider wake is not available.');
     if (!['PUT', 'GET', 'DELETE'].includes(req.method)) return fail(res, 405, 'Method not allowed');
     if (bearerToken(req) || parseCookies(req.headers.cookie)['__Host-envoi_agent_gateway']) throw credentialError('AUTHENTICATION_REQUIRED');
     const human = await auth.getHuman(req);
@@ -4360,16 +4362,18 @@ async function route(req, res) {
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
     if (!inbox || !agent || !await canManageInbox(human, inbox, { maxAgeMs: 0 })) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'Workspace access is required.');
     let family = null, installationId = null;
+    const input = req.method === 'PUT' ? await body(req, 8192) : null;
+    const requestedInstallation = isGrokBot && req.method === 'PUT' ? assertSafeIdentifier(input?.installationId, 'installationId') : null;
     if (req.method === 'PUT') for (const installation of await installations.list(inboxId, agent)) {
-      if (installation.status !== 'active') continue;
+      if (installation.status !== 'active' || (requestedInstallation && (installation.id !== requestedInstallation || installation.connectionRoute !== 'remote_mcp_oauth'))) continue;
       const candidate = await store.getJson(agentCredentialFamilyPath(inboxId, agentId, installation.familyId));
       if (candidate && !candidate.revokedAt && Date.parse(candidate.refreshExpiresAt) > Date.now()) { family = candidate; installationId = installation.id; break; }
     }
     if (req.method === 'PUT' && (!family || !canAct(agent, 'receive_agent_messages'))) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'An active installation is required.');
     const identity = { inboxId, agent, family, installationId, ownerRequest: req, ownerHumanId: human.id };
     let result;
-    try { result = req.method === 'PUT' ? await providerEventWake.putGrok(identity, await body(req, 8192))
-      : req.method === 'DELETE' ? await providerEventWake.deleteGrok(identity) : await providerEventWake.getGrok(identity); }
+    try { result = req.method === 'PUT' ? await providerEventWake.putGrok(identity, isGrokBot ? { url: input.url, secret: input.secret } : input, profile)
+      : req.method === 'DELETE' ? await providerEventWake.deleteGrok(identity, profile, isGrokBot ? assertSafeIdentifier(url.searchParams.get('installationId'), 'installationId') : null) : await providerEventWake.getGrok(identity, profile); }
     catch (error) {
       if (error.statusCode) {
         const retry = Math.min(86400, Math.max(0, Math.ceil(Number(error.retryAfter) || 0)));
@@ -4437,7 +4441,7 @@ async function route(req, res) {
       return messageAccessResult(fresh, remoteAuth.origin, organizationMaximumPermissions());
     } : null;
     return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, requestMessageAccess, onPermissionDenied: () => { req[monadPermissionDenied] = true; },
-      eventsEnabled: Boolean(onboardingFlags.mcpEvents), providerEvents: events, ownerReviewEnabled: caseSessions.enabled,
+      eventsEnabled: Boolean(onboardingFlags.mcpEvents), providerEvents: events, ownerReviewEnabled: caseSessions.enabled, workReplyEnabled: Boolean(onboardingFlags.grokBotWake),
       wakeTools: { ...mcpWakeTools, call: (name, args) => withInboxMutation(identity.inboxId, async () => mcpWakeTools.call(name, args, await freshMcpIdentity())) } });
   }
   // agent-remote-auth v1 §5: /authorize-agent is the owner consent page, also the web app.
@@ -4486,7 +4490,7 @@ async function route(req, res) {
   }
 
   const instructionReplyRoute = url.pathname.match(/^\/api\/agent\/instructions\/([^/]+)\/reply$/);
-  const workSettlementRoute = url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/(renew|acknowledge|complete|fail|defer)$/) || instructionReplyRoute;
+  const workSettlementRoute = url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/(renew|acknowledge|complete|fail|defer|reply-peer)$/) || instructionReplyRoute;
   if ((req.method === 'POST' && url.pathname === '/api/agent/work/claim') || (req.method === 'POST' && workSettlementRoute)) {
     // a5-presence §2: a lease request is work-loop activity whatever its outcome, except AGENT_PAUSED.
     if (workSettlementRoute) notePresence(req, { workLoop: true });
@@ -4500,6 +4504,7 @@ async function route(req, res) {
     const input = await body(req);
     const workId = workSettlementRoute ? assertSafeIdentifier(workSettlementRoute[1], 'workId') : null;
     const action = instructionReplyRoute ? 'reply' : workSettlementRoute?.[2] || 'claim';
+    if (action === 'reply-peer' && !(onboardingFlags.grokBotWake && identity.oauth)) return fail(res, 404, 'Peer work replies are unavailable');
     if (action === 'claim' && (!input || typeof input !== 'object' || Array.isArray(input))) return fail(res, 400, 'Claim body must be a JSON object');
     if (action === 'claim' && input.acceptHumanInstructions !== undefined && typeof input.acceptHumanInstructions !== 'boolean') return fail(res, 400, 'acceptHumanInstructions must be a boolean');
     const requestedMessage = workSettlementRoute ? await store.getJson(messagePath(identity.inboxId, workId)) : null;
@@ -4520,7 +4525,7 @@ async function route(req, res) {
     let idempotencyKey = null;
     let idempotencyPath = null;
     let requestDigest = null;
-    if (action === 'reply') {
+    if (action === 'reply' || action === 'reply-peer') {
       if (!input || Object.keys(input).some(key => !['text', 'leaseToken'].includes(key))) return fail(res, 400, 'Only text and leaseToken are accepted');
       input.text = validateHumanInstructionInput({ text: input.text }).text;
       if (!canAct(identity.agent, 'send_agent_messages')) return fail(res, 403, 'Agent is not approved to send replies');
@@ -4551,6 +4556,12 @@ async function route(req, res) {
         throw settlementError(404, 'Work was not found for this agent', 'WORK_NOT_FOUND');
       }
       await assertCaseProgressAllowed(identity.inboxId, currentMessage.caseId);
+      if (action === 'reply-peer' && (isHumanInstruction(currentMessage) || isHumanDecision(currentMessage)
+        || !currentMessage.senderInboxId || !currentMessage.senderAgentId
+        || ['receipt', 'status'].includes(currentMessage.intent) || ['receipt', 'completion'].includes(currentMessage.type))) {
+        throw settlementError(409, 'This work does not accept a peer reply', 'WORK_REPLY_NOT_SUPPORTED');
+      }
+      let peerSender;
       if (isHumanInstruction(currentMessage)) {
         await assertHumanInstructionAuthority(currentMessage, currentIdentity);
       } else if (isHumanDecision(currentMessage) || currentMessage.groupCase) {
@@ -4559,6 +4570,7 @@ async function route(req, res) {
       } else {
         if (action === 'reply') throw Object.assign(new Error('Human instruction required'), { statusCode: 404 });
         const senderAgent = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'agents', `${currentMessage.senderAgentId}.json`));
+        peerSender = senderAgent;
         if (!senderAgent || !canAct(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is paused or unavailable'), { statusCode: 403 });
         const senderContact = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'contacts', `${identity.agent.id}.json`));
         const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${currentMessage.senderAgentId}.json`));
@@ -4596,6 +4608,37 @@ async function route(req, res) {
           }
           return { status: 200, payload: replay };
         }
+      }
+      if (action === 'reply-peer' && (live || claim.status === 'completed')) {
+        if (!canAct(currentIdentity.agent, 'send_agent_messages')) throw codedError(403, 'INSUFFICIENT_SCOPE', 'Message send permission required.');
+        const id = `msg_work_reply_${semanticDigest([identity.inboxId, identity.agent.id, workId]).slice(0, 40)}`;
+        const group = currentMessage.groupCase;
+        const prior = group
+          ? (await store.getJson(path.join('group-message-requests', `${id}.json`)))?.message
+          : await store.getJson(messagePath(identity.inboxId, id));
+        if (claim.status === 'completed') {
+          const receipt = await store.getJson(deliveryReceiptPath(identity.inboxId, `delivery_receipt_${workId}_processed`));
+          if (prior && receipt) return { status: 200, payload: { workId, status: 'processed', receipt, replyMessageId: id } };
+          throw settlementError(409, 'Work was already settled', 'WORK_LEASE_STALE', 'settled');
+        }
+
+        if (!prior && group) {
+          const binding = await store.getJson(caseBindingPath(currentMessage.caseId));
+          await writeGroupMessage(binding, currentIdentity, { text: input.text, inReplyTo: group.messageId }, id, writeAudit);
+        } else if (!prior) {
+          if (!canReceive(peerSender)) throw codedError(403, 'INSUFFICIENT_SCOPE', 'The peer cannot receive messages.');
+          const inbox = await store.getJson(path.join('inboxes', identity.inboxId, 'inbox.json'));
+          const protocol = createProtocolMessage({ messageId: id, conversationId: currentMessage.caseId, causationId: workId,
+            from: { agentId: identity.agent.id, address: currentIdentity.agent.address },
+            to: [{ agentId: peerSender.id, address: peerSender.address }], intent: 'message', text: input.text, createdAt: now });
+          await enqueueNativeMessage({ id, ...protocol, caseId: currentMessage.caseId, senderInboxId: identity.inboxId,
+            recipientInboxId: currentMessage.senderInboxId, senderType: 'agent', senderAgentId: identity.agent.id,
+            recipientAgentId: peerSender.id, recipientEmail: peerSender.address, transport: 'native', type: 'message',
+            text: input.text, requestHash: semanticDigest({ workId, text: input.text }), createdAt: now },
+          inbox, currentMessage.senderInboxId, 'message.queued', writeAudit, req);
+        }
+        const completed = await settleCanonicalAgentWork({ identity: currentIdentity, workId, currentMessage, claim, action: 'complete', now }, writeAudit);
+        return { status: completed.status, payload: { ...completed.payload, replyMessageId: id }, kickDelivery: !group };
       }
       if (!live) throw settlementError(409, 'Work lease has expired or was consumed', 'WORK_LEASE_STALE', leaseStaleReason(claim, identity.familyId, leaseTokenHash, now));
 
@@ -4648,7 +4691,8 @@ async function route(req, res) {
     }, relatedWorkInboxes, workLockKeys);
     // a5-presence §3: claimed or idle claims show the work loop; only a first completion (201) is processing.
     if (action === 'claim' && ['claimed', 'idle'].includes(result.payload?.state)) notePresence(req, { workLoop: true });
-    if (action === 'complete' && result.status === 201) notePresence(req, { processed: true });
+    if (['complete', 'reply-peer'].includes(action) && result.status === 201) notePresence(req, { processed: true });
+    if (result.kickDelivery) deliveryWorker.kick();
     return json(res, result.status, result.payload);
   }
 

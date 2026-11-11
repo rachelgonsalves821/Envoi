@@ -16,6 +16,7 @@ import { fileFolderFor, fileSourceView } from './file-folders';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
+import { GrokBotSetup } from './onboarding/GrokBotSetup';
 import { canReconnectAgent } from './onboarding/types';
 import { ClaimPage } from './onboarding/ClaimPage';
 import { AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
@@ -1932,6 +1933,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   const [name, setName] = useState('');
   const [runtime, setRuntime] = useState<ConnectorRuntime>(reconnectAgent?.runtime || 'openclaw');
   const [dotsSelected, setDotsSelected] = useState(false);
+  const [grokBotOpen, setGrokBotOpen] = useState(false);
   const [dotsGuideOpen, setDotsGuideOpen] = useState(false);
   const [dotsRoute, setDotsRoute] = useState<'checking' | 'available' | 'unavailable' | 'unknown'>('checking');
   const addressEdited = useRef(false);
@@ -2024,6 +2026,10 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch { setError('The skill file could not be downloaded. Copy the setup prompt instead.'); }
   }
+  if (grokBotOpen) return <Modal title="Connect Grok Bot" onClose={onClose}>
+    <GrokBotSetup address={reconnectAgent?.address} />
+    <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setGrokBotOpen(false)}>Back</button></div>
+  </Modal>;
   return <Modal title={dotsGuideOpen ? reconnectAgent ? 'Reconnect with Dots' : 'Connect Dots' : result ? 'Agent ready to connect' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Connect an agent'} onClose={onClose}>
     <div className="enroll-steps" aria-label="Enrollment steps">{['Agent type', 'Email address', 'Setup instructions'].map((stepName, index) => { const current = result || dotsGuideOpen ? 2 : step; return <span key={stepName} className={current === index ? 'current' : current > index ? 'complete' : ''}>{index + 1}<b>{stepName}</b></span>; })}</div>
     {dotsGuideOpen ? <section className="quick-connect dots-setup-guide">
@@ -2082,7 +2088,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
         }
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
-      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={dotsReconnectAllowed ? () => setDotsSelected(true) : undefined} dotsUnavailableReason={reconnectAgent && !dotsReconnectAllowed ? 'This agent cannot reconnect through OAuth' : undefined} />{dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}{!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}</div>}
+      {step === 0 && <div className="enroll-step"><button type="button" className="button secondary" onClick={() => setGrokBotOpen(true)}>Set up hosted Grok Bot</button><RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={dotsReconnectAllowed ? () => setDotsSelected(true) : undefined} dotsUnavailableReason={reconnectAgent && !dotsReconnectAllowed ? 'This agent cannot reconnect through OAuth' : undefined} />{dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}{!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}</div>}
       {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Agent email address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}{dotsSelected ? <p className="enroll-note">{reconnectAgent ? 'Dots uses OAuth. Select this existing agent, review its installations and permissions, and confirm the replacement in Envoi.' : 'Dots uses OAuth. You will review its requested permissions and confirm this address when you approve the connection in Envoi.'} It can work on demand in an active chat.</p> : <details className="enroll-preparation"><summary>Agent permissions</summary><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></details>}</div>}
       <FormError message={error} />
       <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep(0)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup' : step === 1 ? dotsSelected ? 'Show Dots setup' : 'Generate agent setup' : 'Continue'}</button></div>

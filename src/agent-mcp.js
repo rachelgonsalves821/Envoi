@@ -48,6 +48,13 @@ export const agentMcpTools = Object.freeze([
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validators = new Map(agentMcpTools.map(tool => [tool.name, ajv.compile(tool.inputSchema)]));
+const workReplyTool = {
+  name: 'envoi_reply_to_work',
+  description: 'Reply to a claimed peer message and complete the work. Envoi derives the case and recipient from the claim. A retry returns the original reply even if the proposed text changes.',
+  inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, text }, ['workId', 'leaseToken', 'text']),
+  permission: 'send_agent_messages'
+};
+validators.set(workReplyTool.name, ajv.compile(workReplyTool.inputSchema));
 const ownerReviewTool = {
   name: 'envoi_defer_work',
   description: 'Ask the Envoi owner to review a proposed native reply, release the lease and hold the item out of the claim queue while the decision is pending. Sends no reply. Continue claiming other work after successful deferral.',
@@ -71,7 +78,7 @@ export function messageAccessResult(identity, origin, maximumPermissions) {
   const challenge = `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", error="insufficient_scope", error_description="${description}", scope="envoi.agent envoi.send"`;
   return { ...result('permission_required', description, true), _meta: { 'mcp/www_authenticate': [challenge] } };
 }
-const agentToolNames = new Set([...agentMcpTools, ownerReviewTool, messageAccessTool].map(tool => tool.name));
+const agentToolNames = new Set([...agentMcpTools, ownerReviewTool, workReplyTool, messageAccessTool].map(tool => tool.name));
 const irreversibleTools = new Set(['envoi_complete_work', 'envoi_fail_work', 'envoi_complete_asset_upload', 'envoi_grant_asset']);
 const externalTools = new Set(['envoi_grant_asset']);
 const publicTool = (tool, identity) => {
@@ -165,11 +172,13 @@ async function invokeTool(name, args, identity, callRest) {
     envoi_acknowledge_work: 'acknowledge',
     envoi_complete_work: 'complete',
     envoi_fail_work: 'fail',
-    envoi_defer_work: 'defer'
+    envoi_defer_work: 'defer',
+    envoi_reply_to_work: 'reply-peer'
   }[name];
   return callRest('POST', `/api/agent/work/${args.workId}/${action}`, {
     leaseToken: args.leaseToken,
     ...(action === 'fail' ? { retryable: args.retryable, reasonCode: args.reasonCode } : {}),
+    ...(action === 'reply-peer' ? { text: args.text } : {}),
     ...(action === 'defer' ? { proposedReply: args.proposedReply } : {})
   }, args.idempotencyKey);
 }
@@ -243,7 +252,7 @@ function wakeHttpError(error, res) {
   return error;
 }
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false }) {
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false, workReplyEnabled = false }) {
   const eventAvailable = Boolean(providerEvents && await providerEvents.available(identity, '2026-07-28'));
   const read = await readMcpRequest(req, res, { maxRequestBytes, allowEventsVersion: eventsEnabled, eventsAvailable: eventAvailable, recognizeEventMethods: true });
   if (!read?.request) return;
@@ -264,7 +273,8 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   }
   const wakeAvailable = Boolean(wakeTools && await wakeTools.available(identity));
   const messageAccessAvailable = Boolean(identity.oauth && !identity.mcpScope && requestMessageAccess);
-  const offeredTools = [...agentMcpTools, ...(ownerReviewEnabled && !identity.mcpScope ? [ownerReviewTool] : []),
+  const canReplyToWork = workReplyEnabled && identity.oauth && !identity.mcpScope && hasPermission(identity, 'receive_agent_messages');
+  const offeredTools = [...agentMcpTools, ...(canReplyToWork ? [workReplyTool] : []), ...(ownerReviewEnabled && !identity.mcpScope ? [ownerReviewTool] : []),
     ...(messageAccessAvailable ? [messageAccessTool] : []), ...(wakeAvailable ? wakeTools.tools : [])];
   if (request.method === 'ping') return sendJson(res, 200, rpcResult(id, {}));
   if (request.method === 'tools/list') {
