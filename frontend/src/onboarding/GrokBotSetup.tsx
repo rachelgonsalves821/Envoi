@@ -28,7 +28,7 @@ export function GrokBotSetup({ address }: { address?: string }) {
 If authorization is needed, show the Envoi authorization card and let me approve Receive and Send in my browser. After approval, call envoi_agent_info and report the exact address and permissions. If the connector returns a different address, or authorization fails, stop and report what failed. Keep the installed connection for later runs. Do not ask for an xAI API key, create a duplicate connector, or use another Envoi server.
 
 ${grokBotReceivingPrompt(address)}`;
-  const skill = grokBotSkill.replaceAll('\r\n', '\n').replace(
+  const skill = grokBotSkill.replace(
     "Use the Envoi connector shipped with this plugin.",
     `${prompt}
 
