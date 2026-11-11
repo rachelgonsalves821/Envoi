@@ -1,4 +1,28 @@
 import type { HumanView, HistoryCollection, HistoryMetadata } from './types';
+import { api } from './api';
+import { latestNativeContactChange } from './model';
+
+export async function readOlderNativeContactChange(inboxId: string, agentId: string, firstCursor: string, signal: AbortSignal) {
+  let cursor: string | null = firstCursor;
+  let latest: ReturnType<typeof latestNativeContactChange>;
+  const visited = new Set<string>();
+  while (cursor) {
+    if (visited.has(cursor)) throw new Error('Contact history could not be read.');
+    visited.add(cursor);
+    const view = await api.humanView(inboxId, { recentEvents: cursor }, signal);
+    const change = latestNativeContactChange(view.recentEvents, agentId);
+    if (change && (!latest || change.updatedAt > latest.updatedAt
+      || (change.updatedAt === latest.updatedAt && change.sequence > latest.sequence))) latest = change;
+    // Events are paged newest first. Continue across timestamp ties because the
+    // history cursor orders by ID while contact changes use audit sequence.
+    const oldest = view.recentEvents.at(-1);
+    if (latest && oldest && oldest.createdAt < latest.updatedAt) break;
+    const page = view.history?.recentEvents;
+    if (page?.hasMore && !page.nextCursor) throw new Error('Contact history could not be read.');
+    cursor = page?.hasMore ? page.nextCursor : null;
+  }
+  return latest;
+}
 
 const collections: HistoryCollection[] = ['cases', 'messages', 'assets', 'recentEvents', 'deliveryReceipts', 'invitations', 'contacts'];
 export function olderCursors(view: HumanView): Partial<Record<HistoryCollection, string>> {

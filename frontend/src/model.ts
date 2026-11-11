@@ -156,7 +156,7 @@ export function latestNativeContactChange(events: AuditEvent[], agentId: string)
     if (!latest || event.createdAt > latest.createdAt
       || (event.createdAt === latest.createdAt && Number(event.sequence ?? 0) > Number(latest.sequence ?? 0))) latest = event;
   }
-  return latest && { blocked: latest.type === 'contact.blocked', updatedAt: latest.createdAt };
+  return latest && { blocked: latest.type === 'contact.blocked', updatedAt: latest.createdAt, sequence: Number(latest.sequence ?? 0) };
 }
 
 export function resolveParticipant(workCase: WorkCase, participantId: string | undefined, agents: Agent[] = [], participantDirectory?: Record<string, ParticipantIdentity> | ParticipantIdentity[], localId?: string): ResolvedParticipant {
