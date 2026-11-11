@@ -1,3 +1,4 @@
+import { createManagedFiles } from './managed-files.js';
 import './envoi-environment-bootstrap.js';
 import http from 'node:http';
 import path from 'node:path';
@@ -897,8 +898,8 @@ const browserObjectUrl = (value, req) => {
 };
 const eventCursor = event => event.cursor || (event.sequence ? String(event.sequence).padStart(20, '0') : `${event.createdAt}|${event.id}`);
 const normalizeStreamEvent = event => ({ ...event, cursor: eventCursor(event) });
-const visibleInboxEvent = (event, agentId, human = false) => human || !event.groupCase
-  || Boolean(agentId && (event.memberAgentIds?.includes(agentId) || event.agentId === agentId || event.recipientAgentId === agentId));
+const visibleInboxEvent = (event, agentId, human = false) => human || !event.type?.startsWith('managed_file.') && (!event.groupCase
+  || Boolean(agentId && (event.memberAgentIds?.includes(agentId) || event.agentId === agentId || event.recipientAgentId === agentId)));
 const sendStreamEvent = (subscription, event) => {
   // Serialize authorization and delivery so replay/live events retain cursor order.
   subscription.pendingWrites = (subscription.pendingWrites || 0) + 1;
@@ -1551,7 +1552,7 @@ async function assetReader(req, inbox) {
   return { agent, manager: await canManageInbox(human, inbox) };
 }
 async function assetReadAccess(asset, inbox, reader) {
-  if (!asset) return { allowed: false };
+  if (!asset || asset.managedFile) return { allowed: false };
   if (asset.caseId) {
     const shared = await sharedCaseForAsset(asset.caseId);
     if (!shared || shared.value.state === 'paused' || shared.value.state === 'revoked') return { allowed: false };
@@ -4284,6 +4285,9 @@ const browserGatewayHttp = createCanonicalBrowserGateway({
   },
   rateLimit: () => true
 });
+const handleManagedFiles = createManagedFiles({ store, objectStorage, adapter: objectStorageAdapter,
+  auth, canManageInbox, getAgentPrincipal, withInboxMutation, body, json, objectMetadataPath });
+
 async function route(req, res) {
   installSessionCookieResponse(req, res, auth);
   const responseNonce = crypto.randomBytes(18).toString('base64');
@@ -5331,6 +5335,8 @@ async function route(req, res) {
   const [, inboxId, suffix = ''] = match;
   const inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
   if (!inbox) return fail(res, 404, 'Inbox not found');
+
+  if (suffix.startsWith('managed-files') && await handleManagedFiles(req, res, inbox, suffix)) return;
 
   if (suffix === 'discovery-invitations' && req.method === 'POST') {
     if (!onboardingFlags.relationships) throw codedError(404, 'FEATURE_DISABLED', 'Discovery invitations are not available yet.');
@@ -6851,7 +6857,7 @@ async function route(req, res) {
     const human = await auth.getHuman(req);
     const principal = await getAgentPrincipal(req, inboxId);
     const asset = await objectStorage.getObject(completeAssetUpload[1]);
-    if (asset.workspaceId !== inboxId) return fail(res, 404, 'Asset not found');
+    if (asset.managedFile || asset.workspaceId !== inboxId) return fail(res, 404, 'Asset not found');
     if (!await canManageInbox(human, inbox) && principal?.id !== asset.createdByAgentId) return fail(res, 403, 'Asset creator or workspace administrator required');
     const scanned = await objectStorage.scanObject(asset.id);
     await audit(inboxId, `asset.scan_${scanned.state}`, { assetId: scanned.id, caseId: scanned.caseId, createdByAgentId: scanned.createdByAgentId, scan: scanned.scan });

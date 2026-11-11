@@ -145,7 +145,7 @@ export class DocumentObjectMetadataStore {
   #workspacePath(record) { return path.join('inboxes', record.workspaceId, 'assets', `${record.id}.json`); }
   async create(record) {
     if (!await this.store.putJsonIfAbsent(this.#path(record.id), record)) return false;
-    try { await this.store.putJson(this.#workspacePath(record), record); }
+    try { if (!record.managedFile) await this.store.putJson(this.#workspacePath(record), record); }
     catch (error) { await this.store.deleteJson(this.#path(record.id)); throw error; }
     return true;
   }
@@ -158,7 +158,7 @@ export class DocumentObjectMetadataStore {
       if (!current) return null;
       if (current.state === 'upload-cleanup-pending' || current.state === 'deleted') return immutable(current);
       const next = { ...current, state: scan.state, scannedAt: scan.scannedAt, scan: clone(scan.result) };
-      await this.store.putJsonBatch([{ path: this.#path(id), value: next }, { path: this.#workspacePath(next), value: next }]);
+      await this.store.putJsonBatch([{ path: this.#path(id), value: next }, ...(next.managedFile ? [] : [{ path: this.#workspacePath(next), value: next }])]);
       return immutable(next);
     });
   }
@@ -166,7 +166,7 @@ export class DocumentObjectMetadataStore {
     const current = await this.get(id);
     if (!current) return null;
     const next = { ...current, ...patch };
-    await this.store.putJsonBatch([{ path: this.#path(id), value: next }, ...(next.uploadCleanupReason === 'AGENT_REMOVED' ? [] : [{ path: this.#workspacePath(next), value: next }])]);
+    await this.store.putJsonBatch([{ path: this.#path(id), value: next }, ...(next.managedFile || next.uploadCleanupReason === 'AGENT_REMOVED' ? [] : [{ path: this.#workspacePath(next), value: next }])]);
     return immutable(next);
   }
   withUploadLock(id, operation, additionalKeys = []) { return this.store.withTransaction([`object-upload:${id}`, ...additionalKeys], operation); }
@@ -539,7 +539,7 @@ export class ObjectStorageService {
       if (authorize) await authorize();
       const reservation = await this.quotaLedger.reserve(input.workspaceId, input.size);
       const createdAt = this.clock();
-      const record = { id, workspaceId: input.workspaceId, key: `workspaces/${input.workspaceId}/objects/${id}`, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: input.createdByAgentId || null, state: 'quarantine', createdAt: createdAt.toISOString(), uploadExpiresAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000).toISOString(), cleanupAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000 + this.config.uploadCleanupGraceMs).toISOString(), uploadCompletedAt: null, scannedAt: null, scan: null, reservationId: reservation.id };
+      const record = { id, workspaceId: input.workspaceId, key: `workspaces/${input.workspaceId}/objects/${id}`, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: input.createdByAgentId || null, ...(input.managedFile ? { managedFile: true } : {}), state: 'quarantine', createdAt: createdAt.toISOString(), uploadExpiresAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000).toISOString(), cleanupAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000 + this.config.uploadCleanupGraceMs).toISOString(), uploadCompletedAt: null, scannedAt: null, scan: null, reservationId: reservation.id };
       try {
         if (!await this.metadataStore.create(record)) throw new ObjectStorageError('OBJECT_EXISTS', 'Object metadata already exists', 409);
         const upload = await this.adapter.createPresignedUpload({ key: record.key, contentType: record.mimeType, checksumSha256: record.checksumSha256, expiresInSeconds: this.config.uploadUrlTtlSeconds, size: record.size });
