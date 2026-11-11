@@ -690,6 +690,32 @@ describe('authenticated local management', () => {
       startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), runtimeChecks: 'pending', secret: 'private-key' }));
     expect((await connectionStatus(f.options.stateDir)).runtimeDiagnostic).toBeNull();
   });
+  it('retains the first receiving failure and safe correlation details across a later start', async () => {
+    const f = await fixture();
+    await setupConnection(f.handoff, f.resolver, f.options);
+    const requestId = '26ba48f4-5d35-44e8-9236-c0087cb457f1';
+    f.adapter.createBridge = async (_config, context) => ({
+      connector: new EnvoiConnector(context.apiUrl, new FileBridgeStore(context.stateDir), {
+        fetch: async (url, init) => String(url).endsWith('/work/claim')
+          ? Response.json({ message: 'private-upstream-payload', requestId }, { status: 404 })
+          : f.options.fetch(url, init),
+        handler: { admit: async () => {}, process: async () => {} }
+      }),
+      async verify() {},
+      async close() {}
+    });
+    const ready = vi.fn();
+    await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, { ...f.options, onReady: ready }))
+      .rejects.toMatchObject({ name: 'ConnectorContractError' });
+    expect(ready).toHaveBeenCalledOnce();
+    const lastFailure = await readRuntimeDiagnostic(f.options.stateDir, true);
+    expect(lastFailure).toMatchObject({ phase: 'failed', runtimeChecks: 'passed', errorCode: 'WORK_CONTRACT_ERROR',
+      failure: { operation: 'work_processing', httpStatus: 404, requestId } });
+    expect(await readFile(path.join(f.options.stateDir, 'last-runtime-failure.json'), 'utf8')).not.toContain('private-upstream-payload');
+    const stop = new AbortController();
+    await startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onReady: () => stop.abort() });
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({ runtimeDiagnostic: { phase: 'stopped' }, lastFailure });
+  });
   it('points a scoped origin mismatch to owner review without disclosing a new Gateway origin', async () => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
     await writeFile(path.join(f.options.stateDir, 'runtime-diagnostic.json'), JSON.stringify({ version: 1, phase: 'failed',
@@ -698,6 +724,27 @@ describe('authenticated local management', () => {
     expect(status).toMatchObject({ status: 'stopped', nextAction: expect.stringContaining('owner'),
       runtimeDiagnostic: { errorCode: 'SCOPED_CONFIG_INVALID' } });
     expect(JSON.stringify(status)).not.toMatch(/daemonOrigin|agentApiToken|agentRefreshToken/);
+  });
+  it('reports a paused status failure after readiness as a receiving failure', async () => {
+    const f = await fixture();
+    await setupConnection(f.handoff, f.resolver, f.options);
+    const onReady = vi.fn();
+    const fetcher: typeof fetch = async (url, init) => {
+      if (String(url).endsWith('/api/agent/status')) {
+        if (onReady.mock.calls.length) return new Response('Status endpoint unavailable', { status: 404 });
+        return Response.json({ state: 'paused', agent: { id: 'agent_hermes' }, inboxId: 'inbox_hermes' });
+      }
+      return f.options.fetch(url, init);
+    };
+    await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver,
+      { ...f.options, fetch: fetcher, onReady })).rejects.toMatchObject({ status: 404 });
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({
+      status: 'stopped',
+      lastFailure: { phase: 'failed', runtimeChecks: 'deferred_while_paused', errorCode: 'CONNECTOR_RECEIVE_FAILED',
+        failure: { operation: 'status_check', httpStatus: 404 } },
+      nextAction: expect.stringContaining('lastFailure')
+    });
   });
 });
 

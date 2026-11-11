@@ -35,6 +35,17 @@ it cannot prove Gateway tool execution or message processing.
 
 ## Private Windows evidence
 
+If the connector exits after readiness, run `status` against its existing state directory. Its
+`lastFailure` record retains the operation, error code, and HTTP status and Envoi request ID when
+available. The record is saved in the private state directory as `last-runtime-failure.json`
+and remains available after a restart. It contains no upstream response body, exception text,
+credentials, or message content.
+
+When live status shows `wake.lastErrorCode: WAKE_ENDPOINT_UNAVAILABLE`, the event stream endpoint
+is unavailable. The running connector retries the stream and checks the work queue with its
+normal safety poll. An unavailable work-claim endpoint is a separate terminal failure and is
+reported as `WORK_CONTRACT_ERROR`.
+
 On the hidden-launch build, the state directory contains `connector.stdout.log`,
 `connector.stderr.log` and UTC start/exit history in `connector-supervisor.log`.
 The preceding launch's output is retained as `.previous`. Capture the phase,
