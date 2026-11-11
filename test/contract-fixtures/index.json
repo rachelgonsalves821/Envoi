@@ -88,9 +88,9 @@
     },
     {
       "id": "envoi-names",
-      "version": 1,
+      "version": 2,
       "status": "approved",
-      "handoff": "docs/architecture/agent-native-v2/handoffs.md#envoi-names-v1",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#envoi-names-v2",
       "dir": "envoi-names",
       "schemas": "schemas.json",
       "fixtures": [
@@ -844,9 +844,9 @@
     },
     {
       "id": "provider-connector-tools",
-      "version": 1,
+      "version": 2,
       "status": "approved",
-      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-connector-tools-v1",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-connector-tools-v2",
       "dir": "provider-connector-tools",
       "schemas": "schemas.json",
       "fixtures": [
