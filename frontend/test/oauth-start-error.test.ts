@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { authorizationHandle, authorizationSignInPath, authorizationStartError } from '../src/onboarding/consent-state';
-import { AuthorizeAgentPage } from '../src/onboarding/AuthorizeAgentPage';
+import { AuthorizationEntry, AuthorizeAgentPage } from '../src/onboarding/AuthorizeAgentPage';
 
 describe('pre-consent OAuth errors', () => {
   it('shows fixed client guidance with no consent form or misleading expired-request text', () => {
@@ -27,5 +27,26 @@ describe('pre-consent OAuth errors', () => {
       expect(authorizationStartError(search)).toBeNull();
     }
     expect(new URL(authorizationSignInPath('/api/auth/workos/sign-in', '?request=valid&error=invalid_client'), 'https://www.envoi-agents.com').searchParams.get('returnTo')).toBe('/authorize-agent?request=valid');
+  });
+});
+
+describe('signed-out OAuth entry', () => {
+  it('reports an invalid client before offering sign-in', () => {
+    const html = renderToStaticMarkup(createElement(AuthorizationEntry, {
+      search: '?error=invalid_client&error_description=DO_NOT_RENDER',
+      signInPath: '/api/auth/workos/sign-in'
+    }));
+    expect(html).toContain('OAuth client configuration');
+    expect(html).not.toContain('Sign in to Envoi');
+    expect(html).not.toContain('DO_NOT_RENDER');
+  });
+
+  it('preserves a valid request through WorkOS sign-in', () => {
+    const html = renderToStaticMarkup(createElement(AuthorizationEntry, {
+      search: '?request=valid&code=DO_NOT_FORWARD', signInPath: '/api/auth/workos/sign-in'
+    }));
+    expect(html).toContain('Sign in to Envoi');
+    expect(html).toContain('returnTo=%2Fauthorize-agent%3Frequest%3Dvalid');
+    expect(html).not.toContain('DO_NOT_FORWARD');
   });
 });

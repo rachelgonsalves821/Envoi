@@ -5111,8 +5111,15 @@ async function route(req, res) {
 
   // agent-registration v1 §1: what Envoi offers, for /connect, skill.json and the helper.
   if (req.method === 'GET' && url.pathname === '/api/onboarding/routes') {
+    const availability = routeAvailability(onboardingFlags, store.now());
+    const grokBotClient = availability.grokBotAvailable && [...oauthClients.values()].find(client =>
+      client.provider === 'Grok Bot' && client.connectionRoute === 'remote_mcp_oauth'
+      && client.tokenEndpointAuthMethod === 'none');
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=60' });
-    return res.end(JSON.stringify(routeAvailability(onboardingFlags, store.now())));
+    return res.end(JSON.stringify({
+      ...availability,
+      ...(grokBotClient ? { grokBotOAuthClientId: grokBotClient.clientId } : {})
+    }));
   }
   if (req.method === 'GET' && url.pathname === '/api/phase-d/availability') {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=60' });

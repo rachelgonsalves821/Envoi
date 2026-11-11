@@ -2,7 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { Inbox } from '../types';
 import { ClaimProblemNotice, useClaimClock } from './ClaimPage';
 import { ConsentTargetForm } from './ConsentTargetForm';
-import { ConsentController, consentOutcomeText, authorizationStartMessage, type AuthorizationStartError } from './consent-state';
+import { ConsentController, consentOutcomeText, authorizationHandle, authorizationSignInPath, authorizationStartError, authorizationStartMessage, type AuthorizationStartError } from './consent-state';
 import { remoteAuthApi } from './remote-auth-api';
 import { permissionLabel, routeLabel, type ClaimAgent, type OnboardingApi } from './types';
 import type { RemoteAuthApi } from './remote-auth-types';
@@ -13,6 +13,24 @@ export interface AuthorizeAgentPageProps {
   startError?: AuthorizationStartError | null;
 }
 const navigate = (url: string) => window.location.replace(url);
+export function AuthorizationEntry({ search, signInPath, notice }: { search: string; signInPath: string; notice?: string }) {
+  const handle = authorizationHandle(search);
+  const error = authorizationStartError(search);
+  return <main className="onboarding-page claim-page" aria-labelledby="oauth-entry-title">
+    <header className="onboarding-heading"><h1 id="oauth-entry-title">Connect your assistant to Envoi</h1></header>
+    {handle ? <>
+      <p>Sign in to choose the agent and review the permissions your assistant is requesting.</p>
+      {notice && <p className="onboarding-notice" role="alert">{notice}</p>}
+      <a className="button primary" href={authorizationSignInPath(signInPath, search)}>Sign in to Envoi</a>
+    </> : <>
+      <p className="onboarding-notice" role="alert">{error
+        ? authorizationStartMessage(error)
+        : 'This connection request is missing or invalid. Start again from your assistant.'}</p>
+      <a className="button secondary" href="/app">Back to Envoi</a>
+    </>}
+  </main>;
+}
+
 export function AuthorizeAgentPage(props: AuthorizeAgentPageProps) {
   if (props.startError && !props.handle) return <section className="onboarding-page claim-page" aria-labelledby="oauth-title">
     <header className="onboarding-heading"><h1 id="oauth-title">Connect your assistant</h1></header>

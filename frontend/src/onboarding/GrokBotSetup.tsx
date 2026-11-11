@@ -12,28 +12,37 @@ type WakeTarget = {
 
 export function GrokBotSetup({ address }: { address?: string }) {
   const [status, setStatus] = useState<'checking' | 'available' | 'unavailable' | 'error'>('checking');
+  const [clientId, setClientId] = useState<string>();
   useEffect(() => {
     const stop = new AbortController();
-    void request<{ grokBotAvailable?: boolean; routes: { connectionRoute: string; available: boolean }[] }>('/api/onboarding/routes', { signal: stop.signal }, false)
-      .then(result => setStatus(result.grokBotAvailable && result.routes.some(route => route.connectionRoute === 'remote_mcp_oauth' && route.available) ? 'available' : 'unavailable'))
+    void request<{ grokBotAvailable?: boolean; grokBotOAuthClientId?: string; routes: { connectionRoute: string; available: boolean }[] }>('/api/onboarding/routes', { signal: stop.signal }, false)
+      .then(result => {
+        setClientId(result.grokBotOAuthClientId);
+        setStatus(result.grokBotAvailable && result.routes.some(route => route.connectionRoute === 'remote_mcp_oauth' && route.available) ? 'available' : 'unavailable');
+      })
       .catch(() => { if (!stop.signal.aborted) setStatus('error'); });
     return () => stop.abort();
   }, []);
   if (status !== 'available') return <p role="status">{status === 'checking' ? 'Checking Envoi authorization…' : status === 'unavailable' ? 'Grok Bot onboarding is off on this deployment.' : 'Could not check authorization. Reopen setup to try again.'}</p>;
   const serverUrl = new URL('/mcp', window.location.origin).href;
   const expectedIdentity = address
-    ? `The intended Envoi address is ${address}. If consent is needed, let me select this existing agent during Envoi approval.`
-    : 'Ask me which Envoi address to use before choosing an existing connection or starting authorization.';
-  const prompt = `Connect this Grok Bot to Envoi using the Remote HTTPS MCP server at ${serverUrl}. Use Grok Bot's built-in ability to add a remote MCP server by URL. First check for an installed connector for that exact server and reuse it. ${expectedIdentity}
-If authorization is needed, show the Envoi authorization card and let me approve Receive and Send in my browser. After approval, call envoi_agent_info and report the exact address and permissions. If the connector returns a different address, or authorization fails, stop and report what failed. Keep the installed connection for later runs. Do not ask for an xAI API key, create a duplicate connector, or use another Envoi server.
+    ? `The approved Envoi address must be ${address}.`
+    : 'Ask me to confirm the expected Envoi address before setting up receiving.';
+  const prompt = `I have approved the hosted Envoi connector in Connect apps. Use only the existing Remote HTTPS connection at ${serverUrl}. ${expectedIdentity}
+Call envoi_agent_info and report the exact address and permissions. If the connection is missing, authorization fails, or the address differs, stop and direct me to Envoi → Manage agents → Connect Grok Bot. Do not install a connector, run a command, redeem an enrollment token, request an xAI API key, or use a different server.
 
 ${grokBotReceivingPrompt(address)}`;
-  const skill = grokBotSkill.replace(
-    "Use the Envoi connector shipped with this plugin.",
-    `${prompt}
+  const workflowHeading = '## Routine workflow';
+  const skill = `---
+name: envoi
+description: Process authorized inbox work over an existing hosted Envoi connection.
+---
 
-Use the verified connection for the rest of this skill.`
-  );
+# Envoi receiving
+
+Use the existing Remote HTTPS connection at ${serverUrl}. ${expectedIdentity} If the connection is missing or needs authorization, ask the owner to open Envoi → Manage agents → Connect Grok Bot.
+
+${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
   function downloadSkill() {
     const url = URL.createObjectURL(new Blob([skill], { type: 'text/markdown;charset=utf-8' }));
     const link = document.createElement('a');
@@ -43,32 +52,32 @@ Use the verified connection for the rest of this skill.`
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
   return <section className="onboarding-panel" aria-label="Grok Bot setup">
-    <p>Start in your existing Grok Bot chat. Your Bot will guide you through approval and set up its inbox checks.</p>
+    <p>Connect your signed-in Grok Bot with one Envoi approval. You can close any installer or Secrets prompt from an earlier attempt.</p>
     <ol className="grok-setup-steps">
       <li>
-        <strong>Give your Bot the setup instructions</strong>
-        <p>Copy the message into Grok Bot, or download the skill file and attach it in chat. Ask the Bot to follow it.</p>
-        <div className="grok-setup-actions">
-          <GrokBotPrompt label="Connection message" copyLabel="Copy setup message" value={prompt} />
-          <button type="button" className="button secondary compact" onClick={downloadSkill}>Download Grok Bot skill</button>
-        </div>
+        <strong>Add Envoi in Grok Bot</strong>
+        <p>Open <strong>Connect apps → Add a custom connector → Remote HTTPS</strong>. Name it Envoi and enter the server address below. If Envoi is already listed for this address, open that connector.</p>
+        <label className="field"><span>Envoi server address</span><input readOnly value={serverUrl} onFocus={event => event.currentTarget.select()} /></label>
+        {clientId && <><label className="field"><span>OAuth Client ID</span><input readOnly value={clientId} onFocus={event => event.currentTarget.select()} /></label><p>Leave Client Secret blank.</p></>}
       </li>
       <li>
         <strong>Approve once and check the address</strong>
-        <p>If Grok Bot asks you to connect, open the approval card and allow Receive and Send. {address
+        <p>In Grok Bot, select <strong>Authenticate</strong>, then sign in to Envoi and approve Receive and Send. {address
           ? <>Select your existing agent <strong>{address}</strong>.</>
-          : 'Select your existing agent if it already has an Envoi address.'} Ask the Bot to confirm the address before continuing.</p>
+          : 'Select your existing agent if it already has an Envoi address.'}</p>
       </li>
       <li>
-        <strong>Check that receiving is ready</strong>
-        <p>Your Bot sets up the five-minute inbox check after it connects. If Grok Bot shows an approval card, review it to continue. Check activity under <strong>Runtime installations → Grok Bot monitoring</strong>.</p>
+        <strong>Turn on background receiving</strong>
+        <p>After approval, paste this message into Grok Bot. It asks your Bot to verify the address and set up the five-minute inbox check. Check activity under <strong>Runtime installations → Grok Bot monitoring</strong>.</p>
+        <div className="grok-setup-actions">
+          <GrokBotPrompt label="Receiving setup message" copyLabel="Copy receiving setup message" value={prompt} />
+        </div>
       </li>
     </ol>
     <details>
-      <summary>Set up manually</summary>
-      <p>If the Bot can’t add the connection from chat, open <strong>Connect apps → Add a custom connector → Remote HTTPS</strong> in Grok Bot. Enter the address below and follow the approval card.</p>
-      <label className="field"><span>Envoi server address</span><input readOnly value={serverUrl} onFocus={event => event.currentTarget.select()} /></label>
-      <p>After approval, send your Bot the setup message above so it can verify the connection and set up receiving.</p>
+      <summary>Optional receiving skill</summary>
+      <p>After connecting, you can attach this file in Grok Bot and ask it to save it as a skill named Envoi. The skill describes how to handle inbox work on later runs. Attaching it alone does not connect Envoi or create a routine.</p>
+      <button type="button" className="button secondary compact" onClick={downloadSkill}>Download Grok Bot skill</button>
     </details>
   </section>;
 }

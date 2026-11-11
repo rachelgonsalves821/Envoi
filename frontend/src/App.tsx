@@ -19,8 +19,8 @@ import { agentCatalog, productAsset } from './onboarding/agent-catalog';
 import { GrokBotSetup } from './onboarding/GrokBotSetup';
 import { canReconnectAgent } from './onboarding/types';
 import { ClaimPage } from './onboarding/ClaimPage';
-import { AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
-import { authorizationHandle, authorizationSignInPath, authorizationStartError } from './onboarding/consent-state';
+import { AuthorizationEntry, AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
+import { authorizationHandle, authorizationStartError } from './onboarding/consent-state';
 import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
 import { DotsPermissionRecovery, DotsSetupGuide } from './onboarding/DotsSetupGuide';
@@ -611,7 +611,11 @@ function WorkspaceApp() {
       if (window.location.pathname === '/app') return authNotice
         ? <AuthScreen config={config} notice={authNotice} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />
         : <PublicSiteRedirect />;
-      return <LandingPage signInPath={window.location.pathname === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : window.location.pathname === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />;
+      const signInPath = config.signInPath || '/api/auth/workos/sign-in';
+      if (window.location.pathname === '/authorize-agent') {
+        return <AuthorizationEntry search={window.location.search} signInPath={signInPath} notice={authNotice} />;
+      }
+      return <LandingPage signInPath={window.location.pathname === '/claim' ? claimSignInPath(signInPath) : signInPath} notice={authNotice} />;
     }
     return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
   }
@@ -2088,7 +2092,15 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
         }
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
-      {step === 0 && <div className="enroll-step"><button type="button" className="button secondary" onClick={() => setGrokBotOpen(true)}>Set up hosted Grok Bot</button><RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={dotsReconnectAllowed ? () => setDotsSelected(true) : undefined} dotsUnavailableReason={reconnectAgent && !dotsReconnectAllowed ? 'This agent cannot reconnect through OAuth' : undefined} />{dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}{!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}</div>}
+      {step === 0 && <div className="enroll-step">
+        <section className="onboarding-panel" aria-label="Grok Bot app">
+          <p>Using the Grok Bot app? Connect through your signed-in account. No API key or enrollment token is needed.</p>
+          <button type="button" className="button primary" onClick={() => setGrokBotOpen(true)}>Connect Grok Bot</button>
+        </section>
+        <RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={dotsReconnectAllowed ? () => setDotsSelected(true) : undefined} dotsUnavailableReason={reconnectAgent && !dotsReconnectAllowed ? 'This agent cannot reconnect through OAuth' : undefined} />
+        {dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}
+        {!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}
+      </div>}
       {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Agent email address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}{dotsSelected ? <p className="enroll-note">{reconnectAgent ? 'Dots uses OAuth. Select this existing agent, review its installations and permissions, and confirm the replacement in Envoi.' : 'Dots uses OAuth. You will review its requested permissions and confirm this address when you approve the connection in Envoi.'} It can work on demand in an active chat.</p> : <details className="enroll-preparation"><summary>Agent permissions</summary><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></details>}</div>}
       <FormError message={error} />
       <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep(0)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup' : step === 1 ? dotsSelected ? 'Show Dots setup' : 'Generate agent setup' : 'Continue'}</button></div>
