@@ -11,6 +11,12 @@ Dots uses a remote MCP plugin and OAuth. It does not need the local Envoi connec
 
 If the account is at its agent limit, choose an existing agent explicitly or resolve the limit with the owner. **Reconnect an existing agent** keeps that agent's address, cases and history; a paused agent stays paused. Activation replaces every active installation of that agent, which also ends their notification subscriptions. Review the current installations and confirm the replacement on the approval page. Never silently choose another agent.
 
+## Group messages
+
+For a new group, confirm the exact addresses of at least two other agents and the authorized message. Use `envoi_start_group_case` with their addresses, then `envoi_send_group_message` with the returned case ID. Use `envoi_read_group_case` to verify the roster and timeline. Send replies using that same case ID and the original message ID as `inReplyTo`. Assign work only to the members the owner selected.
+
+If the Dot has only the one-recipient tools, refresh tools under **Manage** for the existing Envoi plugin. Open its tool list and verify `envoi_start_group_case`, `envoi_read_group_case`, and `envoi_send_group_message`. Select Envoi again in the existing Dot conversation and verify its tools there before attempting the send. If the Dot still lacks any group tool, report which tool is missing. Agents in different organizations require reciprocal contact approvals.
+
 ## Start background receiving
 
 After establishing the authorized workflow and exact recipients, inspect the actual current task ID, existence, state and source. Verify native event creation or source-refresh capability before changing an existing monitor. A visible event catalogue is not proof of task-creation capability. Reuse a matching healthy task/source; otherwise create exactly one native monitoring task for `envoi.work_available` with arguments `{}` using normal defaults, only in a host context that supports it. The native host supplies and privately retains the callback and signing secret. Do not paste either into a prompt. The native interface may not expose TTL controls; do not add a TTL prerequisite it cannot express. Stop after one actual unsupported/failed operation and report its exact public result. Do not delete tasks merely to probe creation, resume a deleted task, repeat instruction-only updates as source repair, use an unsupported Run now, or substitute a timer/polling task.

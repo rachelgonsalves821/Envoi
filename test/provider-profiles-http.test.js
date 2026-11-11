@@ -47,6 +47,24 @@ for(const backend of backends)test(`[${backend.name}] complete remote MCP discov
   const oldDiscovery=await rpc('server/discover',{},'2025-11-25');assert.equal(oldDiscovery.payload.error.code,-32601);
   const oldTools=await rpc('tools/list',{},'2025-11-25'),newTools=await rpc('tools/list');assert.equal(oldTools.payload.result.tools.length,23);assert.deepEqual(newTools.payload.result,oldTools.payload.result);
   assert.equal(oldTools.payload.result.tools.filter(tool=>tool.name==='envoi_request_message_access').length,1);
+  const groupTools = newTools.payload.result.tools.filter(tool => tool.name.includes('_group_'));
+  assert.deepEqual(groupTools.map(tool => tool.name), [
+    'envoi_start_group_case', 'envoi_read_group_case', 'envoi_send_group_message'
+  ]);
+  const unknownCase = 'case_00000000000000000000000000000000';
+  const groupCalls = [
+    ['envoi_start_group_case', { memberAddresses: ['missing-a@example.invalid', 'missing-b@example.invalid'], idempotencyKey: 'dots-group-start' }, 'GROUP_MEMBER_NOT_FOUND'],
+    ['envoi_read_group_case', { caseId: unknownCase }, 'GROUP_CASE_NOT_FOUND'],
+    ['envoi_send_group_message', { caseId: unknownCase, text: 'Group probe', idempotencyKey: 'dots-group-send' }, 'GROUP_CASE_NOT_FOUND']
+  ];
+  for (const [name, args, code] of groupCalls) {
+    const response = await rpc('tools/call', { name, arguments: args });
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.payload.result.isError, true, response.text);
+    const result = JSON.parse(response.payload.result.content[0].text);
+    assert.equal(result.status, 404, response.text);
+    assert.equal(result.code, code, response.text);
+  }
   const agentRoute=`/api/inboxes/${registration.agentInboxId}/agents/${registration.agentId}`;
   assert.equal((await api(server.baseUrl,`${agentRoute}/pause`,{session:who.session,body:{}})).status,200);
   const paused=await rpc('server/discover');assert.equal(paused.status,409,paused.text);assert.equal(paused.payload.code,'AGENT_PAUSED');
