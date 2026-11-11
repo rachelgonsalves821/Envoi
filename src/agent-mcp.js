@@ -38,6 +38,9 @@ export const agentMcpTools = Object.freeze([
   { name: 'envoi_acknowledge_work', description: 'Record admission of claimed work using a fenced lease and idempotency key.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey }, ['workId', 'leaseToken', 'idempotencyKey']), permission: 'receive_agent_messages' },
   { name: 'envoi_complete_work', description: 'Record successful processing of claimed work using a fenced lease and idempotency key.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey }, ['workId', 'leaseToken', 'idempotencyKey']), permission: 'receive_agent_messages' },
   { name: 'envoi_fail_work', description: 'Record failed processing of claimed work; retryable failures use bounded server backoff.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, retryable: { type: 'boolean' }, reasonCode: { type: 'string', maxLength: 120 } }, ['workId', 'leaseToken', 'retryable']), permission: 'receive_agent_messages' },
+  { name: 'envoi_list_managed_files', description: 'List the files an owner selected for this agent, including access and revision.', inputSchema: empty, permission: null },
+  { name: 'envoi_read_managed_file', description: 'Read an owner-selected file as base64. Requires current read or edit access.', inputSchema: schema({ fileId: identifier }, ['fileId']), permission: null },
+  { name: 'envoi_edit_managed_file', description: 'Replace an owner-selected file with malware-scanned base64 content. Requires edit access and the current revision. Use the managed-files REST endpoint for larger files.', inputSchema: schema({ fileId: identifier, revision: { type: 'integer', minimum: 1 }, contentBase64: { type: 'string', minLength: 4, maxLength: 60000 } }, ['fileId', 'revision', 'contentBase64']), permission: null },
   { name: 'envoi_list_assets', description: 'List grant-filtered asset metadata in this agent’s own inbox, optionally for one case. No binary content is returned.', inputSchema: schema({ caseId: identifier }), permission: 'read' },
   { name: 'envoi_begin_asset_upload', description: 'Reserve a quarantined asset and return a short-lived signed binary PUT URL. Upload bytes directly to that URL, then complete the asset. Reuse the idempotency key for a retry.', inputSchema: schema({ filename: { type: 'string', minLength: 1, maxLength: 255 }, mimeType: { type: 'string', minLength: 1, maxLength: 128 }, size: { type: 'integer', minimum: 1, maximum: 26214400 }, checksumSha256: { type: 'string', pattern: '^[A-Za-z0-9+/]{43}=$' }, caseId: identifier, idempotencyKey }, ['filename', 'mimeType', 'size', 'checksumSha256', 'idempotencyKey']), permission: 'create_assets' },
   { name: 'envoi_complete_asset_upload', description: 'Verify an uploaded asset and run the configured malware scan. Only a clean result can be downloaded.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'create_assets' },
@@ -52,7 +55,9 @@ const hasPermission = (identity, permission) => permission === null || (permissi
   ? identity.agent.permissions?.some(value => value === 'send_agent_messages' || value === 'receive_agent_messages')
   : identity.agent.permissions?.includes(permission));
 const scopedReadTools = new Set(['envoi_agent_info', 'envoi_read_case', 'envoi_list_messages']);
+const managedFileTools = new Set(['envoi_list_managed_files', 'envoi_read_managed_file', 'envoi_edit_managed_file']);
 const toolAvailable = (identity, tool) => hasPermission(identity, tool.permission)
+  && (!identity.oauth || !managedFileTools.has(tool.name))
   && (!identity.mcpScope || (scopedReadTools.has(tool.name)
     && (tool.name === 'envoi_agent_info' || Boolean(identity.mcpScope.caseId))));
 const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
@@ -80,6 +85,12 @@ async function invokeTool(name, args, identity, callRest) {
   if (name === 'envoi_list_cases') return callRest('GET', `${base}/cases${query(args)}`);
   if (name === 'envoi_read_case') return callRest('GET', `${base}/cases/${args.caseId}`);
   if (name === 'envoi_list_messages') return callRest('GET', `${base}/messages${query(args)}`);
+  if (name === 'envoi_list_managed_files') return callRest('GET', `${base}/managed-files`);
+  if (name === 'envoi_read_managed_file') return callRest('GET', `${base}/managed-files/${args.fileId}/data`);
+  if (name === 'envoi_edit_managed_file') {
+    const { fileId, revision, contentBase64 } = args;
+    return callRest('PUT', `${base}/managed-files/${fileId}/content`, { revision, contentBase64 });
+  }
   if (name === 'envoi_list_assets') return callRest('GET', `${base}/assets${query(args)}`);
   if (name === 'envoi_begin_asset_upload') {
     const { idempotencyKey: key, ...metadata } = args;
