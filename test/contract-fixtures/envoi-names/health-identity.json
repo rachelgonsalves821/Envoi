@@ -1,6 +1,6 @@
 {
   "contract": "envoi-names",
-  "version": 1,
+  "version": 2,
   "id": "health-identity",
   "description": "Health reports the Envoi service identity that connectors require.",
   "kind": "http",

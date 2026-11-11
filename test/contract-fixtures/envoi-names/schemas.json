@@ -1,7 +1,7 @@
 {
   "$id": "envoi-names/schemas.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "envoi-names v1 schemas. x-tool-names maps every retired MCP tool name to its Envoi name.",
+  "description": "envoi-names v2 schemas. x-tool-names maps every retired MCP tool name to its Envoi name.",
   "x-codes": {
     "AUTHENTICATION_REQUIRED": {
       "status": 401,
@@ -112,6 +112,9 @@
             "envoi_acknowledge_work",
             "envoi_complete_work",
             "envoi_fail_work",
+            "envoi_list_managed_files",
+            "envoi_read_managed_file",
+            "envoi_edit_managed_file",
             "envoi_list_assets",
             "envoi_begin_asset_upload",
             "envoi_complete_asset_upload",
@@ -151,7 +154,7 @@
             "tools": {
               "type": "array",
               "minItems": 22,
-              "maxItems": 22,
+              "maxItems": 25,
               "items": {
                 "$ref": "#/definitions/toolEntry"
               },
@@ -298,7 +301,7 @@
           "const": "envoi-names"
         },
         "version": {
-          "const": 1
+          "const": 2
         },
         "id": {
           "type": "string",

@@ -7,7 +7,7 @@ import { lifecyclePolicy } from '../src/lifecycle';
 import { EnvoiError, rotateAgentToken } from '../src/index';
 import { contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../../integrations/contract-fixtures/setup';
 const source = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
-const contract = loadContractRegistry(source).contracts.find(item => item.id === 'envoi-names' && item.version === 1);
+const contract = loadContractRegistry(source).contracts.find(item => item.id === 'envoi-names' && [1, 2].includes(item.version));
 if (!contract?.schemas) throw new Error('Point ENVOI_CONTRACT_FIXTURES_ROOT at the canonical envoi-names publication');
 const fixtures = contract.fixtures.map(file => loadContractFixture(contract, file, source) as any);
 const schemas = loadContractFixture(contract, contract.schemas, source) as any;
@@ -18,7 +18,7 @@ const savedSession = (): ConnectorSession => ({ agentId: 'agent_example', inboxI
   agentApiToken: byId('access-old-prefix').request.headers.authorization.slice(7),
   agentRefreshToken: byId('refresh-old-prefix').request.body.agentRefreshToken,
   agentTokenExpiresAt: new Date(Date.now() + 900000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86400000).toISOString(), cursor: null });
-describe('envoi-names v1 fixture-only consumer review', () => {
+describe(`envoi-names v${contract.version} fixture-only consumer review`, () => {
   it.each(fixtures)('loads and validates $id from canonical publication', fixture => {
     expect(validator('fixture')(fixture), JSON.stringify(validator('fixture').errors)).toBe(true);
     const validate = validator(fixture.response.schema);
@@ -35,8 +35,11 @@ describe('envoi-names v1 fixture-only consumer review', () => {
     expect(fixtures).toHaveLength(8); expect(names).toHaveLength(19); expect(new Set(names).size).toBe(19);
     for (const [old, next] of Object.entries(map)) expect(next).toBe(old.replace(/^sinaloa_/, 'envoi_'));
     const groupTools = ['envoi_start_group_case', 'envoi_read_group_case', 'envoi_send_group_message'];
+    const managedTools = contract.version === 2
+      ? ['envoi_list_managed_files', 'envoi_read_managed_file', 'envoi_edit_managed_file']
+      : [];
     expect(byId('mcp-tools-list').response.body.result.tools.map((tool: any) => tool.name).sort())
-      .toEqual([...names, ...groupTools].sort());
+      .toEqual([...names, ...groupTools, ...managedTools].sort());
     expect(byId('mcp-tools-list-case-read').response.body.result.tools.map((tool: any) => tool.name).sort())
       .toEqual(['envoi_agent_info', 'envoi_read_case', 'envoi_list_messages'].sort());
     const full = structuredClone(byId('mcp-tools-list').response.body); full.result.tools[0].name = 'sinaloa_agent_info';

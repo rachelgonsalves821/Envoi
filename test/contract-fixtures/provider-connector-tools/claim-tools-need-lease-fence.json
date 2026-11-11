@@ -1,6 +1,6 @@
 {
   "contract": "provider-connector-tools",
-  "version": 1,
+  "version": 2,
   "id": "claim-tools-need-lease-fence",
   "kind": "http",
   "description": "§2: settlement tools require the opaque lease token and, for acknowledge and complete, an idempotency key; a call without them is invalid arguments. The provider model never receives a general bearer or case-session token.",
