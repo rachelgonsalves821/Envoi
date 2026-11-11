@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import type {ContinuationReceipt,ContinuationPreflight,ActiveContinuationReceipt} from './continuation-controller';
+import type {ContinuationReceipt,ContinuationPreflight,ActiveContinuationReceipt,ContinuationWorkflowReceipt} from './continuation-controller';
 import type {RecoveryTimeLink} from './recovery-time';
 import type {RequestBudgetLedger} from './request-budget';
 import {hashReviewedContinuationPlan,validateReviewedGraphApproval} from './continuation-plan';
@@ -153,13 +153,17 @@ function joinAncestor(child:Awaited<ReturnType<typeof inspectHistory>>,parent:Aw
 }
 /** Read-only historical format/provenance inspection. This grants no start
  * handle, current inventory credit, source adoption, time or model authority. */
-export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ActiveContinuationReceipt|readonly ActiveContinuationReceipt[]){
+export async function inspectStoppedProgressHistory(input:{releaseRoot:string;recovery:StoppedProgressHistory&{ancestors?:readonly StoppedProgressHistory[]};ledger:RequestBudgetLedger;nextStart?:number},restoreReceipt?:ActiveContinuationReceipt|readonly ActiveContinuationReceipt[],verifiedWorkflowBootstrap?:ContinuationWorkflowReceipt){
   const {recovery:r,ledger}=input,filename=path.join(path.resolve(input.releaseRoot),'phase-c-cumulative-requests.jsonl'),current=await ledger.readInspectionBytes(),prefix=await pinned(r.priorLedger,false);
   if(path.resolve(ledger.filename)!==filename||(!restoreReceipt&&!prefix.raw.equals(current))||!current.subarray(0,prefix.raw.length).equals(prefix.raw)||!current.toString().endsWith('\n')||hash(current)!==ledger.contentSha256)refuse('EXACT_STOPPED_LEDGER_PREFIX_REQUIRED');
   const rows=current.toString().trimEnd().split('\n').map(line=>JSON.parse(line));
   if(restoreReceipt){
     const suffix=current.subarray(prefix.raw.length).toString().trimEnd().split('\n').map(line=>JSON.parse(line)),receipts=Array.isArray(restoreReceipt)?restoreReceipt:[restoreReceipt],windows=receipts.map(r=>hash(JSON.stringify(r)));
-    if(!windows.length||windows.length>8||new Set(windows).size!==windows.length||suffix.length!==2*windows.length
+    // The verified accepted-checkpoint bootstrap can follow eight fixed intervals.
+    const verifiedNinthWindow=receipts.length===9&&verifiedWorkflowBootstrap?.version===2
+      &&receipts.slice(0,8).every(receipt=>receipt.version===1)
+      &&windows[8]===hash(JSON.stringify(verifiedWorkflowBootstrap));
+    if(!windows.length||(windows.length>8&&!verifiedNinthWindow)||new Set(windows).size!==windows.length||suffix.length!==2*windows.length
       ||windows.some((window,i)=>suffix[2*i].kind!=='window'||suffix[2*i].window!==window||suffix[2*i+1].kind!=='plan'||suffix[2*i+1].window!==window)
       ||ledger.window!==windows.at(-1)||ledger.hasNativeHistorySinceWindow(windows[0]))refuse('ZERO_NATIVE_PREPROGRAM_WINDOW_REQUIRED');
   }
@@ -194,7 +198,7 @@ export function assertStoppedProgressPreflight(p:StoppedProgressPreflight,ledger
 }
 export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;
   expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string};
-  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger;restore?:PreProgramRestore;metadataReceipts?:readonly ActiveContinuationReceipt[]}){
+  recovery:StoppedProgressRecovery;ledger:RequestBudgetLedger;restore?:PreProgramRestore;metadataReceipts?:readonly ActiveContinuationReceipt[]},verifiedWorkflowBootstrap?:ContinuationWorkflowReceipt){
   const {recovery:r,ledger,receipt,expected,preflight}=input,now=Date.now(),start=Date.parse(receipt.startUtc),stop=Date.parse(receipt.hardStopUtc);
   if(r?.purpose!=='phase-c-stopped-native-progress'||!Array.isArray(r.completed)||!Array.isArray(r.failed))refuse('EXACT_STOPPED_PROGRESS_REQUIRED');
   if(receipt.version!==1||receipt.ownerApproved!==true||receipt.modelCap!==64||!digest(receipt.approvalReceiptSha256)||!digest(receipt.packetSha256)
@@ -222,7 +226,7 @@ export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:C
     ||inventory.canonicalMessageEffects!==preflight.canonicalEffects||inventory.plannedCasesPresent!==preflight.cases
     ||inventory.pendingWakeDeliveries!==0||inventory.nonEndedSubscriptions!==0||inventory.originalRecordCount!==786||inventory.approvedRemovedOriginals!==3
     ||!Array.isArray(inventory.unexpectedOriginalDifferences)||inventory.unexpectedOriginalDifferences.length)refuse('CURRENT_CANONICAL_PROGRESS_INVENTORY_REQUIRED');
-  const historicalProof=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r,ledger,nextStart:start},input.metadataReceipts??(input.restore?receipt:undefined)),snapshot=ledger.snapshot();
+  const historicalProof=await inspectStoppedProgressHistory({releaseRoot:input.releaseRoot,recovery:r,ledger,nextStart:start},input.metadataReceipts??(input.restore?receipt:undefined),verifiedWorkflowBootstrap),snapshot=ledger.snapshot();
   if(input.restore)await inspectPreProgramRestore(input.restore,input,historicalProof);
   return {...historicalProof,
     accounting:{models:snapshot.chargedAttempts,operations:preflight.conservativeMessages,canonicalMessages:preflight.canonicalEffects}};

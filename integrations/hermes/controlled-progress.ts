@@ -96,7 +96,8 @@ async function inspectOriginalControlledProgressHistory(input:HistoryInput){
 }
 export async function inspectControlledProgress(input:{releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ActiveContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}}){
  const{recovery:r,receipt:n,ledger,preflight:p,expected:e}=input,h=await inspectControlledProgressHistory(input),a=h.initialReceipt;
- await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts:h.metadataReceipts});
+ const verifiedWorkflowBootstrap=n.version===2&&h.acceptedCheckpoint&&h.originalReceipt.version===2?h.originalReceipt:undefined;
+ await inspectStoppedProgress({releaseRoot:input.releaseRoot,ledger,recovery:r.history,receipt:a,preflight:p,expected:{...e,clientSource:a.clientSource,serverSource:a.serverSource,runnerSha256:a.runnerSha256,packetSha256:a.packetSha256},metadataReceipts:h.metadataReceipts},verifiedWorkflowBootstrap);
  const canonical=(await read(r.canonicalWork)).value,w=canonical?.work,now=Date.now(),accepted=h.acceptedCheckpoint,unforwarded=accepted?undefined:h.startup?.proof.preTarget?.unforwarded;
  if(canonical.database!=='sinaloa_staging'||canonical.readOnly!=='on'||Date.parse(canonical.checkedAt)!==p.checkedAtMs||canonical.activeWorkLeases!==0
    ||w?.workId!==h.workId||w.caseId!==h.caseId||w.agentId!==h.actorId||w.status!==(unforwarded?'failed':'retryable')||!Number.isSafeInteger(w.attempts)||w.attempts<1

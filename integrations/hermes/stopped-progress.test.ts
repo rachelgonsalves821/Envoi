@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';import path from 'node:path';import {tmpdir} from 'node:os';import {createHash} from 'node:crypto';
 import {afterEach,expect,it,vi} from 'vitest';
-import {ContinuationController,type ContinuationReceipt} from './continuation-controller';
+import {ContinuationController,type ActiveContinuationReceipt,type ContinuationReceipt,type ContinuationWorkflowReceipt} from './continuation-controller';
 import {RequestBudgetLedger} from './request-budget';
 import {continuationAllocation,defaultContinuationFlowPolicy,hashReviewedContinuationPlan,type ReviewedContinuationPlan} from './continuation-plan';
 import {authorizeRecoveryTime} from './recovery-time';
@@ -239,6 +239,32 @@ it('history inspection verifies actual formats without manufacturing new approva
  await expect(ContinuationController.startStoppedProgress(proof as any)).rejects.toThrow('PREPARED_STOPPED_PROGRESS_REQUIRED');
  const prior=JSON.parse(await fs.readFile(r.priorExecution.path,'utf8')).receipt;vi.spyOn(Date,'now').mockReturnValue(Date.parse(prior.hardStopUtc)-1);
  await expect(inspectStoppedProgressHistory({releaseRoot:s.root,recovery:r,ledger})).rejects.toThrow('PRIOR_PROGRESS_STOP_REQUIRED');
+});
+it('extends eight metadata-only windows only for the verified ninth workflow bootstrap',async()=>{
+ const s=await secondGeneration(true),ledger=await RequestBudgetLedger.open(s.filename);
+ const input={releaseRoot:s.root,recovery:s.options.recovery,ledger};
+ const append=async(receipt:ActiveContinuationReceipt,id:string)=>{
+  const signed=s.sign(s.nextGraph,receipt as ContinuationReceipt,id);
+  const proof=s.proof(receipt as ContinuationReceipt,signed.raw,35);
+  await ledger.bindApprovedWindow(proof.expectedWindow,{approvalReceiptHash:receipt.approvalReceiptSha256,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:35});
+  await ledger.amendReviewedPlan(signed.plan,proof);
+ };
+ const fixed=Array.from({length:8},(_,i)=>({...s.options.receipt,approvalReceiptSha256:h('metadata window '+i)}));
+ for(const [i,receipt] of fixed.entries())await append(receipt,'metadata-'+i);
+ await expect(inspectStoppedProgressHistory(input,fixed)).resolves.toMatchObject({priorWindow:s.window});
+ const {hardStopUtc:_hardStopUtc,...prior}=s.options.receipt;
+ const bootstrap:ContinuationWorkflowReceipt={...prior,version:2,modelCap:64,lifetime:'until-complete-or-cancel',humanReview:'before-claim',approvalReceiptSha256:h('verified workflow bootstrap')};
+ await append(bootstrap,'bootstrap');
+ const nine=[...fixed,bootstrap],before=await fs.readFile(s.filename);
+ await expect(inspectStoppedProgressHistory(input,nine)).rejects.toThrow('ZERO_NATIVE_PREPROGRAM_WINDOW_REQUIRED');
+ await expect(inspectStoppedProgressHistory(input,nine,{...bootstrap,approvalReceiptSha256:h('unrelated bootstrap')})).rejects.toThrow('ZERO_NATIVE_PREPROGRAM_WINDOW_REQUIRED');
+ await expect(inspectStoppedProgressHistory(input,nine,bootstrap)).resolves.toMatchObject({priorWindow:s.window,currentLedgerSha256:hash(before)});
+ expect(await fs.readFile(s.filename)).toEqual(before);
+ const extra={...s.options.receipt,approvalReceiptSha256:h('tenth metadata window')};
+ await append(extra,'over-limit');
+ const overLimit=await fs.readFile(s.filename);
+ await expect(inspectStoppedProgressHistory(input,[...nine,extra],bootstrap)).rejects.toThrow('ZERO_NATIVE_PREPROGRAM_WINDOW_REQUIRED');
+ expect(await fs.readFile(s.filename)).toEqual(overLimit);
 });
 it('requires the current complete prefix, exact ancestral prefix, and bounded acyclic ancestry',async()=>{
  const s=await secondGeneration(),r=s.options.recovery,before=await fs.readFile(s.filename);
