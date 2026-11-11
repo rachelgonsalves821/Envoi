@@ -8123,6 +8123,7 @@ function fr(e, t) {
 function pr(e, t) {
 	if (![
 		"envoi_send_message",
+		"envoi_send_group_message",
 		"envoi_send_proposal",
 		"envoi_send_decision"
 	].includes(e)) return null;
@@ -8452,12 +8453,15 @@ var Tr = (e) => {
 	"envoi_agent_info",
 	"envoi_list_cases",
 	"envoi_read_case",
+	"envoi_read_group_case",
 	"envoi_list_messages",
 	"envoi_list_assets",
 	"envoi_asset_download"
 ]), Or = /* @__PURE__ */ new Set([
 	"envoi_start_case",
 	"envoi_send_message",
+	"envoi_start_group_case",
+	"envoi_send_group_message",
 	"envoi_send_proposal",
 	"envoi_send_decision"
 ]), kr = /* @__PURE__ */ new Set([
@@ -9942,12 +9946,14 @@ function Ei(e) {
 }
 function Di(e, t, n) {
 	let r = pr(t, n);
-	return !(!r || !e || Zn(e.message) || K(e.message) || e.message.id !== r || e.signal.aborted || !e.message.caseId || n.caseId !== e.message.caseId || n.recipientAddress !== e.message.from.address);
+	return !!(r && e && !Zn(e.message) && !K(e.message) && e.message.id === r && !e.signal.aborted && e.message.caseId && n.caseId === e.message.caseId && (e.message.groupCase ? t === "envoi_send_group_message" && n.inReplyTo === e.message.groupCase.messageId : t !== "envoi_send_group_message" && n.recipientAddress === e.message.from.address));
 }
 function Oi(e, t, n) {
 	return e ? Di(e, t, n) : [
 		"envoi_start_case",
 		"envoi_send_message",
+		"envoi_start_group_case",
+		"envoi_send_group_message",
 		"envoi_send_proposal",
 		"envoi_send_decision"
 	].includes(t) ? typeof n.idempotencyKey == "string" && !n.idempotencyKey.startsWith("bridge:") : !1;
@@ -10902,6 +10908,8 @@ async function ma(e, t = {}) {
 		collaborationToolNames: [
 			"envoi_start_case",
 			"envoi_send_message",
+			"envoi_start_group_case",
+			"envoi_send_group_message",
 			"envoi_send_proposal",
 			"envoi_send_decision"
 		],
@@ -10964,7 +10972,7 @@ async function va(e, t) {
 		"    headers:",
 		`      Authorization: "Bearer \${${i}}"`,
 		"    tools:",
-		"      include: [envoi_agent_info, envoi_start_case, envoi_send_message, envoi_send_proposal, envoi_send_decision, envoi_list_cases, envoi_read_case, envoi_list_messages, envoi_list_assets, envoi_asset_download]",
+		"      include: [envoi_agent_info, envoi_start_case, envoi_send_message, envoi_start_group_case, envoi_read_group_case, envoi_send_group_message, envoi_send_proposal, envoi_send_decision, envoi_list_cases, envoi_read_case, envoi_list_messages, envoi_list_assets, envoi_asset_download]",
 		"      resources: false",
 		"      prompts: false"
 	], s = mi(a ?? "", r.serverName, o), c = d.join(e.home, ".env"), l = await X(c);

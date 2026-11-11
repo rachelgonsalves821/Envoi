@@ -9376,6 +9376,7 @@ async function ui(e, t = "openclaw") {
 function di(e, t) {
 	if (![
 		"envoi_send_message",
+		"envoi_send_group_message",
 		"envoi_send_proposal",
 		"envoi_send_decision"
 	].includes(e)) return null;
@@ -9614,12 +9615,15 @@ var Ci = /* @__PURE__ */ new Set([
 	"envoi_agent_info",
 	"envoi_list_cases",
 	"envoi_read_case",
+	"envoi_read_group_case",
 	"envoi_list_messages",
 	"envoi_list_assets",
 	"envoi_asset_download"
 ]), wi = /* @__PURE__ */ new Set([
 	"envoi_start_case",
 	"envoi_send_message",
+	"envoi_start_group_case",
+	"envoi_send_group_message",
 	"envoi_send_proposal",
 	"envoi_send_decision"
 ]), Ti = /* @__PURE__ */ new Set([
