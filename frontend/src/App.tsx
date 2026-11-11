@@ -34,7 +34,7 @@ import { applyInboxPreference, filterInboxCases, readAcknowledgementForCase } fr
 import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from './agent-permissions';
 import { previewRequested } from './preview';
 import { agentLabel, connectionLabel } from './agent-presence';
-import { mergeHistory, olderCursors } from './history';
+import { mergeHistory, olderCursors, readOlderNativeContactChange } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
@@ -43,7 +43,7 @@ import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
-  caseSourceView, localAgentId, eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
+  caseSourceView, localAgentId, eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, latestNativeContactChange, onboardingSteps, participantIds, resolveParticipant,
   sectionForCase, stateLabel, timelineForCase
 } from './model';
 import type {
@@ -1266,7 +1266,7 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
           </section> : <div className="participant-duo">
             <ParticipantCard participant={local} label={local.relationship === 'localAgent' ? 'Your agent' : 'Local identity unavailable'} />
             <ArrowLeftRight size={18} className="participant-swap" aria-hidden="true" />
-            <ParticipantCard participant={counterparty} label={sameOrganization ? 'Agent in your organization' : `Agent for ${counterparty.orgRef || 'another organization'}`} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
+            <ParticipantCard key={counterparty.id} participant={counterparty} label={sameOrganization ? 'Agent in your organization' : `Agent for ${counterparty.orgRef || 'another organization'}`} contactChange={latestNativeContactChange(view.recentEvents || [], counterparty.id)} historyCursor={view.history?.recentEvents?.nextCursor} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
           </div>}
           {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => key === 'decline' ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
           {state === 'unknownExternalResult' && <InlineNotice title="Result unknown" body="The external service did not confirm the result. Do not retry with a new key." tone="unknown" />}
@@ -1338,24 +1338,45 @@ function NegotiationParticipants({ workCase, view, events, canManageInbox, onRef
       <div className="participant-flow">
         <ParticipantCard participant={local} label={local.relationship === 'localAgent' ? 'Your agent' : 'Local identity unavailable'} />
         <div className="participant-connector" aria-hidden="true"><ArrowRight size={17} /><span>Negotiating with</span></div>
-        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && participant.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />)}</div>
+        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} contactChange={latestNativeContactChange(view.recentEvents || [], participant.id)} historyCursor={view.history?.recentEvents?.nextCursor} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && participant.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />)}</div>
       </div>
     </section>
   );
 }
 
-export function ParticipantCard({ participant, label, nativeControl }: { participant: ReturnType<typeof resolveParticipant>; label: string; nativeControl?: { inboxId: string; onRefresh: () => Promise<unknown>; notify: (message: string) => void } }) {
+type ContactChange = { blocked: boolean; updatedAt: string };
+
+export function ParticipantCard({ participant, label, contactChange, historyCursor, nativeControl }: { participant: ReturnType<typeof resolveParticipant>; label: string; contactChange?: ContactChange; historyCursor?: string | null; nativeControl?: { inboxId: string; onRefresh: () => Promise<unknown>; notify: (message: string) => void } }) {
   const mine = participant.relationship === 'localAgent';
   const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [confirmedChange, setConfirmedChange] = useState<ContactChange>();
+  const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [historyLookup, setHistoryLookup] = useState<{ key: string; change?: ContactChange; error?: string }>();
+  const inboxId = nativeControl?.inboxId;
+  const lookupKey = inboxId && historyCursor && !contactChange && !confirmedChange
+    ? JSON.stringify([inboxId, participant.id, historyCursor, historyAttempt]) : null;
+  const lookup = lookupKey && historyLookup?.key === lookupKey ? historyLookup : undefined;
+  const checking = Boolean(lookupKey && !lookup);
+  useEffect(() => {
+    if (!lookupKey || !inboxId || !historyCursor) return;
+    const controller = new AbortController();
+    void readOlderNativeContactChange(inboxId, participant.id, historyCursor, controller.signal)
+      .then(change => { if (!controller.signal.aborted) setHistoryLookup({ key: lookupKey, change }); })
+      .catch(caught => { if (!controller.signal.aborted) setHistoryLookup({ key: lookupKey, error: errorMessage(caught) }); });
+    return () => controller.abort();
+  }, [lookupKey, inboxId, participant.id, historyCursor]);
+  const latestChange = contactChange && (!confirmedChange || contactChange.updatedAt > confirmedChange.updatedAt)
+    ? contactChange : confirmedChange ?? lookup?.change;
+  const blocked = latestChange?.blocked ?? participant.accessState === 'blocked';
   async function toggleBlocked() {
-    if (!nativeControl) return;
-    const blocked = participant.accessState !== 'blocked';
+    if (!nativeControl || checking || lookup?.error) return;
     setBusy(true); setError('');
     try {
-      await api.setNativeContactBlocked(nativeControl.inboxId, participant.id, blocked);
-      nativeControl.notify(blocked ? 'Counterparty blocked' : 'Counterparty unblocked');
+      const confirmed = await api.setNativeContactBlocked(nativeControl.inboxId, participant.id, !blocked);
+      setConfirmedChange(confirmed);
+      nativeControl.notify(confirmed.blocked ? 'Counterparty blocked' : 'Counterparty unblocked');
       await nativeControl.onRefresh();
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }
@@ -1363,8 +1384,9 @@ export function ParticipantCard({ participant, label, nativeControl }: { partici
   return (
     <div className={`participant-card ${mine ? 'mine' : ''}`}>
       <span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{initials(participant.displayName)}</span>
-      <span className="participant-copy"><small>{label}</small><strong>{participant.displayName}</strong><span className="participant-address" title={participant.address || 'Address unavailable'}>{participant.address || 'Address unavailable'}</span>{participant.accessState === 'blocked' && <span className="participant-access">Blocked</span>}</span>
-      {nativeControl && <button type="button" className="participant-block" disabled={busy} onClick={() => void toggleBlocked()}>{busy ? 'Saving' : participant.accessState === 'blocked' ? 'Unblock agent' : 'Block agent'}</button>}
+      <span className="participant-copy"><small>{label}</small><strong>{participant.displayName}</strong><span className="participant-address" title={participant.address || 'Address unavailable'}>{participant.address || 'Address unavailable'}</span>{blocked && <span className="participant-access">Blocked</span>}</span>
+      {nativeControl && <button type="button" className="participant-block" disabled={busy || checking} aria-busy={busy || checking} onClick={() => lookup?.error ? setHistoryAttempt(attempt => attempt + 1) : void toggleBlocked()}>{checking ? 'Checking block status…' : lookup?.error ? 'Retry block status' : blocked ? 'Unblock agent' : 'Block agent'}</button>}
+      {lookup?.error && <span role="alert">{lookup.error}</span>}
       {error && <span role="alert">{error}</span>}
     </div>
   );
