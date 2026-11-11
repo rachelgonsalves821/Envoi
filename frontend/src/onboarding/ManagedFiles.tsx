@@ -1,3 +1,4 @@
+import { FileText, Plus } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { request } from '../api';
 import { assetDisplayName } from '../model';
@@ -23,18 +24,18 @@ async function encodeFile(file: File) {
 
 export function ManagedFiles({ inboxes }: { inboxes: FileInbox[] }) {
   const [inboxId, setInboxId] = useState('');
-  const selected = inboxes.find(inbox => inbox.id === inboxId);
-  if (!inboxes.length) return null;
-  return <section className="recent-files">
-    <h2>Agent file access</h2>
-    <label className="field"><span>Choose an agent</span>
-      <select value={inboxId} onChange={event => setInboxId(event.target.value)}>
-        <option value="">Select an agent</option>
-        {inboxes.map(inbox => <option key={inbox.id} value={inbox.id}>{inbox.name}</option>)}
-      </select>
-    </label>
-    {selected && <FileAccessEditor key={selected.id} inbox={selected} />}
-  </section>;
+  const selected = inboxes.find(inbox => inbox.id === inboxId) ?? inboxes[0];
+  if (!selected) return null;
+  return <div className="managed-files">
+    {inboxes.length > 1
+      ? <label className="managed-agent"><span>Agent</span>
+        <select value={selected.id} onChange={event => setInboxId(event.target.value)}>
+          {inboxes.map(inbox => <option key={inbox.id} value={inbox.id}>{inbox.name}</option>)}
+        </select>
+      </label>
+      : <p className="managed-agent-name">{selected.name}</p>}
+    <FileAccessEditor key={selected.id} inbox={selected} />
+  </div>;
 }
 
 function FileAccessEditor({ inbox }: { inbox: FileInbox }) {
@@ -43,6 +44,8 @@ function FileAccessEditor({ inbox }: { inbox: FileInbox }) {
   const [sourceId, setSourceId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [reload, setReload] = useState(0);
   const base = `/api/inboxes/${encodeURIComponent(inbox.id)}/managed-files`;
   useEffect(() => {
     const controller = new AbortController();
@@ -50,7 +53,7 @@ function FileAccessEditor({ inbox }: { inbox: FileInbox }) {
       if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught));
     });
     return () => controller.abort();
-  }, [base]);
+  }, [base, reload]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,7 +70,7 @@ function FileAccessEditor({ inbox }: { inbox: FileInbox }) {
       setFiles(current => [...(current || []), created]);
       setAccess('none');
       setSourceId('');
-      form.reset();
+      setAdding(false);
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
     finally { setBusy(false); }
   }
@@ -80,29 +83,42 @@ function FileAccessEditor({ inbox }: { inbox: FileInbox }) {
         method: 'PUT', body: JSON.stringify({ access: nextAccess, revision: file.revision })
       });
       setFiles(current => current?.map(item => item.id === file.id ? updated : item) || []);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
-    finally { setBusy(false); }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setReload(value => value + 1);
+    } finally { setBusy(false); }
   }
 
   return <>
-    <p>Choose the files this agent can use. Each file starts with no access. Copying a Case attachment leaves the original attachment and its sharing in place.</p>
-    <form onSubmit={save}>
-      <fieldset disabled={busy || !files}>
-        {!!inbox.assets.length && <label className="field"><span>Copy an existing file</span>
+    {error && <p className="managed-file-error" role="alert">{error}
+      {!files && <button className="button tertiary" onClick={() => { setError(''); setReload(value => value + 1); }}>Retry</button>}
+    </p>}
+    {files ? files.length > 0 ? <ul className="managed-file-list">{files.map(file => <li key={file.id}>
+      <FileText size={17} aria-hidden="true" />
+      <a href={`${base}/${encodeURIComponent(file.id)}/content`} title={file.filename}>{file.filename}</a>
+      <fieldset disabled={busy}><AccessChoice label={`Agent access for ${file.filename}`} value={file.access} onChange={value => void change(file, value)} /></fieldset>
+    </li>)}</ul> : <p className="managed-file-empty">No files added for this agent.</p> : !error && <p role="status">Loading files…</p>}
+    {files && !adding && <button className="button secondary managed-add-file" disabled={busy} onClick={() => { setError(''); setAdding(true); }}>
+      <Plus size={16} /> Add file
+    </button>}
+    {adding && <form className="managed-file-form" onSubmit={save}>
+      <fieldset disabled={busy}>
+        {!!inbox.assets.length && <label className="field"><span>File source</span>
           <select value={sourceId} onChange={event => setSourceId(event.target.value)}>
-            <option value="">Upload a file instead</option>
+            <option value="">Upload from device</option>
             {inbox.assets.map(asset => <option key={asset.id} value={asset.id}>{assetDisplayName(asset)}</option>)}
           </select>
         </label>}
-        {!sourceId && <label className="field"><span>Upload a file</span><input name="file" type="file" required /></label>}
-        <AccessChoice value={access} onChange={setAccess} label="Initial agent access" />
-        <button className="button primary" type="submit">{busy ? 'Saving…' : 'Add file'}</button>
+        {sourceId ? <small>The original keeps its Case sharing.</small> :
+          <label className="field"><span>Upload a file</span><input name="file" type="file" required /></label>}
+        <label className="field"><span>Agent access</span>
+          <AccessChoice value={access} onChange={setAccess} label="Initial agent access" />
+        </label>
+        <div className="managed-file-actions">
+          <button className="button tertiary" type="button" onClick={() => { setAdding(false); setAccess('none'); setSourceId(''); setError(''); }}>Cancel</button>
+          <button className="button primary" type="submit">{busy ? 'Saving…' : 'Save file'}</button>
+        </div>
       </fieldset>
-    </form>
-    {error && <p role="alert">{error}</p>}
-    {files?.length ? <ul>{files.map(file => <li key={file.id}>
-      <a href={`${base}/${encodeURIComponent(file.id)}/content`}>{file.filename}</a>{' '}
-      <fieldset disabled={busy}><AccessChoice label={`Agent access for ${file.filename}`} value={file.access} onChange={value => void change(file, value)} /></fieldset>
-    </li>)}</ul> : files && <p>No managed files yet.</p>}
+    </form>}
   </>;
 }

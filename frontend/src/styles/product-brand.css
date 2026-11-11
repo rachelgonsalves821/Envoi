@@ -326,3 +326,33 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 @media (prefers-reduced-motion:reduce) {
   .app-shell .button, .connect-page .button, .app-shell .runtime-option, .connect-platform { transition-duration: 0ms; }
 }
+
+.app-shell .files-access-button { margin-inline-start: auto; flex-shrink: 0; }
+.managed-files { display: grid; gap: 16px; padding-top: 16px; }
+.managed-files .managed-agent { display: flex; align-items: center; gap: 12px; }
+.managed-files .managed-agent-name { margin: 0; color: var(--ink2); font-size: 14px; font-weight: 600; }
+.managed-files fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.managed-files select {
+  min-height: 36px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line);
+  border-radius: 8px; color: var(--ink); background: var(--surface-raised, #fff); font: inherit;
+}
+.managed-files select:focus-visible, .managed-file-list a:focus-visible { outline: 2px solid var(--accent, #16709e); outline-offset: 2px; }
+.managed-file-list { list-style: none; margin: 0; padding: 0; border-block: 1px solid var(--line); }
+.managed-file-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 0; }
+.managed-file-list li + li { border-top: 1px solid var(--line); }
+.managed-file-list svg { color: var(--ink2); }
+.managed-file-list a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.managed-file-list a:hover { text-decoration: underline; }
+.managed-file-list select { min-width: 120px; }
+.managed-file-empty, .managed-file-form small { color: var(--ink2); }
+.managed-file-error { margin: 0; color: var(--danger, #a92424); }
+.managed-files .managed-add-file { justify-self: start; }
+.app-shell .modal .managed-file-form { padding-top: 12px; border-top: 1px solid var(--line); }
+.managed-file-form > fieldset { display: grid; gap: 12px; }
+.managed-file-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 560px) {
+  .app-shell .files-heading { flex-wrap: wrap; }
+  .app-shell .files-access-button { margin-inline-start: 0; }
+  .managed-file-list li { gap: 8px; }
+  .managed-file-list select { min-width: 0; font-size: 13px; }
+}
