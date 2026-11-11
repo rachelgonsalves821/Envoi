@@ -722,6 +722,57 @@ it.each(['descriptor-drift','processed','nonretryable','active-session','repeate
  await s.refreshAccepted();if(fault==='descriptor-drift')await fs.appendFile(r.acceptedCheckpoint.path,' ');
  const before=await fs.readFile(s.filename),actions=await fs.readFile(path.join(s.root,'phase-c-cumulative-actions.jsonl'));await expect(ContinuationController.prepareControlledProgress(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);expect(await fs.readFile(path.join(s.root,'phase-c-cumulative-actions.jsonl'))).toEqual(actions);
 });
+async function serverAdoptionSetup(existing?:any){
+ const s=existing??await acceptedCheckpointSetup(),o=s.options,r=o.recovery,priorServerSource=o.receipt.serverSource,serverSource='5'.repeat(40);
+ const evidence=await s.pin('server-test-evidence.json',{fixture:'inert server restoration and compatibility evidence'});
+ const verification:any={purpose:'phase-c-tested-server-adoption',version:1,priorServerSource,serverSource,ciHead:serverSource,ciPassed:true,compatibilityPassed:true,restorationPassed:true,evidence:[evidence]};
+ const descriptor:any={purpose:'phase-c-exact-staging-server-adoption',version:1,environment:'staging',priorServerSource,serverSource,clientSource:o.receipt.clientSource,verification:null};
+ const target=JSON.parse(await fs.readFile(r.targetPacket.path,'utf8'));
+ const refresh=async()=>{
+  descriptor.verification=await s.pin('server-verification.json',verification);
+  r.serverAdoption=await s.pin('server-adoption-descriptor.json',descriptor);
+  Object.assign(target,{serverSource,serverAdoption:r.serverAdoption});r.targetPacket=await s.pin('server-adoption-packet.json',target);
+  Object.assign(o.receipt,{serverSource,packetSha256:r.targetPacket.sha256});Object.assign(o.expected,{serverSource,packetSha256:r.targetPacket.sha256});
+  Object.assign(s.adoption,{serverSource,packetSha256:r.targetPacket.sha256,serverAdoptionSha256:r.serverAdoption.sha256});
+  await refreshDecision();
+ };
+ const refreshDecision=async()=>{r.adoption=await s.pin('server-adoption-decision.json',s.adoption);o.receipt.approvalReceiptSha256=r.adoption.sha256;
+  const signed=s.sign(s.nextGraph,o.receipt,'exact server adoption');o.reviewedPlan=signed.plan;o.graphApprovalRaw=signed.raw;};
+ await refresh();return{...s,serverDescriptor:descriptor,serverVerification:verification,serverEvidence:evidence,serverTarget:target,priorServerSource,serverSource,refreshServer:refresh,refreshServerDecision:refreshDecision};
+}
+it('adopts one tested server only through an exact human decision, retaining old receipts, journals and accepted work',async()=>{
+ const s=await serverAdoptionSetup(),o=s.options,r=o.recovery,before=await fs.readFile(s.filename);
+ const retained=[r.initialExecution,r.execution,r.acceptedCheckpoint,s.journalPin,s.journal],bytes=await Promise.all(retained.map(p=>fs.readFile(p.path)));
+ const handle=await ContinuationController.prepareControlledProgress(o);expect(await fs.readFile(s.filename)).toEqual(before);
+ const c=await ContinuationController.startControlledProgress(handle);expect(c.receipt.serverSource).toBe(s.serverSource);expect(c.receipt.hardStopUtc).toBe(s.originalReceipt.hardStopUtc);
+ expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(c.operationBounds).toEqual({operationCap:62,normalCeiling:54,cleanupReserve:8});
+ c.releaseGroup(['openclaw']);expect(()=>c.expectWork('openclaw',s.descriptor.acceptedReceipt.messageId+'wrong',h('wrong'))).toThrow('CANONICAL_WORK_BINDING_CHANGED');c.expectWork('openclaw',s.workId,h('fresh canonical'));
+ expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);
+ for(const[i,p]of retained.entries())expect(await fs.readFile(p.path)).toEqual(bytes[i]);expect(s.originalReceipt.serverSource).toBe(s.priorServerSource);c.stop();
+});
+it.each(['missing-descriptor','wrong-prior','wrong-server','wrong-client','wrong-environment','extra-field','wrong-ci-head','ci-failed','compatibility-failed','restoration-failed','missing-evidence','too-many-evidence','evidence-drift','verification-drift','descriptor-drift','target-pin-drift','approval-missing','approval-drift','expected-server-drift'] as const)('refuses server adoption before mutation: %s',async fault=>{
+ const s=await serverAdoptionSetup(),o=s.options,r=o.recovery,d=s.serverDescriptor,v=s.serverVerification;
+ if(fault==='wrong-prior')d.priorServerSource='6'.repeat(40);if(fault==='wrong-server')d.serverSource='6'.repeat(40);if(fault==='wrong-client')d.clientSource='6'.repeat(40);
+ if(fault==='wrong-environment')d.environment='production';if(fault==='extra-field')d.packetSha256=o.receipt.packetSha256;
+ if(fault==='wrong-ci-head')v.ciHead='6'.repeat(40);if(fault==='ci-failed')v.ciPassed=false;if(fault==='compatibility-failed')v.compatibilityPassed=false;if(fault==='restoration-failed')v.restorationPassed=false;
+ if(fault==='missing-evidence')v.evidence=[];if(fault==='too-many-evidence')v.evidence=Array(9).fill(s.serverEvidence);
+ await s.refreshServer();
+ if(fault==='missing-descriptor')delete r.serverAdoption;if(fault==='evidence-drift')await fs.appendFile(s.serverEvidence.path,' ');
+ if(fault==='verification-drift')await fs.appendFile(d.verification.path,' ');if(fault==='descriptor-drift')await fs.appendFile(r.serverAdoption.path,' ');
+ if(fault==='target-pin-drift'){s.serverTarget.serverAdoption={...r.serverAdoption,sha256:h('other descriptor')};r.targetPacket=await s.pin('server-wrong-pin-packet.json',s.serverTarget);o.receipt.packetSha256=r.targetPacket.sha256;o.expected.packetSha256=r.targetPacket.sha256;s.adoption.packetSha256=r.targetPacket.sha256;await s.refreshServerDecision();}
+ if(fault==='approval-missing'||fault==='approval-drift'){if(fault==='approval-missing')delete s.adoption.serverAdoptionSha256;else s.adoption.serverAdoptionSha256=h('other descriptor');await s.refreshServerDecision();}
+ if(fault==='expected-server-drift')o.expected.serverSource='6'.repeat(40);
+ const before=await fs.readFile(s.filename),actions=await fs.readFile(path.join(s.root,'phase-c-cumulative-actions.jsonl')),journal=await fs.readFile(s.journalPin.path);
+ await expect(ContinuationController.prepareControlledProgress(o)).rejects.toThrow();expect(await fs.readFile(s.filename)).toEqual(before);expect(await fs.readFile(path.join(s.root,'phase-c-cumulative-actions.jsonl'))).toEqual(actions);expect(await fs.readFile(s.journalPin.path)).toEqual(journal);
+});
+it('does not authorize a server change for an unaccepted follow-up',async()=>{
+ const s=await serverAdoptionSetup(await withOperationAmendment()),before=await fs.readFile(s.filename);
+ await expect(ContinuationController.prepareControlledProgress(s.options)).rejects.toThrow('EXACT_CONTROLLED_SERVER_ADOPTION_REQUIRED');expect(await fs.readFile(s.filename)).toEqual(before);
+});
+it('refuses an unused server descriptor when the server source did not change',async()=>{
+ const s=await acceptedCheckpointSetup(),o=s.options;o.recovery.serverAdoption=await s.pin('unused-server-descriptor.json',{});const before=await fs.readFile(s.filename);
+ await expect(ContinuationController.prepareControlledProgress(o)).rejects.toThrow('UNEXPECTED_CONTROLLED_SERVER_ADOPTION');expect(await fs.readFile(s.filename)).toEqual(before);
+});
 it('makes historical prefix inspection read-only, exact and anchored in the actual cumulative ledger',async()=>{
  const s=await acceptedCheckpointSetup(),ledger=await RequestBudgetLedger.open(s.filename),pin=s.options.recovery.startupStops.at(-1).ledger,before=await fs.readFile(pin.path);
  const view=await ledger.inspectReadOnlyPrefix(pin.path,pin.sha256);expect(view.snapshot().chargedAttempts).toBe(35);
@@ -836,6 +887,12 @@ it('starts a separately approved persistent workflow, preserves all history, and
  expect(await fs.readFile(s.journalPin.path)).toEqual(journal);expect(await fs.readFile(s.d.execution.path)).toEqual(old);
  c.stop('HUMAN_CANCELLED');expect(c.active()).toBe(false);await expect(ContinuationController.startControlledWorkflow(handle)).rejects.toThrow('PREPARED_CONTROLLED_WORKFLOW_REQUIRED');
 });
+it('adopts the exact tested server in a persistent workflow without extending budgets or changing its historical receipt',async()=>{
+ const original=await persistentWorkflowSetup(),historical=await fs.readFile(original.d.execution.path),s=await serverAdoptionSetup(original),before=await fs.readFile(s.filename);
+ const handle=await ContinuationController.prepareControlledWorkflow(s.options);expect(await fs.readFile(s.filename)).toEqual(before);
+ const c=await ContinuationController.startControlledWorkflow(handle);expect(c.receipt.serverSource).toBe(s.serverSource);expect(c.receipt).not.toHaveProperty('hardStopUtc');
+ expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(c.operationBounds.operationCap).toBe(62);expect(await fs.readFile(original.d.execution.path)).toEqual(historical);c.stop();
+});
 it.each(['fake-hardstop','wrong-lifetime','legacy-adoption','packet-policy','budget-change','replayed-handle'] as const)('refuses invalid persistent authority before changing ledger: %s',async fault=>{
  const s=await persistentWorkflowSetup(),o=s.options;
  if(fault==='fake-hardstop')(o.receipt as any).hardStopUtc='2099-01-01T00:00:00.000Z';if(fault==='wrong-lifetime')(o.receipt as any).lifetime='forever';
@@ -887,6 +944,18 @@ async function workflowBootstrapStopSetup(){
 it('preserves one failed persistent bootstrap, real preclaim review and separate logical/physical counters',async()=>{
  const s=await workflowBootstrapStopSetup(),before=await fs.readFile(s.filename),journal=await fs.readFile(s.journalPin.path),old=await fs.readFile(s.journal.path),handle=await ContinuationController.prepareControlledWorkflow(s.options);
  expect(await fs.readFile(s.filename)).toEqual(before);const c=await ContinuationController.startControlledWorkflow(handle);expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(c.receipt).not.toHaveProperty('hardStopUtc');expect(await fs.readFile(s.journalPin.path)).toEqual(journal);expect(await fs.readFile(s.journal.path)).toEqual(old);c.stop();
+});
+it('preserves a verified bootstrap checkpoint after ended session retention without inventing current rows or replaying its send',async()=>{
+ const s=await workflowBootstrapStopSetup(),o=s.options,r=o.recovery,archived=Date.parse(s.q.checkedAt);
+ for(const[index,row]of s.q.sessions.entries()){row.id??='case_session_retained_fixture_'+index;row.fence??=1;row.createdAt=new Date(archived-10000).toISOString();row.endedAt=new Date(archived-1000).toISOString();row.expiresAt=new Date(archived+900000).toISOString();}
+ s.d.canonicalFreshOwnerRead=await s.pin('retained-bootstrap-canonical.json',s.q);await s.refresh();
+ const current=archived+900000+24*60*60_000;vi.spyOn(Date,'now').mockReturnValue(current);
+ const inventory=JSON.parse(await fs.readFile(r.history.currentInventory.path,'utf8'));inventory.checkedAt=new Date(current).toISOString();r.history.currentInventory=await s.pin('retained-bootstrap-fresh-inventory.json',inventory);o.preflight.checkedAtMs=current;
+ const canonical=JSON.parse(await fs.readFile(r.canonicalWork.path,'utf8'));canonical.checkedAt=inventory.checkedAt;canonical.work.sessions=[];r.canonicalWork=await s.pin('retained-bootstrap-empty-current-rows.json',canonical);
+ const before=await fs.readFile(s.filename),archive=await fs.readFile(s.d.canonicalFreshOwnerRead.path),journal=await fs.readFile(s.journalPin.path);
+ const c=await ContinuationController.startControlledWorkflow(await ContinuationController.prepareControlledWorkflow(o));
+ expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(JSON.parse(await fs.readFile(r.canonicalWork.path,'utf8')).work.sessions).toEqual([]);
+ expect(await fs.readFile(s.d.canonicalFreshOwnerRead.path)).toEqual(archive);expect(await fs.readFile(s.journalPin.path)).toEqual(journal);expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);c.stop();
 });
 it.each(['missing-canonical','attempt-reset','attempt-jump','live-session','live-lease','old-failure-revived','physical-request','journal-rewritten','journal-output','foreign-snapshot','foreign-agent-context','missing-review','late-review','wrong-review-subject','extra-event','wrong-cause','live-port','legacy-receipt','changed-controls'] as const)('refuses unsafe persistent bootstrap recovery without mutation: %s',async fault=>{
  const s=await workflowBootstrapStopSetup();
