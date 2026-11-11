@@ -57,23 +57,30 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
   return <section className="onboarding-panel" aria-label="Grok Bot setup">
-    <p>Connect your signed-in Grok Bot with one Envoi approval. Close any Secrets prompt or setup chat from an earlier attempt. After approval, open a fresh chat in the same Bot for the receiving setup message.</p>
+    <p>Connect your signed-in Grok Bot with one Envoi approval. If an earlier chat asks for an xAI API key, close that prompt and continue in <strong>Connect apps</strong>.</p>
     <ol className="grok-setup-steps">
       <li>
-        <strong>Add Envoi in Grok Bot</strong>
-        <p>Open <strong>Connect apps → Add a custom connector → Remote HTTPS</strong>. Name it Envoi and enter the server address below. If Envoi is already listed for this address, open that connector.</p>
-        <label className="field"><span>Envoi server address</span><input readOnly value={serverUrl} onFocus={event => event.currentTarget.select()} /></label>
-        {clientId && <><label className="field"><span>OAuth Client ID</span><input readOnly value={clientId} onFocus={event => event.currentTarget.select()} /></label><p>Leave Client Secret blank.</p></>}
+        <strong>Add a custom connector</strong>
+        <p>In Grok Bot, open <strong>Connect apps → Add a custom connector</strong>. If Envoi is already installed for this Server URL, open the existing connector.</p>
+        <dl className="grok-connector-settings">
+          <dt>Name</dt><dd>Envoi</dd>
+          <dt>Type</dt><dd>Remote HTTPS</dd>
+          <dt>Server URL</dt><dd><GrokConnectorValue label="Server URL" value={serverUrl} /></dd>
+          <dt>HTTP headers</dt><dd>Leave Key and Value blank</dd>
+          <dt>Client ID</dt><dd>{clientId ? <GrokConnectorValue label="Client ID" value={clientId} /> : 'Leave blank'}</dd>
+          {clientId && <><dt>Client Secret</dt><dd>Leave blank if shown</dd></>}
+        </dl>
+        <p>For a new connector, click <strong>Add plugin</strong>.</p>
       </li>
       <li>
         <strong>Approve once and check the address</strong>
-        <p>In Grok Bot, select <strong>Authenticate</strong>, then sign in to Envoi and approve Receive and Send. {address
+        <p>In Grok Bot, select <strong>Authenticate</strong>. Use your account for this Envoi workspace. If you are testing on staging, sign in with your staging account. Then approve Receive and Send. {address
           ? <>Select your existing agent <strong>{address}</strong>.</>
           : 'Select your existing agent if it already has an Envoi address.'}</p>
       </li>
       <li>
         <strong>Turn on background receiving</strong>
-        <p>After approval, paste this message into Grok Bot. It asks your Bot to verify the address and set up the five-minute inbox check. Check activity under <strong>Runtime installations → Grok Bot monitoring</strong>.</p>
+        <p>After approval, open a fresh chat in the same Bot and paste this message. It asks your Bot to verify the address and set up the five-minute inbox check. Check activity under <strong>Runtime installations → Grok Bot monitoring</strong>.</p>
         <div className="grok-setup-actions">
           <GrokBotPrompt label="Receiving setup message" copyLabel="Copy receiving setup message" value={prompt} />
         </div>
@@ -85,6 +92,22 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
       <button type="button" className="button secondary compact" onClick={downloadSkill}>Download Grok Bot skill</button>
     </details>
   </section>;
+}
+
+function GrokConnectorValue({ label, value }: { label: string; value: string }) {
+  const [feedback, setFeedback] = useState('');
+  return <div className="grok-connector-value field">
+    <input aria-label={label} readOnly value={value} onFocus={event => event.currentTarget.select()} />
+    <button type="button" className="button secondary compact" aria-label={`Copy ${label}`} onClick={async () => {
+      try {
+        await navigator.clipboard.writeText(value);
+        setFeedback(`${label} copied.`);
+      } catch {
+        setFeedback(`Select the ${label} field to copy it.`);
+      }
+    }}>Copy</button>
+    {feedback && <span role="status">{feedback}</span>}
+  </div>;
 }
 
 function GrokBotPrompt({ label, copyLabel, value }: { label: string; copyLabel: string; value: string }) {

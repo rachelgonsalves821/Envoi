@@ -34,6 +34,12 @@
 .grok-setup-steps { display: grid; gap: 16px; padding-inline-start: 1.35rem; margin: 16px 0; }
 .grok-setup-steps li { padding-inline-start: .25rem; }
 .grok-setup-steps p { margin: 4px 0 8px; }
+.grok-connector-settings { display: grid; gap: 4px; margin: 12px 0; }
+.grok-connector-settings dt { font-weight: 600; }
+.grok-connector-settings dd { margin: 0 0 8px; min-width: 0; }
+.grok-connector-value { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; }
+.grok-connector-value input { width: 100%; min-width: 0; }
+.grok-connector-value [role="status"] { grid-column: 1 / -1; }
 .grok-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .grok-setup-actions .grok-message-preview, .grok-setup-actions .grok-copy-status { flex-basis: 100%; order: 1; }
 .grok-copy-status:empty { display: none; }
