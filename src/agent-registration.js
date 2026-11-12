@@ -676,7 +676,8 @@ export function createAgentRegistrations({
   // client in place of the verification code. `request` is the opened handle (consent; null when it cannot be opened) or the
   // bootstrap client (null when it is not a bootstrap client). Returns { decided } for this human's identical consent retry, or
   // { approved, code } with the code returned to the caller once and stored only as a hash.
-  async function approveOAuth({ human, mode, request, handleDigest, input }) {
+  // `extraDocuments` (agent-saved-setup v1 §5) may add documents to the approval's own batch; it never changes a check.
+  async function approveOAuth({ human, mode, request, handleDigest, input, extraDocuments = null }) {
     assertRegistrationEnabled('This feature is not available.');
     const limited = await limits.consumeConsentApproval(human.id);
     if (!limited.allowed) throw coded(429, 'RATE_LIMITED', 'Too many approvals. Try again later.', { retryAfterSeconds: limited.retryAfterSeconds });
@@ -765,13 +766,14 @@ export function createAgentRegistrations({
         );
       }
       if (address) documents.push({ path: addressHoldPath(address), value: { registrationId, expiresAt: activationExpiresAt } });
+      if (extraDocuments) documents.push(...await extraDocuments({ registrationId, at, targetKind: target.kind }));
       await store.putJsonBatch(documents);
       await writeAudit('agent.registration_approved', { registrationId, target: target.kind, ...(target.kind === 'existing_agent' ? { agentId: target.agentId } : { address }), effectivePermissions: effective, humanId: human.id, connectionRoute }, at);
       const { status: _pending, ...approved } = consentDecided(registration);
       return { approved, code };
     }, [], lockKeys);
   }
-  const approveConsent = (human, request, handleDigest, input) => approveOAuth({ human, mode: 'consent', request, handleDigest, input });
+  const approveConsent = (human, request, handleDigest, input, { extraDocuments = null } = {}) => approveOAuth({ human, mode: 'consent', request, handleDigest, input, extraDocuments });
   // agent-remote-auth §8: the owner issues a single-use bootstrap code for a pre-registered provider client. `client` is that
   // client when it is a bootstrap client whose route flag is on (else null: 404 AUTHORIZATION_REQUEST_INVALID, after the rate
   // limit); `resource` is the resource its family will be bound to. `input` is the body without clientId.
