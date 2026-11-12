@@ -25,6 +25,7 @@ import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
 import { DotsPermissionRecovery, DotsSetupGuide } from './onboarding/DotsSetupGuide';
 import { SavedSetupProgress } from './onboarding/SavedSetupProgress';
+import { ConnectionMilestones } from './onboarding/ConnectionMilestones';
 import { savedSetupApi, type SavedSetup } from './onboarding/saved-setup';
 import { PhaseDTrustControls } from './PhaseDTrustControls';
 import { MonadPermissionPanel } from './MonadPermissionPanel';
@@ -1758,7 +1759,7 @@ export function PoliciesPage({ entries, onConnect, onRefresh, notify }: { entrie
       <p>Changes apply to future agent actions. Earlier activity stays in the record.</p>
       <AgentPermissionPicker selected={selected} onChange={value => { setSelected(value); setError(''); setReconsentRequired(false); }} />
       <FormError message={error} />
-      {reconsentRequired && <><p>Approve the missing access in your Dot using the message access prompt below. Saving these same choices again cannot expand OAuth access. After approval, close this editor and refresh permissions.</p><DotsSetupGuide origin={window.location.origin} name={editing.agent.name} address={editing.agent.address} reconnect /></>}
+      {reconsentRequired && <><p>Approve the missing access in your Dot using the message access prompt below. Saving these same choices again cannot expand OAuth access. After approval, close this editor and refresh permissions.</p><DotsSetupGuide origin={window.location.origin} name={editing.agent.name} address={editing.agent.address} messageAccess /></>}
       <div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => setEditing(null)}>Cancel</button><button type="button" className="button primary" disabled={busy || reconsentRequired} onClick={() => void save()}>{busy ? 'Saving…' : 'Save permissions'}</button></div>
     </Modal>}
   </PageFrame>;
@@ -1860,6 +1861,8 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const [showSteps, setShowSteps] = useState(false);
+  const showInstallations = canManageInbox && workspace.kind === 'agent' && workspace.ownerAgentId === agent.id
+    && (agent.onboardingStatus === 'approved' || frozen);
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
   const platformAddress = agent.platformAddress || transportAgent?.platformAddress || transportAgent?.internalAddress || agent.address;
   const publicEmailAddress = agent.publicEmailAddress || agent.identity?.externalAddress || transportAgent?.publicEmailAddress || transportAgent?.externalAddress || null;
@@ -1918,13 +1921,49 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     finally { setPauseBusy(false); }
   }
   return <article className="integration-card">
-    <div className="integration-heading"><span className="agent-card-avatar" style={{ background: color }}>{initials(agent.name)}</span><div><h2>{agent.name}</h2><span className="verified-address" title={platformAddress}>{platformAddress}<CopyButton value={platformAddress} label={`Copy ${agent.name} address`} /></span></div></div>
-    {approvedAccess ? <><div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div></div><div className="agent-status-access"><span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span><div className="capability-list">{agent.permissions.slice(0,4).map(item => <span key={item}>{humanize(item)}</span>)}</div></div></> : <div className="agent-setup"><span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span><strong>Step {Math.min(7,completedSteps + 1)} of 7: {setupSteps[Math.min(6, completedSteps)][0]}</strong>{frozen && <span>No permissions active</span>}<div className="agent-progress" role="progressbar" aria-valuenow={completedSteps} aria-valuemin={0} aria-valuemax={7}><span style={{ width: `${completedSteps / 7 * 100}%` }} /></div>{pending && canApproveAgent ? <button className="button secondary" onClick={() => setApprovalOpen(true)}>Review agent access</button> : !pending && agent.status !== 'revoked' && canManageInbox ? <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Connect runtime</button> : null}<button className="agent-steps-toggle" aria-expanded={showSteps} onClick={() => setShowSteps(value => !value)}>{showSteps ? 'Hide steps' : 'Show all steps'}</button>{showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}</div>}
-    <div className="agent-card-actions"><button className="button secondary" onClick={onOpenInbox} disabled={!onOpenInbox}>Open inbox</button><button className="button secondary" onClick={onPermissions} disabled={!onPermissions}>Permissions</button>{canManageInbox && <button type="button" className="button tertiary agent-remove-action" onClick={() => { setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>}</div>
+    <div className="agent-summary-row">
+      <div className="integration-heading"><span className="agent-card-avatar" style={{ background: color }}>{initials(agent.name)}</span><div><h2>{agent.name}</h2><span className="verified-address" title={platformAddress}>{platformAddress}<CopyButton value={platformAddress} label={`Copy ${agent.name} address`} /></span></div></div>
+      <div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div></div>
+      <div className="agent-status-access">
+        <span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span>
+        {approvedAccess && <div className="capability-list">{agent.permissions.slice(0, 4).map(item => <span key={item}>{humanize(item)}</span>)}</div>}
+      </div>
+      <div className="agent-card-actions">
+        <button className="button secondary" onClick={onOpenInbox} disabled={!onOpenInbox}>Open inbox</button>
+        {(onPermissions || canManageInbox) && <details className="agent-actions-menu" onBlur={event => {
+          if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+        }} onKeyDown={event => {
+          if (event.key === 'Escape' && event.currentTarget.open) {
+            event.stopPropagation();
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector('summary')?.focus();
+          }
+        }}>
+          <summary className="button secondary" aria-label={`More options for ${agent.name}`}><MoreHorizontal size={18} /></summary>
+          <div className="thread-more" aria-label="Agent actions">
+            {onPermissions && <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onPermissions(); }}>Permissions</button>}
+            {canManageInbox && <button type="button" className="danger" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>}
+          </div>
+        </details>}
+      </div>
+    </div>
     {revokeResult && frozen && <InlineNotice title="Agent frozen" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. Re-onboarding requires a new human-approved token. The agent identity and conversation history remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
-    {canManageInbox && <details className="agent-more"><summary>Advanced</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}{publicEmailAddress && <span>{publicEmailAddress}</span>}</div>{workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && approvedAccess && <PhaseDTrustControls inboxId={workspace.id} actorAgentId={agent.id} />}</details>}
+    {(!approvedAccess || canManageInbox) && <details className="agent-connection-details">
+      <summary>Connection details</summary>
+      {!approvedAccess && <div className="agent-setup">
+        <strong>Step {Math.min(7, completedSteps + 1)} of 7: {setupSteps[Math.min(6, completedSteps)][0]}</strong>
+        {frozen && <span>No permissions active</span>}
+        <div className="agent-progress" role="progressbar" aria-valuenow={completedSteps} aria-valuemin={0} aria-valuemax={7}><span style={{ width: `${completedSteps / 7 * 100}%` }} /></div>
+        {pending && canApproveAgent ? <button className="button secondary" onClick={() => setApprovalOpen(true)}>Review agent access</button>
+          : !pending && !frozen && canManageInbox ? <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Connect runtime</button> : null}
+        <button className="agent-steps-toggle" aria-expanded={showSteps} onClick={() => setShowSteps(value => !value)}>{showSteps ? 'Hide steps' : 'Show all steps'}</button>
+        {showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}
+      </div>}
+      {showInstallations && <AgentInstallations key={`${humanId}:${agent.id}`} humanId={humanId} inboxId={workspace.id} agent={agent} canManage={canManageInbox} onReconnect={() => { setReconnectResult(null); setReconnectOpen(true); }} onRefresh={async () => { await onRefresh(); }} />}
+      {canManageInbox && <details className="agent-more"><summary>Advanced</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}{publicEmailAddress && <span>{publicEmailAddress}</span>}</div>{workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && approvedAccess && <PhaseDTrustControls inboxId={workspace.id} actorAgentId={agent.id} />}</details>}
+    </details>}
     {removalOpen && canManageInbox && <Modal title={`Remove ${agent.name}?`} onClose={() => setRemovalOpen(false)} dismissible={!removalBusy}>
       <AgentRemovalDialogContent agentName={agent.name} busy={removalBusy} error={removalError} onClose={() => setRemovalOpen(false)} onConfirm={(deleteHistory, confirmation) => void removeAgent(deleteHistory, confirmation)} />
     </Modal>}
@@ -1939,7 +1978,6 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <FormError message={revokeError} />
       <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep access</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Freezing…' : 'Freeze agent'}</button></div>
     </Modal>}
-    {workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && (agent.onboardingStatus === 'approved' || frozen) && <AgentInstallations key={`${humanId}:${agent.id}`} humanId={humanId} inboxId={workspace.id} agent={agent} canManage={canManageInbox} onReconnect={() => { setReconnectResult(null); setReconnectOpen(true); }} onRefresh={async () => { await onRefresh(); }} />}
     {reconnectOpen && canManageInbox && <EnrollmentDialog workspace={workspace} reconnectAgent={agent} result={reconnectResult} setResult={setReconnectResult} onRefresh={onRefresh} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} />}
   </article>;
 }
@@ -1963,6 +2001,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
     return () => stop.abort();
   }, []);
   const [dotsGuideOpen, setDotsGuideOpen] = useState(false);
+  const [savedSetupDisabled, setSavedSetupDisabled] = useState(false);
   const [savedSetup, setSavedSetup] = useState<SavedSetup | null>(null);
   const saveRequest = useRef<AbortController | null>(null);
   useEffect(() => () => saveRequest.current?.abort(), []);
@@ -1977,8 +2016,12 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const [step, setStep] = useState<0 | 1>(0);
   const [localPartInput, setLocalPartInput] = useState('');
-  const [availability, setAvailability] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
+  const [addressCheck, setAddressCheck] = useState<{ inboxId: string; localPart: string; state: 'available' | 'taken' | 'error' } | null>(null);
   const localPart = localPartInput.trim().toLowerCase();
+  const checkAddress = step === 1 && !result && !dotsGuideOpen && !reconnectAgent && validAgentLocalPart(localPart);
+  const availability = !checkAddress ? 'idle'
+    : workspace.id === previewWorkspace.id ? 'available'
+    : addressCheck?.inboxId === workspace.id && addressCheck.localPart === localPart ? addressCheck.state : 'checking';
   const handoff = result?.quickConnect;
   const chosenAddress = handoff?.address || (result?.agentProfile?.localPart ? `${result.agentProfile.localPart}@${agentDomain}` : '');
   const prompt = handoff ? setupPrompt(handoff) : '';
@@ -2029,17 +2072,18 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   const prepareCommand = `node envoi-connector.mjs prepare --runtime ${selectedRuntime} --api-url ${handoff?.apiUrl || '<Envoi origin>'}${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
   const setupCommand = `node envoi-connector.mjs setup --handoff envoi-setup.json${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
   useEffect(() => {
-    if (result || reconnectAgent || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
-    if (workspace.id === previewWorkspace.id) { setAvailability('available'); return; }
-    let cancelled = false;
-    setAvailability('checking');
+    if (!checkAddress || workspace.id === previewWorkspace.id) return;
+    const controller = new AbortController();
+    const finish = (state: 'available' | 'taken' | 'error') => {
+      if (!controller.signal.aborted) setAddressCheck({ inboxId: workspace.id, localPart, state });
+    };
     const timer = setTimeout(() => {
-      void api.agentAddressAvailability(workspace.id, localPart)
-        .then(response => { if (!cancelled) setAvailability(response.available ? 'available' : 'taken'); })
-        .catch(() => { if (!cancelled) setAvailability('error'); });
-    }, 250);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [workspace.id, localPart, result, reconnectAgent]);
+      void api.agentAddressAvailability(workspace.id, localPart, controller.signal)
+        .then(response => finish(response.available ? 'available' : 'taken'))
+        .catch(() => finish('error'));
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [workspace.id, localPart, checkAddress]);
   async function copyPrompt() {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setError(''); }
     catch { setCopied(false); setError(`Clipboard access is unavailable. Open “${setupHelpLabel}” and select the prompt to copy it.`); }
@@ -2062,23 +2106,28 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
     } catch { setError('The skill file could not be downloaded. Copy the setup prompt instead.'); }
   }
   const redirectLegacyGrok = hostedGrokRequired && (handoff?.runtime === 'grok' || runtime === 'grok');
-  if (grokBotOpen || redirectLegacyGrok) return <Modal title="Connect Grok Bot" onClose={onClose}>
+  if (grokBotOpen || redirectLegacyGrok) return <Modal title="Connect Grok Bot" onClose={onClose} className="connect-agent-dialog">
     <GrokBotSetup address={reconnectAgent?.address} />
     <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => { if (redirectLegacyGrok) { setResult(null); setRuntime('openclaw'); setStep(0); } setGrokBotOpen(false); }}>Back</button></div>
   </Modal>;
   const currentStep = result || dotsGuideOpen ? 2 : step;
   const expiry = result ? formatAbsolute(result.expiresAt) : '';
   const setupName = status?.agent?.name || handoff?.agentName || reconnectAgent?.name || name.trim() || 'Your agent';
-  return <Modal title={reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Connect an agent'} onClose={onClose}>
-    <div className="enroll-steps" aria-label="Enrollment steps">
-      {['Agent type', 'Address and permissions', 'Setup'].map((stepName, index) => <span
+  const platform = dotsSelected ? 'Dots' : label;
+  const title = reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name} · ${platform}` : `Connect ${platform}`;
+  return <Modal title={title} onClose={onClose} className="connect-agent-dialog">
+    <ol className="enroll-steps" aria-label="Enrollment steps">
+      {['Agent', 'Details and access', 'Connect'].map((stepName, index) => <li
         key={stepName} aria-current={currentStep === index ? 'step' : undefined}
         className={currentStep === index ? 'current' : currentStep > index ? 'complete' : ''}>
-        {index + 1}<b>{stepName}</b>
-      </span>)}
-    </div>
+        <span className="enroll-step-number" aria-hidden="true">{index < currentStep ? <Check size={15} /> : index + 1}</span>
+        <b>{stepName}</b>{index < currentStep && <span className="sr-only"> (complete)</span>}
+      </li>)}
+    </ol>
     {dotsGuideOpen ? <section className="quick-connect">
       {dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body={dotsRouteUnavailableNotice} tone="attention" />}
+      {savedSetup && <p className="enroll-note">Envoi opens with these filled in. Just approve.</p>}
+      {savedSetupDisabled && <p className="enroll-note">You'll confirm these on Envoi's approval page.</p>}
       <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} savedSetup={Boolean(savedSetup)} />
       {savedSetup && <SavedSetupProgress setup={savedSetup} onConnected={onRefresh} onStartAgain={() => {
         setSavedSetup(null);
@@ -2134,18 +2183,18 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
           <div className="sdk-next-step">
             <p>The bridge redeems the token and stores rotating Envoi credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p>
             <div className="runtime-setup-list">
-              <article>
+              {selectedRuntime === 'openclaw' && <article>
                 <strong>OpenClaw</strong>
                 <p>Set <code>ENVOI_API_URL</code>, <code>ENVOI_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p>
-              </article>
-              <article>
+              </article>}
+              {selectedRuntime === 'grok' && <article>
                 <strong>Grok</strong>
                 <p>Set <code>ENVOI_API_URL</code>, <code>ENVOI_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>ENVOI_MCP_URL</code> only when hosted MCP reads are configured.</p>
-              </article>
-              <article>
+              </article>}
+              {selectedRuntime === 'hermes' && <article>
                 <strong>Hermes</strong>
                 <p>Use the official connector with the selected Hermes profile. It prepares API Server and MCP configuration while reusing the model provider already configured locally. Confirm a normal Hermes chat works before enrolling. Configure any missing provider credentials on the Hermes host. Start a new Hermes chat after configuration and verify an incoming Envoi message receives a reply.</p>
-              </article>
+              </article>}
             </div>
           </div>
         </section>}
@@ -2162,6 +2211,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
         saveRequest.current = controller;
         setBusy(true);
         setError('');
+        setSavedSetupDisabled(false);
         try {
           const setup = await savedSetupApi.create(workspace.id, {
             name: name.trim(), localPart, permissions: selectedAgentPermissions(selectedPermissions)
@@ -2171,9 +2221,12 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
           setDotsGuideOpen(true);
         } catch (caught) {
           if (controller.signal.aborted) return;
-          if (caught instanceof ApiError && caught.code === 'FEATURE_DISABLED') setDotsGuideOpen(true);
+          if (caught instanceof ApiError && caught.code === 'FEATURE_DISABLED') {
+            setSavedSetupDisabled(true);
+            setDotsGuideOpen(true);
+          }
           else {
-            if (caught instanceof ApiError && caught.code === 'ADDRESS_TAKEN') setAvailability('taken');
+            if (caught instanceof ApiError && caught.code === 'ADDRESS_TAKEN') setAddressCheck({ inboxId: workspace.id, localPart, state: 'taken' });
             setError(errorMessage(caught));
           }
         } finally {
@@ -2207,24 +2260,28 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
         {reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <>
           <Field label="Agent name" name="name" value={name} onChange={event => {
             setName(event.target.value);
-            if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value));
+            if (!addressEdited.current) {
+              const suggestion = suggestedAgentAddress(event.target.value);
+              if (suggestion !== localPart) setAddressCheck(null);
+              setLocalPartInput(suggestion);
+            }
           }} placeholder="Milo" maxLength={dotsSelected ? 80 : undefined} required />
           <label className="field"><span>Agent email address</span><span className="enroll-address">
             <input name="localPart" value={localPartInput} onChange={event => {
               addressEdited.current = true;
+              if (event.target.value.trim().toLowerCase() !== localPart) setAddressCheck(null);
               setLocalPartInput(event.target.value);
             }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required />
             <span>@{agentDomain}</span>
           </span></label>
           {localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>
-            {!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}
+            {!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking…' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}
           </p>}
         </>}
-        {dotsSelected ? <>
+        {dotsSelected ?
           <AgentPermissionPicker selected={reconnectAgent ? DEFAULT_AGENT_PERMISSIONS : selectedPermissions}
             onChange={reconnectAgent ? undefined : setSelectedPermissions} />
-          <p className="enroll-note">You'll confirm these on Envoi's approval page.</p>
-        </> : reconnectAgent && !reenroll ? <>
+        : reconnectAgent && !reenroll ? <>
           <AgentPermissionPicker selected={reconnectAgent.permissions ?? []} />
           <p className="enroll-note">Reconnecting keeps this agent’s current permissions.</p>
         </> : <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />}
@@ -2253,17 +2310,13 @@ function EnrollmentProgress({ phase, unavailable, name, expiry, errorCode, onChe
     error: ['Setup needs attention', 'Ask your agent what failed. It has the details.'],
     unavailable: ["Can't check progress right now", 'Your agent can keep going.']
   }[state];
-  const connected = phase === 'enrolled' || phase === 'ready' || phase === 'error';
+  const reached = phase === 'ready' ? 4 : phase === 'enrolled' || phase === 'error' ? 2 : 1;
 
   return <div className="connection-progress">
     <div role="status" aria-atomic="true">
-      <ol className="connection-progress-dots" aria-label="Setup milestones">
-        <li className={connected ? 'complete' : undefined}>Connected<span className="sr-only">{connected ? ' (complete)' : ' (pending)'}</span></li>
-        <li className={phase === 'ready' ? 'complete' : undefined}>Checked<span className="sr-only">{phase === 'ready' ? ' (complete)' : ' (pending)'}</span></li>
-      </ol>
+      <ConnectionMilestones label="Setup milestones" milestones={['Started', 'Connected', 'Checked', 'Ready']} reached={reached} />
       <strong>{line}</strong>
-      <p>{detail}</p>
-      {state === 'error' && errorCode && <small>{errorCode}</small>}
+      <p>{detail}{state === 'error' && errorCode && <> <code>{errorCode}</code></>}</p>
     </div>
     {(state === 'error' || state === 'unavailable') && <button type="button" className="button secondary compact" onClick={onCheckAgain}>Check again</button>}
     {(state === 'expired' || state === 'revoked') && <button type="button" className="button secondary compact" onClick={onCreatePrompt}>Create new prompt</button>}
@@ -2315,12 +2368,12 @@ function ConfirmDialog({ action, busy, onCancel, onConfirm }: { action: HumanAct
   return <Modal title={confirmTitle(action)} onClose={onCancel} dismissible={!busy}><p className="dialog-copy">{confirmBody(action)}</p><div className="dialog-actions"><button className="button secondary" onClick={onCancel} disabled={busy}>Keep working</button><button className={`button ${destructive ? 'destructive' : 'primary'}`} onClick={onConfirm} disabled={busy}>{busy ? 'Recording action…' : humanize(action)}</button></div></Modal>;
 }
 
-function Modal({ title, children, onClose, dismissible = true }: { title: string; children: ReactNode; onClose: () => void; dismissible?: boolean }) {
+function Modal({ title, children, onClose, dismissible = true, className = '' }: { title: string; children: ReactNode; onClose: () => void; dismissible?: boolean; className?: string }) {
   const panel = useRef<HTMLDivElement>(null);
   const closeOptions = useRef({ onClose, dismissible });
   closeOptions.current = { onClose, dismissible };
   useEffect(() => { panel.current?.focus(); const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && closeOptions.current.dismissible) closeOptions.current.onClose(); if (event.key !== 'Tab' || !panel.current) return; const focusable = [...panel.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(item => item.getClientRects().length); if (!focusable.length) { event.preventDefault(); panel.current.focus(); return; } const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
-  return <div className="modal-layer"><button className="modal-scrim" aria-label={dismissible ? 'Close dialog' : undefined} onClick={dismissible ? onClose : undefined} /><div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1} ref={panel}><header><h2 id="modal-title">{title}</h2>{dismissible && <button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button>}</header>{children}</div></div>;
+  return <div className="modal-layer"><button className="modal-scrim" aria-label={dismissible ? 'Close dialog' : undefined} onClick={dismissible ? onClose : undefined} /><div className={className ? `modal ${className}` : 'modal'} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1} ref={panel}><header><h2 id="modal-title">{title}</h2>{dismissible && <button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button>}</header>{children}</div></div>;
 }
 
 function CommandMenu({ view, onClose, onSelectCase }: { view: HumanView; onClose: () => void; onSelectCase: (item: WorkCase) => void }) {

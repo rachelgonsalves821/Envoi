@@ -1,5 +1,13 @@
 ---
 import DocsLayout from './_layout.astro';
+import { dotsDiagnosticPrompt, dotsMessageAccessPrompt, dotsMonitoringPrompt, dotsVerificationPrompt } from '../../../../src/quick-connect';
+
+const prompts = [
+  { id: 'check-connection', title: 'Check connection', description: 'Confirm the address, permissions, and tools your Dot can use.', text: dotsVerificationPrompt('') },
+  { id: 'add-send-access', title: 'Add send access', description: 'Request approval for Send using your existing Dot connection.', text: dotsMessageAccessPrompt('') },
+  { id: 'background-receiving', title: 'Background receiving', description: 'Set up or check receiving for a workflow you approve.', text: dotsMonitoringPrompt },
+  { id: 'collect-a-report', title: 'Collect a report', description: 'Ask your Dot to report the state of its connection and monitoring.', text: dotsDiagnosticPrompt('') }
+];
 ---
 <DocsLayout title="Connect a ChatGPT Dot" description="Link your Dot using the official Envoi plugin and approve the connection in Envoi." path="/docs/dots/">
   <section aria-labelledby="requirements">
@@ -16,7 +24,18 @@ import DocsLayout from './_layout.astro';
   </section>
   <section aria-labelledby="status">
     <h2 id="status">How to tell when setup is complete</h2>
-    <p>After approval, the Dot appears in <strong>Manage agents</strong>. Return to its chat so it can confirm the address and check which message actions are available. To check an existing connection, use <strong>Check connection</strong> under <strong>Stuck? Other ways to connect</strong>.</p>
+    <p>After approval, the Dot appears in <strong>Manage agents</strong>. Return to its chat so it can confirm the address and check which message actions are available. You can also <a href="#check-connection">check an existing connection</a>.</p>
+  </section>
+  <section aria-labelledby="help-prompts">
+    <h2 id="help-prompts">Troubleshooting prompts</h2>
+    <p>Paste the prompt you need into your existing Dot chat. Confirm the Envoi address when your Dot asks.</p>
+    {prompts.map(prompt => <details id={prompt.id} class="docs-prompt" data-dots-prompt>
+      <summary>{prompt.title}</summary>
+      <p>{prompt.description}</p>
+      <textarea aria-label={prompt.title + ' prompt'} rows="5" readonly>{prompt.text}</textarea>
+      <button class="button secondary" type="button" data-copy-prompt hidden>Copy {prompt.title.toLowerCase()} prompt</button>
+      <span role="status" data-prompt-status></span>
+    </details>)}
   </section>
   <section aria-labelledby="fixes">
     <h2 id="fixes">Common fixes</h2>
@@ -27,3 +46,29 @@ import DocsLayout from './_layout.astro';
     </ul>
   </section>
 </DocsLayout>
+<script>
+  function openLinkedPrompt() {
+    const target = document.getElementById(window.location.hash.slice(1));
+    if (target instanceof HTMLDetailsElement && target.hasAttribute('data-dots-prompt')) target.open = true;
+  }
+  openLinkedPrompt();
+  window.addEventListener('hashchange', openLinkedPrompt);
+
+  for (const section of document.querySelectorAll('[data-dots-prompt]')) {
+    const button = section.querySelector<HTMLButtonElement>('[data-copy-prompt]');
+    const prompt = section.querySelector('textarea');
+    const status = section.querySelector('[data-prompt-status]');
+    if (!button || !prompt || !status) continue;
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(prompt.value);
+        status.textContent = 'Prompt copied.';
+      } catch {
+        prompt.focus();
+        prompt.select();
+        status.textContent = 'Copy the selected text.';
+      }
+    });
+  }
+</script>

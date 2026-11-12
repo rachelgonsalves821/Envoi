@@ -104,6 +104,10 @@
   font-size: .875rem;
 }
 .docs-footer a { color: var(--accent); text-decoration: underline; }
+.docs-prompt { margin-block: .75rem; padding: .75rem; border: 1px solid var(--line); border-radius: .75rem; }
+.docs-prompt summary { cursor: pointer; font-weight: 600; }
+.docs-prompt textarea { display: block; box-sizing: border-box; width: 100%; margin-block: .75rem; padding: .75rem; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: .5rem; resize: vertical; }
+.docs-prompt [role="status"] { margin-inline-start: .75rem; }
 
 @media (max-width: 720px) {
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }

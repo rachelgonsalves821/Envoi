@@ -319,7 +319,7 @@
       "Dots"
     ],
     "whatHappened": "The current connection does not grant the permission needed for this action.",
-    "whatToDo": "Use Check connection in the Dot’s setup help to confirm its address and access. If Send is missing, use Add send access and review the permissions on Envoi’s approval page. Ask Envoi support if Send is not offered."
+    "whatToDo": "Use Check connection in the Dots setup guide to confirm its address and access. If Send is missing, use Add send access and review the permissions on Envoi’s approval page. Ask Envoi support if Send is not offered."
   },
   {
     "code": "MODEL_CONFIGURATION_INVALID",
@@ -384,7 +384,7 @@
       "Dots"
     ],
     "whatHappened": "The current plugin approval does not cover the new permission.",
-    "whatToDo": "Open the existing Dot chat and use the message access prompt from Envoi. Review and approve the requested access for the same agent, then ask the Dot to check its permissions."
+    "whatToDo": "Open the existing Dot chat and use Add send access from the Dots setup guide. Review and approve the requested access for the same agent, then ask the Dot to check its permissions."
   },
   {
     "code": "PROFILE_ALREADY_CONNECTED",

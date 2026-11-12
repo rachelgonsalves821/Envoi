@@ -37,7 +37,7 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).not.toContain('Raw enrollment token');
   });
 
-  it('hands the unredeemed token to supported bridges without consuming it in the UI', () => {
+  it('hands the unredeemed token to the selected bridge without consuming it in the UI', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
       workspace: { id: 'inbox_1' } as Inbox,
       result: { enrollmentToken: 'enroll_once_secret', enrollmentUrl: '/?enroll=enroll_once_secret', expiresAt: '2099-01-01T00:30:00.000Z', agentProfile: { localPart: 'milo' } },
@@ -51,11 +51,9 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).toContain('enroll_once_secret');
     expect(markup).toContain('ENVOI_ENROLLMENT_TOKEN');
     expect(markup).toContain('OPENCLAW_GATEWAY_TOKEN');
-    expect(markup).toContain('XAI_API_KEY');
-    expect(markup).toContain('ENVOI_MCP_URL');
-    expect(markup).toContain('Hermes');
-    expect(markup).toContain('model provider already configured locally');
-    expect(markup).toContain('incoming Envoi message');
+    expect(markup).not.toContain('XAI_API_KEY');
+    expect(markup).not.toContain('ENVOI_MCP_URL');
+    expect(markup).not.toContain('model provider already configured locally');
     expect(markup).not.toContain('connect-windows.ps1');
     expect(markup).toContain('Provider secrets stay on the external host');
     expect(markup).not.toContain('/api/agent-enroll');
