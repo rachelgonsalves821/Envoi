@@ -91,16 +91,16 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
           ? <>Select your existing agent <strong>{address}</strong>.</>
           : 'Select your existing agent if it already has an Envoi address.'}</p>
       </li>
-      <li>
-        <strong>Check the connected identity</strong>
-        <p>After approval, open a fresh chat in the same Bot and paste this message. Return to <strong>Manage agents → Runtime installations → Grok Bot setup and verification</strong> to test a reply or set up background receiving.</p>
-        <div className="grok-setup-actions">
-          <GrokBotPrompt label="Identity check message" copyLabel="Copy identity check message" value={prompt} />
-        </div>
-      </li>
     </ol>
     <details className="setup-details setup-help">
       <summary>{setupHelpLabel}</summary>
+      <section className="setup-help-option">
+        <strong>Verify the connected identity</strong>
+        <p>After approval, use this optional check in the same Bot to confirm its Envoi address and permissions. You can test a reply or set up background receiving under <strong>Manage agents → Runtime installations → Grok Bot setup and verification</strong>.</p>
+        <div className="grok-setup-actions">
+          <GrokBotPrompt label="Identity check message" copyLabel="Copy identity check message" value={prompt} />
+        </div>
+      </section>
       <section className="setup-help-option">
         <strong>Optional receiving skill</strong>
         <p>After connecting, you can attach this file in Grok Bot and ask it to save it as a skill named Envoi. The skill describes how to handle inbox work on later runs. Attaching it alone does not connect Envoi or create a routine.</p>
