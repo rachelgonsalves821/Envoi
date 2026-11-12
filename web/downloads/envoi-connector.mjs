@@ -12108,40 +12108,41 @@ var Ao = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --
 	"--install-service",
 	"--prepare-runtime"
 ];
-async function No(e = process.argv.slice(2)) {
+async function No(e = process.argv.slice(2), t) {
 	if (!e.length || e.length === 1 && e[0] === "--help") {
 		process.stdout.write(Ao);
 		return;
 	}
 	if (Number(process.versions.node.split(".")[0]) < 22) throw new I("NODE_UNSUPPORTED", "Install Node.js 22 or newer before connecting");
-	let [t, ...r] = e, i = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Set();
-	for (let e = 0; e < r.length; e++) {
-		let t = r[e];
+	let [r, ...i] = e, o = /* @__PURE__ */ new Map(), s = /* @__PURE__ */ new Set();
+	for (let e = 0; e < i.length; e++) {
+		let t = i[e];
 		if (Mo.includes(t)) {
-			if (o.has(t)) throw new I("ARGUMENT_INVALID", "Duplicate option");
-			o.add(t);
+			if (s.has(t)) throw new I("ARGUMENT_INVALID", "Duplicate option");
+			s.add(t);
 			continue;
 		}
-		if (!jo.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new I("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
-		i.set(t, r[++e]);
+		if (!jo.includes(t) || !i[e + 1] || i[e + 1].startsWith("--") || o.has(t)) throw new I("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
+		o.set(t, i[++e]);
 	}
-	let s = {
-		configPath: i.get("--config"),
-		profile: i.get("--profile"),
-		agentId: i.get("--agent"),
-		gatewayUrl: i.get("--gateway-url"),
-		prepareRuntime: o.has("--prepare-runtime")
+	let c = {
+		configPath: o.get("--config"),
+		profile: o.get("--profile"),
+		agentId: o.get("--agent"),
+		gatewayUrl: o.get("--gateway-url"),
+		prepareRuntime: s.has("--prepare-runtime")
 	};
-	if (t === "prepare") {
-		if (!oe.includes(i.get("--runtime")) || !i.get("--api-url") || o.has("--install-service") || o.has("--handoff-stdin") || i.has("--handoff") || i.has("--state-dir")) throw new I("ARGUMENT_INVALID", "Supply --runtime and --api-url for prepare. Run --help");
-		let e = await wo(i.get("--runtime"), i.get("--api-url"), Qi, s);
-		process.stdout.write(`${JSON.stringify(e)}\n`);
+	if (r === "prepare") {
+		let e = o.get("--api-url");
+		if (e && t?.(e), !oe.includes(o.get("--runtime")) || !e || s.has("--install-service") || s.has("--handoff-stdin") || o.has("--handoff") || o.has("--state-dir")) throw new I("ARGUMENT_INVALID", "Supply --runtime and --api-url for prepare. Run --help");
+		let n = await wo(o.get("--runtime"), e, Qi, c);
+		process.stdout.write(`${JSON.stringify(n)}\n`);
 		return;
 	}
-	if (t === "setup") {
-		if (i.has("--handoff") === o.has("--handoff-stdin") || i.has("--runtime") || i.has("--api-url")) throw new I("ARGUMENT_INVALID", "Supply either --handoff <file> or --handoff-stdin. The runtime and origin come from the handoff");
+	if (r === "setup") {
+		if (o.has("--handoff") === s.has("--handoff-stdin") || o.has("--runtime") || o.has("--api-url")) throw new I("ARGUMENT_INVALID", "Supply either --handoff <file> or --handoff-stdin. The runtime and origin come from the handoff");
 		let e;
-		if (o.has("--handoff-stdin")) {
+		if (s.has("--handoff-stdin")) {
 			let t = [], n = 0;
 			for await (let e of process.stdin) {
 				if (n += e.length, n > 16384) throw new I("HANDOFF_INVALID", "Setup input is too large");
@@ -12149,26 +12150,27 @@ async function No(e = process.argv.slice(2)) {
 			}
 			e = Buffer.concat(t).toString("utf8");
 		} else {
-			let t = d.resolve(i.get("--handoff")), r = await n(t);
+			let t = d.resolve(o.get("--handoff")), r = await n(t);
 			if (!r.isFile() || r.isSymbolicLink() || r.size > 16384) throw new I("HANDOFF_INVALID", "Choose a regular private setup file of at most 16 KB");
 			if (process.platform !== "win32" && r.mode & 63) throw new I("HANDOFF_INVALID", "Restrict the setup file to your account (chmod 600)");
 			e = await a(t, "utf8");
 		}
-		let t;
+		let r;
 		try {
-			t = JSON.parse(e);
+			r = JSON.parse(e);
 		} catch {
 			throw new I("HANDOFF_INVALID", "Download a valid Envoi setup file");
 		}
-		let r = await To(t, Qi, {
-			...s,
-			stateDir: i.get("--state-dir"),
-			installService: o.has("--install-service"),
+		r && typeof r == "object" && "apiUrl" in r && typeof r.apiUrl == "string" && t?.(r.apiUrl);
+		let i = await To(r, Qi, {
+			...c,
+			stateDir: o.get("--state-dir"),
+			installService: s.has("--install-service"),
 			executableFile: m(import.meta.url),
 			onProgress: (e) => process.stderr.write(`${e}…\n`)
 		});
-		if (process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${_o(r.stateDir)}\n`), o.has("--install-service")) {
-			let e = await Ka(r.stateDir, r.runtime);
+		if (process.stdout.write(`${JSON.stringify(i)}\n`), process.stderr.write(`Setup checks: ${i.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${_o(i.stateDir)}\n`), s.has("--install-service")) {
+			let e = await Ka(i.stateDir, i.runtime);
 			process.stdout.write(`${JSON.stringify({
 				startupService: e,
 				startsAt: "user login",
@@ -12186,33 +12188,33 @@ async function No(e = process.argv.slice(2)) {
 		"clear-wake",
 		"stop",
 		"uninstall"
-	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new I("ARGUMENT_INVALID", "Supply a supported command and --state-dir. Run --help");
-	let c = d.resolve(i.get("--state-dir"));
-	if (t === "configure-wake" || t === "clear-wake") {
-		await xo(c), t === "configure-wake" ? await Ra(c) : await za(c), process.stdout.write(`${JSON.stringify({
-			hostedWake: t === "configure-wake" ? "configured" : "disabled",
+	].includes(r) || !o.get("--state-dir") || o.size !== 1 || s.size) throw new I("ARGUMENT_INVALID", "Supply a supported command and --state-dir. Run --help");
+	let l = d.resolve(o.get("--state-dir"));
+	if (r === "configure-wake" || r === "clear-wake") {
+		await xo(l), r === "configure-wake" ? await Ra(l) : await za(l), process.stdout.write(`${JSON.stringify({
+			hostedWake: r === "configure-wake" ? "configured" : "disabled",
 			note: "Restart the connector service to apply this change"
 		})}\n`);
 		return;
 	}
-	if (t === "status") {
-		process.stdout.write(`${JSON.stringify(await Do(c))}\n`);
+	if (r === "status") {
+		process.stdout.write(`${JSON.stringify(await Do(l))}\n`);
 		return;
 	}
-	if (t === "doctor") {
-		process.stdout.write(`${JSON.stringify(await Oo(c, Qi))}\n`);
+	if (r === "doctor") {
+		process.stdout.write(`${JSON.stringify(await Oo(l, Qi))}\n`);
 		return;
 	}
-	if (t === "install-service") {
-		let e = await xo(c);
+	if (r === "install-service") {
+		let e = await xo(l);
 		process.stdout.write(`${JSON.stringify({
-			startupService: await Ka(c, e.runtime),
+			startupService: await Ka(l, e.runtime),
 			startsAt: "user login"
 		})}\n`);
 		return;
 	}
-	if (t === "stop") {
-		await ro(c, "stop").catch(() => {
+	if (r === "stop") {
+		await ro(l, "stop").catch(() => {
 			throw new I("CONNECTOR_UNREACHABLE", "No responding connector. Use status or stop the installed service through its supervisor");
 		}), process.stdout.write(`${JSON.stringify({
 			status: "stop requested",
@@ -12220,22 +12222,22 @@ async function No(e = process.argv.slice(2)) {
 		})}\n`);
 		return;
 	}
-	if (t === "uninstall") {
-		await qa(c, (await xo(c)).runtime), await ro(c, "stop").catch(() => null), await ko(c), process.stdout.write(`${JSON.stringify({
+	if (r === "uninstall") {
+		await qa(l, (await xo(l)).runtime), await ro(l, "stop").catch(() => null), await ko(l), process.stdout.write(`${JSON.stringify({
 			status: "startup removed",
 			note: "Credentials and work history are preserved. Revoke access in Envoi to invalidate credentials"
 		})}\n`);
 		return;
 	}
-	let l = new AbortController(), u = () => l.abort();
-	process.once("SIGINT", u), process.once("SIGTERM", u);
+	let u = new AbortController(), f = () => u.abort();
+	process.once("SIGINT", f), process.once("SIGTERM", f);
 	try {
-		await Eo(c, l.signal, Qi, {
+		await Eo(l, u.signal, Qi, {
 			onReady: () => process.stdout.write("Envoi connector started. Waiting for incoming work.\n"),
 			onWaiting: (e) => process.stderr.write(`Connection temporarily unavailable (${e}); retrying automatically.\n`)
 		});
 	} finally {
-		process.removeListener("SIGINT", u), process.removeListener("SIGTERM", u);
+		process.removeListener("SIGINT", f), process.removeListener("SIGTERM", f);
 	}
 }
 function Po(e) {
@@ -12247,7 +12249,19 @@ function Po(e) {
 	}
 	return "Connector failed. Check local configuration and connectivity with doctor; preserve the saved connection for recovery";
 }
-function Fo() {
+function Fo(e, t) {
+	let n = "https://www.envoi-agents.com";
+	if (t) try {
+		n = se(t);
+	} catch {}
+	let r = "SETUP_FAILED";
+	return e instanceof I && /^[A-Z][A-Z0-9_]*$/.test(e.code) ? r = e.code : e instanceof F ? r = "HANDOFF_INVALID" : e instanceof L && e.code && [
+		"INSUFFICIENT_SCOPE",
+		"OAUTH_RECONSENT_REQUIRED",
+		"FEATURE_DISABLED"
+	].includes(e.code) && (r = e.code), `${Po(e)}\nFix: ${n}/docs/fix/#${r}`;
+}
+function Io() {
 	if (!process.argv[1]) return !1;
 	try {
 		let e = O(process.argv[1]), t = O(m(import.meta.url));
@@ -12256,7 +12270,12 @@ function Fo() {
 		return !1;
 	}
 }
-Fo() && No().catch((e) => {
-	process.stderr.write(`${Po(e)}\n`), process.exitCode = 1;
-});
+if (Io()) {
+	let e;
+	No(void 0, (t) => {
+		e = t;
+	}).catch((t) => {
+		process.stderr.write(`${Fo(t, e)}\n`), process.exitCode = 1;
+	});
+}
 export { G as EnvoiConnector, L as EnvoiError, ya as FileWakeStore, ha as HttpWakeReceiver, ka as createScopedWakeHost, Aa as createWakeHttpHandler };
