@@ -126,6 +126,9 @@ const policySigningKeys = (() => {
 const policyKeyring = Object.freeze({ activeKeyId: policyActiveKeyId, keys: Object.freeze(policySigningKeys) });
 const emailTransport = createEmailTransport();
 const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.ENVOI_AGENT_ACCESS_TOKEN_TTL_SECONDS || 900));
+// One-use setup codes for enrollment, reconnect and re-enrollment. 30 minutes leaves time for a first-time
+// runtime fix without a new code; the connector checks everything before it spends the code.
+const enrollmentTokenTtlMs = 30 * 60_000;
 const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
 const agentRotationRecoveryMs = 5 * 60_000;
 const configuredAgentWorkLeaseMs = Number(process.env.ENVOI_AGENT_WORK_LEASE_MS || 60_000);
@@ -5590,7 +5593,7 @@ async function route(req, res) {
     if (localPart && await registrations.addressTaken(agentAddressForLocalPart(localPart))) return fail(res, 409, 'That agent address is already taken');
     const agentProfile = profileName ? { name: profileName, slug: localPart || slugify(input.agentProfile?.slug || profileName), ...(localPart ? { localPart } : {}), capabilities: Array.isArray(input.agentProfile?.capabilities) ? input.agentProfile.capabilities.slice(0, 20) : [] } : null;
     const rawToken = crypto.randomBytes(32).toString('base64url');
-    const record = { id: store.id('enrollment'), runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    const record = { id: store.id('enrollment'), runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + enrollmentTokenTtlMs).toISOString(), usedAt: null };
     await store.putJsonBatch([
       document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
       document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
@@ -5617,7 +5620,7 @@ async function route(req, res) {
     const permissions = reenroll ? (Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages']).filter(permission => allowedPermissions.has(permission)) : null;
     if (reenroll && !permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
     const rawToken = crypto.randomBytes(32).toString('base64url');
-    const record = { id: store.id('enrollment'), kind: reenroll ? 'reenroll' : 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, accessGeneration: agent.accessGeneration || 0, ...(reenroll ? { permissions } : {}), createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    const record = { id: store.id('enrollment'), kind: reenroll ? 'reenroll' : 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, accessGeneration: agent.accessGeneration || 0, ...(reenroll ? { permissions } : {}), createdAt: store.now(), expiresAt: new Date(Date.now() + enrollmentTokenTtlMs).toISOString(), usedAt: null };
     await store.putJsonBatch([
       document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
       document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
