@@ -42,7 +42,7 @@ import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, cachedWorkspaceView, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
-import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, dotsSetupSkillFile, isLoopbackOrigin, runtimeLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, enrollmentStatusGraceMs, isLoopbackOrigin, runtimeLabel, setupHelpLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
@@ -1965,7 +1965,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   const addressEdited = useRef(false);
   const [status, setStatus] = useState<EnrollmentStatus | null>(null);
   const [statusError, setStatusError] = useState('');
-  const [pollingAttempt, setPollingAttempt] = useState(0);
+  const [statusRetry, setStatusRetry] = useState<{ result: EnrollmentResult } | null>(null);
   const [copied, setCopied] = useState(false);
   const refresh = useRef(onRefresh);
   refresh.current = onRefresh;
@@ -1979,16 +1979,20 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   const prompt = handoff ? setupPrompt(handoff) : '';
   const downloads = handoff ? connectorDownloads(handoff) : null;
   const phase = status?.phase || 'waiting';
-  const terminal = ['ready', 'expired', 'revoked', 'error'].includes(phase);
   const tokenExpired = result ? Date.parse(result.expiresAt) <= Date.now() : false;
-  const canUseHandoff = !terminal && !tokenExpired && phase === 'waiting';
+  const canUseHandoff = !tokenExpired && phase === 'waiting';
   useEffect(() => {
-    setStatus(null); setStatusError(''); setCopied(false);
+    setStatus(null);
+    setStatusError('');
+    setCopied(false);
+  }, [result]);
+  useEffect(() => {
     if (!result?.enrollmentId) return;
     let previousPhase = 'waiting';
     return watchEnrollmentStatus({
       enrollmentId: result.enrollmentId,
       expiresAt: result.expiresAt,
+      checkOnce: statusRetry?.result === result && Date.now() >= Date.parse(result.expiresAt) + enrollmentStatusGraceMs,
       request: signal => api.enrollmentStatus(workspace.id, result.enrollmentId!, signal),
       onStatus: next => {
         setStatus(next); setStatusError('');
@@ -1998,7 +2002,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       onError: setStatusError,
       onTimeout: () => setStatusError('Automatic progress checks stopped. Check your agent’s setup report, or check status again. Do not create another token if this one was already redeemed.')
     });
-  }, [result, workspace.id, pollingAttempt]);
+  }, [result, workspace.id, statusRetry]);
   const envoiOrigin = typeof window === 'undefined' ? '' : window.location.origin;
   const dotsOrigin = envoiOrigin && isLoopbackOrigin(envoiOrigin) ? 'https://www.envoi-agents.com' : envoiOrigin;
   const dotsName = reconnectAgent?.name || name.trim();
@@ -2017,7 +2021,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   }, [dotsSelected, workspace.id]);
   const selectedRuntime = handoff?.runtime || runtime;
   const label = runtimeLabel(selectedRuntime);
-  const prepareCommand = `node envoi-connector.mjs prepare --runtime ${runtime} --api-url ${envoiOrigin || '<Envoi origin>'}${runtime === 'hermes' ? ' --prepare-runtime' : ''}`;
+  const prepareCommand = `node envoi-connector.mjs prepare --runtime ${selectedRuntime} --api-url ${handoff?.apiUrl || '<Envoi origin>'}${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
   const setupCommand = `node envoi-connector.mjs setup --handoff envoi-setup.json${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
   useEffect(() => {
     if (result || reconnectAgent || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
@@ -2033,7 +2037,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   }, [workspace.id, localPart, result, reconnectAgent]);
   async function copyPrompt() {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setError(''); }
-    catch { setError('Clipboard access was unavailable. Expand “View setup prompt” and select the text to copy it, or use the terminal fallback.'); }
+    catch { setCopied(false); setError(`Clipboard access is unavailable. Open “${setupHelpLabel}” and select the prompt to copy it.`); }
   }
   function downloadHandoff() {
     if (!handoff) return;
@@ -2057,50 +2061,87 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
     <GrokBotSetup address={reconnectAgent?.address} />
     <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => { if (redirectLegacyGrok) { setResult(null); setRuntime('openclaw'); setStep(0); } setGrokBotOpen(false); }}>Back</button></div>
   </Modal>;
-  return <Modal title={dotsGuideOpen ? reconnectAgent ? 'Reconnect with Dots' : 'Connect Dots' : result ? 'Agent ready to connect' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Connect an agent'} onClose={onClose}>
-    <div className="enroll-steps" aria-label="Enrollment steps">{['Agent type', 'Email address', 'Setup instructions'].map((stepName, index) => { const current = result || dotsGuideOpen ? 2 : step; return <span key={stepName} className={current === index ? 'current' : current > index ? 'complete' : ''}>{index + 1}<b>{stepName}</b></span>; })}</div>
-    {dotsGuideOpen ? <section className="quick-connect dots-setup-guide">
-      <p className="dialog-copy">{reconnectAgent ? 'Your Dots reconnect instructions are ready. Select this existing agent and review its installations when you approve the OAuth request.' : 'Your Dots setup is ready. Envoi confirms the address and permissions when you approve the OAuth request.'}</p>
+  const currentStep = result || dotsGuideOpen ? 2 : step;
+  const expiry = result ? formatAbsolute(result.expiresAt) : '';
+  const setupName = status?.agent?.name || handoff?.agentName || reconnectAgent?.name || name.trim() || 'Your agent';
+  return <Modal title={reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Connect an agent'} onClose={onClose}>
+    <div className="enroll-steps" aria-label="Enrollment steps">
+      {['Agent type', 'Address and permissions', 'Setup'].map((stepName, index) => <span
+        key={stepName} aria-current={currentStep === index ? 'step' : undefined}
+        className={currentStep === index ? 'current' : currentStep > index ? 'complete' : ''}>
+        {index + 1}<b>{stepName}</b>
+      </span>)}
+    </div>
+    {dotsGuideOpen ? <section className="quick-connect">
       {dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body={dotsRouteUnavailableNotice} tone="attention" />}
-      <label className="field"><span>{reconnectAgent ? 'Existing agent email address' : 'Requested agent email address'}</span><input readOnly value={requestedAddress} /><small>{reconnectAgent ? 'Keep this identity when you choose Reconnect an existing agent during Envoi approval.' : 'This address is not reserved yet. Confirm it during Envoi approval.'}</small></label>
       <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} />
-      <button className="button secondary" type="button" onClick={() => { try { const file = dotsSetupSkillFile(dotsOrigin, dotsName, requestedAddress, Boolean(reconnectAgent)); const url = URL.createObjectURL(new Blob([file], { type: 'text/markdown' })); const link = document.createElement('a'); link.href = url; link.download = 'SKILL.md'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1_000); } catch { setError('The skill file could not be downloaded. Copy the prompt instead.'); } }}><Download size={16} />Download agent skill file</button>
-      <FormError message={error} /><div className="dialog-actions"><button className="button secondary" type="button" onClick={onClose}>Close</button></div>
-    </section> : result ? <>
+      <div className="dialog-actions"><button className="button secondary" type="button" onClick={onClose}>Close</button></div>
+    </section> : result ? <section className="quick-connect">
       {handoff ? <>
-        <p className="dialog-copy">Run the setup instructions where {label} is installed. The connector detects local settings and keeps runtime and provider credentials on that host. You can give the prompt to an agent with terminal access, or use the private setup file.</p>
-        <InlineNotice title="One private setup handoff" body={`Give this prompt only to your trusted agent. Its one-use token expires ${formatAbsolute(result.expiresAt)}. Copy or download before closing; it cannot be recovered.`} tone="attention" />
-      </> : <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />}
-      {chosenAddress && <label className="field"><span>Agent email address</span><div className="copy-field"><input readOnly value={chosenAddress} aria-label="Agent email address" /><CopyButton value={chosenAddress} label="Copy agent email address" /></div><small>This address becomes active when the agent completes setup. It cannot be renamed during beta.</small></label>}
-      {handoff && <section className="quick-connect">
-        <div className="setup-handoff-actions"><button className="button primary" type="button" disabled={!canUseHandoff} onClick={() => void copyPrompt()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Prompt copied' : 'Copy agent prompt'}</button><button className="button secondary" type="button" disabled={!canUseHandoff} onClick={downloadAgentSkill}><Download size={16} />Download agent skill file</button></div>
-        <small>Connects {label} using a durable wake bridge. Node.js 22 or newer and access to the runtime host are required. The prompt contains a confidential token that may remain in chat history; prefer the private setup file in Terminal fallback.</small>
-        {isLoopbackOrigin(handoff.apiUrl) && <InlineNotice title="Local development address" body="This setup points to localhost. A remotely hosted agent cannot reach it. Use a reachable HTTPS Envoi deployment or run the connector beside this development server." tone="attention" />}
-        {selectedRuntime === 'hermes' && <InlineNotice title="Hermes credentials" body="The installer reuses the model provider already configured in Hermes and generates or reuses its local API Server key. The Envoi token replaces neither. A running Gateway may need your approval to restart." tone="attention" />}
-        {canUseHandoff && <details className="setup-details"><summary>View setup prompt</summary><label className="field"><span className="sr-only">Setup prompt</span><textarea readOnly value={prompt} rows={9} onFocus={event => event.currentTarget.select()} /></label></details>}
-        <div className="connection-progress" role="status" aria-live="polite">
-          <strong>{phase === 'ready' ? 'Setup checks passed' : phase === 'enrolled' ? 'Agent paired · checking runtime' : phase === 'expired' ? 'Setup token expired' : phase === 'revoked' ? 'Connection revoked' : phase === 'error' ? 'Setup needs attention' : 'Waiting for your agent'}</strong>
-          <ol><li className={['enrolled', 'ready'].includes(phase) ? 'complete' : ''}>Paste setup prompt</li><li className={['enrolled', 'ready'].includes(phase) ? 'complete' : ''}>Pair agent</li><li className={phase === 'ready' ? 'complete' : ''}>Run setup checks</li></ol>
-          <p>{phase === 'ready' ? 'The connector reported that setup checks passed. Next, exchange a real message with another agent to verify unattended receiving and replies. Keep the host and runtime running.' : phase === 'enrolled' ? 'The one-time token has been redeemed. Continue with this connector’s setup; do not redeem it again.' : phase === 'expired' ? 'Create a new setup prompt if the agent has not paired. If it already paired, check its connector report first.' : phase === 'revoked' ? 'This connection’s credentials were revoked. Review agent connections before enrolling again.' : phase === 'error' ? 'Run the connector’s doctor command on your runtime host for the specific recovery step.' : 'This window watches setup progress. Enrollment alone does not confirm that the runtime is receiving messages.'}</p>
-          {status?.checkedAt && <small>Setup report: {formatAbsolute(status.checkedAt)}</small>}
-          {status?.errorCode && <small>Diagnostic: {humanize(status.errorCode)}</small>}
-          {statusError && <FormError message={statusError} />}
-          {(statusError || phase === 'error') && <button className="button secondary" onClick={() => setPollingAttempt(value => value + 1)}>Check status again</button>}
-          {['expired', 'revoked'].includes(phase) && <button className="button secondary" onClick={() => { setResult(null); setBusy(false); setError(''); }}>Create new setup prompt</button>}
+        <p>Paste this into your {label} agent, on the computer where {label} runs.</p>
+        <div className="setup-handoff-actions">
+          <button className="button primary" type="button" disabled={!canUseHandoff} onClick={() => void copyPrompt()}>
+            {copied ? <Check size={16} /> : <Copy size={16} />}Copy setup prompt
+          </button>
+          {copied && <span role="status">Prompt copied.</span>}
         </div>
-        {canUseHandoff && downloads && <details className="setup-details"><summary>Terminal fallback</summary><p>Download the setup file and move it to a private directory on the machine running {label}. Restrict it to your user (0600 on Unix, current-user-only ACL on Windows).</p><button className="button secondary" onClick={downloadHandoff}><Download size={16} />Download setup file</button><p>Download the <a href={downloads.connector} download="envoi-connector.mjs">official connector</a> and <a href={downloads.release}>release metadata</a>. Verify the connector’s SHA256 against <code>artifacts["envoi-connector.mjs"].sha256</code> before running it.</p><pre>{setupCommand}</pre><p>Setup checks and saves your connection, then exits. Delete the setup file after successful pairing. To start the durable bridge at user login on supported hosts, run <code>node envoi-connector.mjs install-service --state-dir &lt;reported state directory&gt;</code>. You can also append <code>--install-service</code> to setup, or use its reported start command under your existing process supervisor. User services may stop at logout; they do not guarantee unattended boot.</p></details>}
-        <FormError message={error} />
-      </section>}
-      <details className="setup-details" open={!handoff}><summary>Advanced setup · manual bridges</summary>
-      <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>Set this as <code>ENVOI_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once by the bridge.</small></label>
-      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Envoi credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
-        <article><strong>OpenClaw</strong><p>Set <code>ENVOI_API_URL</code>, <code>ENVOI_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p></article>
-        <article><strong>Grok</strong><p>Set <code>ENVOI_API_URL</code>, <code>ENVOI_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>ENVOI_MCP_URL</code> only when hosted MCP reads are configured.</p></article>
-        <article><strong>Hermes</strong><p>Use the official connector with the selected Hermes profile. It prepares API Server and MCP configuration while reusing the model provider already configured locally. Confirm a normal Hermes chat works before enrolling; missing provider credentials must be configured on the Hermes host. Start a new Hermes chat after configuration and verify an incoming Envoi message receives a reply.</p></article>
-      </div></div>
+        {canUseHandoff && <small>This prompt works once, until {expiry}. Share it only with your agent.</small>}
+      </> : <>
+        <InlineNotice title="Manual setup" body="Use the one-use code in the setup options below. Share it only with your agent." tone="attention" />
+        {chosenAddress && <label className="field"><span>Agent email address</span><div className="copy-field"><input readOnly value={chosenAddress} aria-label="Agent email address" /><CopyButton value={chosenAddress} label="Copy agent email address" /></div></label>}
+      </>}
+      <EnrollmentProgress phase={phase} unavailable={Boolean(statusError)} name={setupName} expiry={expiry} errorCode={status?.errorCode}
+        onCheckAgain={() => setStatusRetry({ result })}
+        onCreatePrompt={() => { setResult(null); setStep(1); setBusy(false); setError(''); }} />
+      <FormError message={error} />
+      <details className="setup-details setup-help">
+        <summary>{setupHelpLabel}</summary>
+        {canUseHandoff && handoff && <section className="setup-help-option">
+          <label className="field"><strong>View setup prompt</strong><textarea readOnly value={prompt} rows={9} onFocus={event => event.currentTarget.select()} /></label>
+          <button className="button secondary" type="button" onClick={downloadAgentSkill}><Download size={16} />Download agent skill file</button>
+        </section>}
+        {handoff && downloads && <section className="setup-help-option">
+          <h3>Terminal setup</h3>
+          <RuntimePreparation runtime={selectedRuntime} command={prepareCommand} downloads={downloads} apiUrl={handoff.apiUrl} reconnect={Boolean(reconnectAgent)} />
+          {canUseHandoff && <>
+            <p>Download the private setup file to the computer running {label}. Restrict it to your user (0600 on Unix, current-user-only ACL on Windows).</p>
+            <button className="button secondary" type="button" onClick={downloadHandoff}><Download size={16} />Download setup file</button>
+            <pre>{setupCommand}</pre>
+            <p>Delete the setup file after pairing. To start the bridge at user login on supported hosts, append <code>--install-service</code> to setup or run <code>node envoi-connector.mjs install-service --state-dir &lt;reported state directory&gt;</code>. You can also use the reported start command with your process supervisor. User services may stop at logout.</p>
+          </>}
+          {status?.phase === 'error' && <p>Run the connector’s <code>doctor</code> command with its state directory to see what needs attention.</p>}
+        </section>}
+        {canUseHandoff && <section className="setup-help-option">
+          <h3>Manual setup</h3>
+          <label className="field">
+            <span>Raw enrollment token</span>
+            <div className="copy-field">
+              <input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" />
+              <CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" />
+            </div>
+            <small>Set this as <code>ENVOI_ENROLLMENT_TOKEN</code>. It expires {expiry} and is consumed once by the bridge.</small>
+          </label>
+          <div className="sdk-next-step">
+            <p>The bridge redeems the token and stores rotating Envoi credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p>
+            <div className="runtime-setup-list">
+              <article>
+                <strong>OpenClaw</strong>
+                <p>Set <code>ENVOI_API_URL</code>, <code>ENVOI_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p>
+              </article>
+              <article>
+                <strong>Grok</strong>
+                <p>Set <code>ENVOI_API_URL</code>, <code>ENVOI_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>ENVOI_MCP_URL</code> only when hosted MCP reads are configured.</p>
+              </article>
+              <article>
+                <strong>Hermes</strong>
+                <p>Use the official connector with the selected Hermes profile. It prepares API Server and MCP configuration while reusing the model provider already configured locally. Confirm a normal Hermes chat works before enrolling. Configure any missing provider credentials on the Hermes host. Start a new Hermes chat after configuration and verify an incoming Envoi message receives a reply.</p>
+              </article>
+            </div>
+          </div>
+        </section>}
       </details>
-      <div className="dialog-actions"><button className="button secondary" onClick={onClose}>Close</button></div>
-    </> : <form className="enroll-form" onSubmit={async event => {
+      <div className="dialog-actions"><button className="button secondary" type="button" onClick={onClose}>Close</button></div>
+    </section> : <form className="enroll-form" onSubmit={async event => {
       event.preventDefault();
       if (step === 0) { setStep(1); return; }
       if (dotsSelected) { setDotsGuideOpen(true); return; }
@@ -2113,18 +2154,43 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
           if (!validAgentLocalPart(localPart) || availability !== 'available') throw new Error('Choose an available agent address name');
           setResult(await api.enrollmentToken(workspace.id, name.trim(), localPart, selectedAgentPermissions(selectedPermissions), runtime));
         }
-      } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
+      } catch (caught) { setError(errorMessage(caught)); }
+      finally { setBusy(false); }
     }}>
       {step === 0 && <div className="enroll-step">
         <section className="onboarding-panel" aria-label="Grok Bot app">
           <p>Using the Grok Bot app? Connect through your signed-in account. No API key or enrollment token is needed.</p>
-          <button type="button" className="button primary" onClick={() => setGrokBotOpen(true)}>Connect Grok Bot</button>
+          <button type="button" className="button secondary" onClick={() => setGrokBotOpen(true)}>Connect Grok Bot</button>
         </section>
         <RuntimePicker runtime={runtime} hideLocalGrok={hostedGrokRequired} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={dotsReconnectAllowed ? () => setDotsSelected(true) : undefined} dotsUnavailableReason={reconnectAgent && !dotsReconnectAllowed ? 'This agent cannot reconnect through OAuth' : undefined} />
         {dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}
-        {!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}
+        <p className="enroll-note">{dotsSelected ? "You'll need ChatGPT. Your Dot walks you through the Envoi plugin." : `You'll need ${label} running and an agent that can use a terminal on that computer.`}</p>
       </div>}
-      {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Agent email address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}{dotsSelected ? <p className="enroll-note">{reconnectAgent ? 'Dots uses OAuth. Select this existing agent, review its installations and permissions, and confirm the replacement in Envoi.' : 'Dots uses OAuth. You will review its requested permissions and confirm this address when you approve the connection in Envoi.'} It can work on demand in an active chat.</p> : <details className="enroll-preparation"><summary>Agent permissions</summary><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></details>}</div>}
+      {step === 1 && <div className="enroll-step">
+        {reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <>
+          <Field label="Agent name" name="name" value={name} onChange={event => {
+            setName(event.target.value);
+            if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value));
+          }} placeholder="Milo" required />
+          <label className="field"><span>Agent email address</span><span className="enroll-address">
+            <input name="localPart" value={localPartInput} onChange={event => {
+              addressEdited.current = true;
+              setLocalPartInput(event.target.value);
+            }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required />
+            <span>@{agentDomain}</span>
+          </span></label>
+          {localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>
+            {!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}
+          </p>}
+        </>}
+        {dotsSelected ? <>
+          <AgentPermissionPicker selected={DEFAULT_AGENT_PERMISSIONS} />
+          <p className="enroll-note">You'll confirm these on Envoi's approval page.</p>
+        </> : reconnectAgent && !reenroll ? <>
+          <AgentPermissionPicker selected={reconnectAgent.permissions ?? []} />
+          <p className="enroll-note">Reconnecting keeps this agent’s current permissions.</p>
+        </> : <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />}
+      </div>}
       <FormError message={error} />
       <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep(0)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup' : step === 1 ? dotsSelected ? 'Show Dots setup' : 'Generate agent setup' : 'Continue'}</button></div>
     </form>}
@@ -2135,18 +2201,58 @@ export function RuntimePicker({ runtime, onChange, selectedId, onSelectDots, dot
   return <fieldset className="runtime-picker"><legend>What runs your agent?</legend><p className="runtime-picker-help">Choose a platform. Available connections continue to address and permission setup.</p><div className="runtime-options">{agentCatalog.filter(item => !hideLocalGrok || item.id !== 'grok').map(item => { const option = RUNTIME_OPTIONS.find(candidate => candidate.id === item.id); const dots = item.id === 'dots' && Boolean(onSelectDots); const available = Boolean(option || dots); return <label key={item.id} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={item.id} checked={item.id === (selectedId || runtime)} disabled={!available} onChange={() => { if (option) onChange(option.id); else if (dots) onSelectDots?.(); }} /><img src={item.logo} alt="" width="40" height="40" /><span><strong>{item.name}</strong><small>{item.summary}</small><em>{dots ? 'On-demand setup' : item.id === 'dots' && dotsUnavailableReason ? dotsUnavailableReason : available ? 'Setup available' : 'Connection coming later'}</em></span></label>; })}</div></fieldset>;
 }
 
-export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
-  const downloads = apiUrl ? { connector: `${apiUrl}/web/downloads/envoi-connector.mjs`, release: `${apiUrl}/web/downloads/release.json` } : null;
-  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Envoi deployment.'} Verify SHA256 against <code>artifacts["envoi-connector.mjs"].sha256</code> before running:</p>{reconnect && <><p>This reconnect keeps the existing identity and address and revokes the old credentials when replacement setup completes.</p><p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Envoi connection.</p></>}<pre>{command}</pre>{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Envoi enrollment token. Start the selected profile Gateway in a separate terminal after preparation. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Envoi token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Envoi address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
+function EnrollmentProgress({ phase, unavailable, name, expiry, errorCode, onCheckAgain, onCreatePrompt }: {
+  phase: EnrollmentStatus['phase']; unavailable: boolean; name: string; expiry: string; errorCode?: string;
+  onCheckAgain: () => void; onCreatePrompt: () => void;
+}) {
+  const state = unavailable ? 'unavailable' : phase;
+  const [line, detail] = {
+    waiting: ['Waiting for your agent to start', `Paste the prompt into your agent. The code works until ${expiry}.`],
+    enrolled: ['Your agent is connected and finishing setup', 'This can take a few minutes.'],
+    ready: [`${name} is ready`, 'Setup checks passed. Send it a message to try it.'],
+    expired: ['This code expired before your agent used it', 'Nothing was set up yet.'],
+    revoked: ['This connection was revoked', 'Review agent connections before trying again.'],
+    error: ['Setup needs attention', 'Ask your agent what failed. It has the details.'],
+    unavailable: ["Can't check progress right now", 'Your agent can keep going.']
+  }[state];
+  const connected = phase === 'enrolled' || phase === 'ready' || phase === 'error';
+
+  return <div className="connection-progress">
+    <div role="status" aria-atomic="true">
+      <ol className="connection-progress-dots" aria-label="Setup milestones">
+        <li className={connected ? 'complete' : undefined}>Connected<span className="sr-only">{connected ? ' (complete)' : ' (pending)'}</span></li>
+        <li className={phase === 'ready' ? 'complete' : undefined}>Checked<span className="sr-only">{phase === 'ready' ? ' (complete)' : ' (pending)'}</span></li>
+      </ol>
+      <strong>{line}</strong>
+      <p>{detail}</p>
+      {state === 'error' && errorCode && <small>{errorCode}</small>}
+    </div>
+    {(state === 'error' || state === 'unavailable') && <button type="button" className="button secondary compact" onClick={onCheckAgain}>Check again</button>}
+    {(state === 'expired' || state === 'revoked') && <button type="button" className="button secondary compact" onClick={onCreatePrompt}>Create new prompt</button>}
+  </div>;
 }
 
-export function AgentPermissionPicker({ selected, onChange }: { selected: string[]; onChange: (permissions: string[]) => void }) {
+function RuntimePreparation({ runtime, command, downloads, apiUrl, reconnect }: {
+  runtime: ConnectorRuntime; command: string; downloads: ReturnType<typeof connectorDownloads>; apiUrl: string; reconnect: boolean;
+}) {
+  return <>
+    <p>Confirm the runtime can complete a normal model request and that you have terminal access on its host. Node.js 22 or newer is required. Provider credentials stay on that host.</p>
+    <p>Download the <a href={downloads.connector} download="envoi-connector.mjs">official connector</a> and <a href={downloads.release}>release metadata</a>. Verify the connector’s SHA256 against <code>artifacts["envoi-connector.mjs"].sha256</code> before running it.</p>
+    {reconnect && <p>Use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check an existing connection. Preserve that directory and stop its connector before reconnecting. Use the preparation command for a new host or profile.</p>}
+    <pre>{command}</pre>
+    {runtime === 'hermes' && <p>Preparation reuses the configured model provider and generates or reuses the local API Server key. Start the selected profile Gateway in a separate terminal. A running Gateway may need an owner-approved restart.</p>}
+    {runtime === 'grok' && <p>Configure a missing xAI API key privately on the runtime host.</p>}
+    {isLoopbackOrigin(apiUrl) && <p>This local Envoi address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}
+  </>;
+}
+
+export function AgentPermissionPicker({ selected, onChange }: { selected: string[]; onChange?: (permissions: string[]) => void }) {
   return <fieldset className="permission-set"><legend>Agent permissions</legend>
     {AGENT_PERMISSION_OPTIONS.map(option => <label key={option.id} className="permission-switch-row">
-      <input type="checkbox" checked={option.required || selected.includes(option.id)} disabled={option.required} onChange={event => onChange(selectedAgentPermissions(event.target.checked ? [...selected, option.id] : selected.filter(permission => permission !== option.id)))} />
+      <input type="checkbox" checked={option.required || selected.includes(option.id)} disabled={option.required || !onChange}
+        onChange={event => onChange?.(selectedAgentPermissions(event.target.checked ? [...selected, option.id] : selected.filter(permission => permission !== option.id)))} />
       <span><strong>{option.label}</strong><small>{option.description}</small></span>
     </label>)}
-    {['Calendar (free and busy only)', 'Hold calendar times', 'Submit forms', 'Spend money'].map(label => <label className="permission-switch-row unavailable" key={label}><input type="checkbox" disabled /><span><strong>{label}</strong><small>Unavailable until supported by the server</small></span></label>)}
   </fieldset>;
 }
 

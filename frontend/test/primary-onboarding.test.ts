@@ -28,8 +28,8 @@ describe('owner agent onboarding stays in the workspace', () => {
   it('shows the three owner steps and six agent choices in the popup', () => {
     const html = renderToStaticMarkup(createElement(EnrollmentDialog, { workspace, result: null, setResult: vi.fn(), onClose: vi.fn() }));
     expect(html).toContain('Agent type');
-    expect(html).toContain('Email address');
-    expect(html).toContain('Setup instructions');
+    expect(html).toContain('Address and permissions');
+    expect(html).toContain('Setup');
     for (const agent of ['OpenClaw', 'Hermes', 'Grok', 'Muse', 'Instinct', 'Dots']) expect(html).toContain(agent);
   });
 

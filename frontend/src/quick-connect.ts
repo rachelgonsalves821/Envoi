@@ -129,6 +129,9 @@ export function dotsSetupSteps(origin: string) {
 
 export const dotsRouteUnavailableNotice = 'The Dots OAuth route is unavailable on this deployment. You can read the instructions, but connecting requires the route to be enabled. Native background notifications also need event support.';
 
+export const setupHelpLabel = 'Stuck? Other ways to connect';
+export const enrollmentStatusGraceMs = 5 * 60_000;
+
 // Serial, bounded polling: one in-flight request, cancelled when the dialog closes.
 export function watchEnrollmentStatus(options: {
   enrollmentId: string;
@@ -137,38 +140,38 @@ export function watchEnrollmentStatus(options: {
   onStatus: (status: EnrollmentStatus) => void;
   onError: (message: string) => void;
   onTimeout: () => void;
-  maxDurationMs?: number;
+  checkOnce?: boolean;
 }) {
   let stopped = false;
-  let phase: EnrollmentPhase = 'waiting';
   let timer: ReturnType<typeof setTimeout> | undefined;
   let requestTimer: ReturnType<typeof setTimeout> | undefined;
   let active: AbortController | undefined;
-  const deadline = Date.now() + (options.maxDurationMs ?? 20 * 60_000);
   const expires = Date.parse(options.expiresAt);
+  const deadline = options.checkOnce ? Date.now() + 12_000 : (Number.isFinite(expires) ? expires : Date.now()) + enrollmentStatusGraceMs;
   const stop = () => { stopped = true; clearTimeout(timer); clearTimeout(requestTimer); active?.abort(); };
+  const timeout = () => { stop(); options.onTimeout(); };
   async function poll() {
     if (stopped) return;
-    if (Date.now() >= deadline) { stop(); options.onTimeout(); return; }
+    if (Date.now() >= deadline) { timeout(); return; }
     active = new AbortController();
     const controller = active;
     requestTimer = setTimeout(() => controller.abort(), Math.min(12_000, deadline - Date.now()));
     try {
       const status = await options.request(controller.signal);
       if (stopped) return;
-      phase = status.phase;
+      if (Date.now() >= deadline) { timeout(); return; }
       options.onStatus(status);
-      if (!['waiting', 'enrolled'].includes(phase)) { stop(); return; }
       // Ask the server once at expiry: a token redeemed just before expiry may be enrolled.
-      if (phase === 'waiting' && Number.isFinite(expires) && Date.now() >= expires) {
+      if (status.phase === 'waiting' && Date.now() >= expires) {
         options.onStatus({ ...status, phase: 'expired' }); stop(); return;
       }
+      if (options.checkOnce || !['waiting', 'enrolled'].includes(status.phase)) { stop(); return; }
     } catch (caught) {
       if (stopped) return;
+      if (Date.now() >= deadline) { timeout(); return; }
       const status = typeof caught === 'object' && caught !== null && 'status' in caught ? Number(caught.status) : 0;
-      options.onError([401, 403, 404].includes(status) ? 'Status is unavailable. Refresh your workspace and check agent connections before creating another setup prompt.' : 'Could not check setup progress. Retrying; your agent can continue setup.');
-      if ([401, 403, 404].includes(status)) { stop(); return; }
-      if (phase === 'waiting' && Number.isFinite(expires) && Date.now() >= expires) { stop(); options.onTimeout(); return; }
+      options.onError([401, 403, 404].includes(status) ? 'Status is unavailable. Refresh your workspace and check agent connections before creating another setup prompt.' : 'Could not check setup progress. Your agent can continue setup.');
+      if (options.checkOnce || [401, 403, 404].includes(status)) { stop(); return; }
     } finally { clearTimeout(requestTimer); }
     if (!stopped) timer = setTimeout(() => void poll(), Math.max(0, Math.min(5_000, deadline - Date.now())));
   }
