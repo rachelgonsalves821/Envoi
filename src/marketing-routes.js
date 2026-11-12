@@ -9,6 +9,12 @@ export function marketingRoute(pathname) {
   if (pathname === '/team' || pathname === '/team/') return { redirect: '/#team' };
   if (pathname === '/share') return { redirect: '/share/' };
   if (pathname === '/share/') return { file: 'share/index.html' };
+  // Public setup docs: one overview plus one page per guide (for example /docs/hermes/ or /docs/fix/).
+  if (pathname === '/docs') return { redirect: '/docs/' };
+  if (pathname === '/docs/') return { file: 'docs/index.html' };
+  const docsPage = pathname.match(/^\/docs\/([a-z0-9][a-z0-9-]{0,39})(\/?)$/);
+  if (docsPage) return docsPage[2] ? { file: `docs/${docsPage[1]}/index.html` } : { redirect: `/docs/${docsPage[1]}/` };
+  if (pathname === '/llms.txt') return { file: 'llms.txt' };
   if (pathname.startsWith('/_astro/') || pathname.startsWith('/agents/') || pathname.startsWith('/team/')) return { file: pathname.slice(1) };
   if (imageNames.has(pathname.slice(1))) return { file: pathname.slice(1) };
   return null;

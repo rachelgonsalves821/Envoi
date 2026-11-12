@@ -19,9 +19,7 @@ describe('Dots onboarding route and grant recovery', () => {
     const body = fixture(name as string).response.body;
     expect(connectionOffer(body).remoteMcp).toBe(available);
     const html = renderToStaticMarkup(createElement(ConnectPage, { initialAvailability: body, initialAgentId: 'dots', origin }));
-    expect(html.includes('MCP server URL')).toBe(available);
-    expect(html.includes('Copy verification prompt')).toBe(available);
-    expect(html).not.toContain('envoi-link.mjs task');
+    expect(html.includes('aria-label="Dots connection instructions"')).toBe(available);
     if (!available) expect(html).toContain('Dots OAuth route is unavailable');
   });
 
@@ -34,21 +32,13 @@ describe('Dots onboarding route and grant recovery', () => {
     ]) { const value = structuredClone(body); mutate(value); expect(() => connectionOffer(value)).toThrow('unavailable'); }
   });
 
-  it('uses one official plugin and reserves the endpoint for diagnostics', () => {
+  it('offers a selectable diagnostic endpoint inside closed help', () => {
     const html = renderToStaticMarkup(createElement(DotsSetupGuide, { origin, name: 'Example', address: 'example@envoi.example', reconnect: true }));
-    expect(html).toContain('value="https://envoi.example/mcp"');
-    expect(html).toContain('https://chatgpt.com/plugins');
+    const help = html.match(/<details[^>]*>[\s\S]*?<\/details>/)?.[0];
+    expect(help).toMatch(/<input[^>]*readOnly=""[^>]*value="https:\/\/envoi\.example\/mcp"/i);
+    expect(help).not.toMatch(/<details[^>]* open/);
     expect(html).not.toContain('href="https://envoi.example/mcp"');
-    expect(html).not.toContain('Add custom MCP server');
-    expect(html).toContain('official Envoi plugin');
-    expect(html).toContain('Do not create a separate custom plugin');
-    expect(html).toContain('Repeated reconnects cannot fix a missing scope');
-    expect(html).toContain('For connection diagnostics');
-    expect(html).toContain('receive-only grant cannot send');
-    expect(html).toContain('Reconnect an existing agent');
-    expect(html).toContain('cases and history');
-    expect(html).toContain('Copy verification prompt');
-    expect(html).not.toContain('closed-app delivery is still being verified');
+    expect(html).not.toContain('href="https://chatgpt.com/plugins"');
   });
 
   it('reuses installed plugins and verifies identity and scope before any send', () => {

@@ -1,0 +1,64 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "consent-view-saved-setup",
+  "description": "The approval page reads the request; the owner's newest waiting Dots setup is attached. The plugin asked only for receiving.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_1",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "consentViewWithSavedSetup",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "client": {
+        "name": "Example Assistant",
+        "clientIdHost": "assistant.example.com",
+        "redirectHost": "assistant.example.com",
+        "loopbackRedirect": false,
+        "registration": "metadata_document"
+      },
+      "connectionRoute": "remote_mcp_oauth",
+      "requestedPermissions": [
+        "receive_agent_messages"
+      ],
+      "grantablePermissions": [
+        "receive_agent_messages"
+      ],
+      "expiresAt": "2026-11-12T15:12:00.000Z",
+      "savedSetup": {
+        "setupId": "setup_example_1",
+        "workspaceInboxId": "inbox_workspace_example",
+        "workspaceName": "Example workspace",
+        "name": "Milo",
+        "localPart": "milo",
+        "address": "milo@envoi-agents.com",
+        "permissions": [
+          "receive_agent_messages",
+          "send_agent_messages"
+        ],
+        "notRequested": [
+          "send_agent_messages"
+        ],
+        "addressAvailable": true,
+        "expiresAt": "2026-11-12T15:30:00.000Z"
+      }
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Pre-fill the new-agent target from savedSetup; pre-tick savedSetup.permissions within grantablePermissions; say that the assistant did not ask for Send. The owner can still change everything."
+  }
+}

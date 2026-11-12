@@ -401,9 +401,16 @@ kbd { color: var(--text-tertiary); font-size: var(--text-micro-size); border: va
 .setup-details textarea { width: 100%; resize: vertical; border: var(--border-width-hairline) solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-12); background: var(--surface-overlay); color: var(--text-primary); font: inherit; font-size: var(--text-small-size); }
 .setup-details pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-sunken); padding: var(--space-12); border-radius: var(--radius-md); font-size: var(--text-small-size); }
 .setup-details a { color: var(--accent-text); text-decoration: underline; }
-.connection-progress { display: grid; gap: var(--space-8); padding: var(--space-16); background: var(--surface-sunken); border: var(--border-width-hairline) solid var(--border-subtle); border-radius: var(--radius-md); }
-.connection-progress ol { display: flex; flex-wrap: wrap; gap: var(--space-16); padding-left: var(--space-20); color: var(--text-tertiary); font-size: var(--text-small-size); }
-.connection-progress li.complete { color: var(--text-primary); font-weight: 560; }
+.setup-help { margin-top: 0; }
+.setup-help-option { display: grid; justify-items: start; gap: var(--space-8); padding-block: var(--space-12); border-bottom: var(--border-width-hairline) solid var(--border-subtle); }
+.setup-help-option .field, .setup-help-option pre { width: 100%; min-width: 0; }
+.setup-help-option h3, .setup-help-option p { margin: 0; }
+.connection-progress { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-8) var(--space-16); padding-block: var(--space-12); border-block: var(--border-width-hairline) solid var(--border-subtle); }
+.connection-progress-dots { display: flex; flex-wrap: wrap; gap: var(--space-16); margin: 0 0 var(--space-4); padding: 0; list-style: none; color: var(--text-tertiary); font-size: var(--text-small-size); }
+.connection-progress-dots li { display: flex; align-items: center; gap: var(--space-4); }
+.connection-progress-dots li::before { content: ''; width: 8px; height: 8px; border-radius: 50%; border: 1px solid currentColor; }
+.connection-progress-dots li.complete { color: var(--accent-text); font-weight: 560; }
+.connection-progress-dots li.complete::before { background: currentColor; }
 .connection-progress p { margin: 0; }
 .activity-head, .activity-row { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(12rem, 1fr) 15rem; gap: var(--space-16); align-items: center; padding: var(--space-12) var(--space-20); }
 .activity-head { background: var(--surface-sunken); color: var(--text-tertiary); font-size: var(--text-small-size); }

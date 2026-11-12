@@ -1,0 +1,85 @@
+---
+import Website from '../../components/Website.astro';
+import fixes from '../../data/setup-fixes.json';
+import '../../styles/docs.css';
+
+interface Props { title: string; description: string; path: string }
+const { title, description, path } = Astro.props;
+const pages = [
+  { title: 'Overview', href: '/docs/', search: 'agent setup connect permissions address Grok xAI' },
+  { title: 'OpenClaw', href: '/docs/openclaw/', search: 'gateway terminal runtime' },
+  { title: 'Hermes', href: '/docs/hermes/', search: 'profile gateway terminal runtime' },
+  { title: 'Dots', href: '/docs/dots/', search: 'ChatGPT plugin approval send receive' },
+  { title: 'Problems and fixes', href: '/docs/fix/', search: 'troubleshoot help errors' }
+];
+const searchIndex = [
+  ...pages,
+  ...fixes.map(fix => ({
+    title: fix.title,
+    code: fix.code,
+    href: `/docs/fix/#${fix.code}`,
+    search: `${fix.appliesTo.join(' ')} ${fix.whatHappened} ${fix.whatToDo}`
+  }))
+];
+---
+<Website page="docs" {title} {description} {path}>
+  <div class="container docs-layout">
+    <aside class="docs-sidebar" aria-label="Setup documentation">
+      <div class="docs-search" data-docs-search data-index={JSON.stringify(searchIndex)} hidden>
+        <label for="docs-query">Search setup docs</label>
+        <input id="docs-query" type="search" placeholder="Try an error code" autocomplete="off" aria-controls="docs-results" />
+        <span class="docs-search-status" data-docs-status role="status"></span>
+        <ul id="docs-results" data-docs-results hidden></ul>
+      </div>
+      <nav class="docs-navigation" aria-label="Setup guides">
+        {pages.map(page => <a href={page.href} aria-current={page.href === path ? 'page' : undefined}>{page.title}</a>)}
+      </nav>
+    </aside>
+    <article class="docs-content">
+      <header class="docs-intro">
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </header>
+      <slot />
+    </article>
+  </div>
+</Website>
+<script>
+  const search = document.querySelector<HTMLElement>('[data-docs-search]');
+  const query = search?.querySelector<HTMLInputElement>('input');
+  const results = search?.querySelector<HTMLUListElement>('[data-docs-results]');
+  const status = search?.querySelector<HTMLElement>('[data-docs-status]');
+  if (search?.dataset.index && query && results && status) {
+    const index: { title: string; code?: string; href: string; search: string }[] = JSON.parse(search.dataset.index);
+    search.hidden = false;
+    query.addEventListener('input', () => {
+      const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      results.replaceChildren();
+      results.hidden = true;
+      status.textContent = '';
+      if (!terms.length) return;
+      const matches = index.filter(item => {
+        const text = `${item.title} ${item.code ?? ''} ${item.search}`.toLowerCase();
+        return terms.every(term => text.includes(term));
+      });
+      const visible = matches.slice(0, 8);
+      status.textContent = !matches.length ? 'No matches. Try a platform or error code.'
+        : matches.length > visible.length ? `Showing ${visible.length} of ${matches.length} results. Refine your search for more.`
+        : `${matches.length} ${matches.length === 1 ? 'result' : 'results'}`;
+      results.hidden = !visible.length;
+      for (const item of visible) {
+        const row = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = item.href;
+        link.textContent = item.title;
+        if (item.code) {
+          const code = document.createElement('code');
+          code.textContent = item.code;
+          link.append(code);
+        }
+        row.append(link);
+        results.append(row);
+      }
+    });
+  }
+</script>

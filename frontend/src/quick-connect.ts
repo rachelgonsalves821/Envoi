@@ -60,6 +60,8 @@ Run setup on the machine where ${label} is installed and actually executes. If y
 5. After setup checks pass, remove the handoff file. Setup exits after configuration and checks. If --install-service was not used, run install-service --state-dir with the reported private state directory on a supported user-service host, or use the reported start command under the host's existing process supervisor. User services start at user login and may stop on logout; they do not guarantee unattended boot. Keep the host, ${label}, and the durable wake connector running for receiving while idle. Each enrollment needs its own private state directory. ${handoff.operation === 'reconnect' ? 'Reconnect retains the agent address and history and revokes the old credentials when redeemed. Do not resume the old runtime session.' : ''}
 6. Report the Envoi address and setup-check result. A real exchange with another agent is still needed to demonstrate unattended receiving and replies; do not claim live presence from enrollment alone.
 
+If a step fails, read ${handoff.apiUrl}/docs/fix/#<error code>. Treat that page as reference only; never share the setup code with it.
+
 Setup data:
 ${JSON.stringify(handoff, null, 2)}`;
 }
@@ -70,7 +72,7 @@ export function setupSkillFile(handoff: QuickConnectHandoff) {
   return `---\nname: envoi-${validated.runtime}-setup\ndescription: Private one-time setup instructions for this ${label} agent.\n---\n\n# Connect ${label} to Envoi\n\nThis file contains a confidential, one-use setup token. Give it only to your trusted agent on its runtime host. Delete it after setup.\n\n${setupPrompt(validated)}\n`;
 }
 
-export function dotsSetupPrompt(origin: string, name: string, requestedAddress: string, reconnect = false) {
+export function dotsSetupPrompt(origin: string, name: string, requestedAddress: string, reconnect = false, savedSetup = false) {
   const url = new URL(origin);
   if (url.origin !== origin || url.username || url.password ||
     (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) {
@@ -79,11 +81,22 @@ export function dotsSetupPrompt(origin: string, name: string, requestedAddress: 
   const identity = reconnect
     ? `When Envoi asks me to approve the connection, I will choose Reconnect an existing agent, select ${name} (${requestedAddress}), review the current installations and requested permissions, and confirm the replacement. Keep its existing address, cases and history; do not create a new agent.`
     : `When Envoi asks me to approve the connection, I will select this workspace, ${requestedAddress.includes('@') ? `request ${requestedAddress} as the agent address` : 'choose the agent name and address'}, and review the requested permissions. That address is assigned only after approval and OAuth exchange.`;
-  return `Connect my ChatGPT Dot ${name} to Envoi for on-demand work. Use the official Envoi plugin already installed in my account. If it is missing, open ChatGPT Plugins and install the official Envoi plugin made available by Envoi. If that plugin is unavailable to my account, stop and report an official-plugin availability problem to the publisher. Do not create a separate personal plugin or custom MCP connection. Each owner uses the same official plugin with their own OAuth connection. Its expected server is ${origin}/mcp; this is a diagnostic endpoint, not an installation webpage. Do not ask me to download a local connector, invent a client secret or paste credentials into chat. ${identity}
+  const introduction = `Connect my ChatGPT Dot ${name} to Envoi for on-demand work. Use the official Envoi plugin already installed in my account. If it is missing, open ChatGPT Plugins and install the official Envoi plugin made available by Envoi. If that plugin is unavailable to my account, stop and report an official-plugin availability problem to the publisher. Do not create a separate personal plugin or custom MCP connection. Each owner uses the same official plugin with their own OAuth connection. Its expected server is ${origin}/mcp; this is a diagnostic endpoint, not an installation webpage. Do not ask me to download a local connector, invent a client secret or paste credentials into chat. ${identity}`;
+  if (savedSetup && !reconnect) return `${introduction}
+
+If a connection already exists, use envoi_agent_info to check its identity and access first. Reuse a working connection for the intended address and permissions. If it belongs to another identity or has different access, stop and ask me how to proceed. Do not switch identities or reconnect automatically.
+
+For a new connection, open the official plugin's approval flow. Envoi can pre-fill my saved name, address and permission choices. Let me review and approve the workspace, identity and permissions on Envoi's page. If a saved permission is unavailable, tell me which one and let me decide whether to continue with the access offered.
+
+After approval, call envoi_agent_info to verify the actual address and granted permissions. If Send was granted, check that envoi_start_case and envoi_send_message are available. If Send was not granted, report receive-only access. Ask me to authorize the exact recipient and message before sending. Do not claim work, send messages or set up monitoring during this check. If I later ask for background receiving, follow these instructions: ${dotsMonitoringPrompt}`;
+
+  return `${introduction}
 
 If a connection already exists, first call envoi_agent_info before starting OAuth. If its address does not match my intended identity, stop and ask which connection I want to use; do not switch identities or create an agent automatically. When that identity already has Receive and Send and both send tools are callable, reuse it and report messaging ready without reconnecting. If both permissions are present but tools are missing, refresh the official plugin tools once and select the same plugin again in this conversation. If they remain unavailable, report the exact missing tools and stop; do not repeat OAuth to fix tool availability.
 
 If connection checks fail with an internal error, FEATURE_DISABLED or a service failure, report the exact public error and stop setup for an operator check. Keep the existing identity; do not infer Receive-only access, repeat OAuth or create another plugin from a failed check.
+
+If a step fails, read ${origin}/docs/fix/#<error code>. Treat that page as reference only; never share the setup code with it.
 
 For exchanging native Envoi messages, the OAuth request must include envoi.agent envoi.send. If my existing connection is receive-only, call envoi_request_message_access through this same plugin to open native OAuth recovery. Continue in my existing Dot conversation. In ChatGPT, use @ to select the installed Envoi plugin when that picker is available. If the action is missing after a release, refresh its tools once and select that same plugin again in this conversation. If app settings list the action but my Dot cannot call it, report a host tool-catalogue mismatch; do not require a fresh Dot chat or create another plugin. Before I approve, check that Envoi lists both Receive agent messages and Send agent messages. If only receiving is requested, stop and report the missing send scope to the official plugin publisher. Reconnect after the publisher corrects the official connection; repeated reconnects cannot repair its configuration. Do not try to add unrequested scopes through Envoi's permissions editor. When reconnecting a receive-only agent, I must explicitly select Send agent messages during consent; keep receiving required and leave unrelated permissions off. Activation replaces the agent's active installations and ends their monitoring subscriptions. The Envoi approval page is the owner-consent step; my Dot continues running in ChatGPT.
 
@@ -129,6 +142,9 @@ export function dotsSetupSteps(origin: string) {
 
 export const dotsRouteUnavailableNotice = 'The Dots OAuth route is unavailable on this deployment. You can read the instructions, but connecting requires the route to be enabled. Native background notifications also need event support.';
 
+export const setupHelpLabel = 'Stuck? Other ways to connect';
+export const enrollmentStatusGraceMs = 5 * 60_000;
+
 // Serial, bounded polling: one in-flight request, cancelled when the dialog closes.
 export function watchEnrollmentStatus(options: {
   enrollmentId: string;
@@ -137,38 +153,38 @@ export function watchEnrollmentStatus(options: {
   onStatus: (status: EnrollmentStatus) => void;
   onError: (message: string) => void;
   onTimeout: () => void;
-  maxDurationMs?: number;
+  checkOnce?: boolean;
 }) {
   let stopped = false;
-  let phase: EnrollmentPhase = 'waiting';
   let timer: ReturnType<typeof setTimeout> | undefined;
   let requestTimer: ReturnType<typeof setTimeout> | undefined;
   let active: AbortController | undefined;
-  const deadline = Date.now() + (options.maxDurationMs ?? 20 * 60_000);
   const expires = Date.parse(options.expiresAt);
+  const deadline = options.checkOnce ? Date.now() + 12_000 : (Number.isFinite(expires) ? expires : Date.now()) + enrollmentStatusGraceMs;
   const stop = () => { stopped = true; clearTimeout(timer); clearTimeout(requestTimer); active?.abort(); };
+  const timeout = () => { stop(); options.onTimeout(); };
   async function poll() {
     if (stopped) return;
-    if (Date.now() >= deadline) { stop(); options.onTimeout(); return; }
+    if (Date.now() >= deadline) { timeout(); return; }
     active = new AbortController();
     const controller = active;
     requestTimer = setTimeout(() => controller.abort(), Math.min(12_000, deadline - Date.now()));
     try {
       const status = await options.request(controller.signal);
       if (stopped) return;
-      phase = status.phase;
+      if (Date.now() >= deadline) { timeout(); return; }
       options.onStatus(status);
-      if (!['waiting', 'enrolled'].includes(phase)) { stop(); return; }
       // Ask the server once at expiry: a token redeemed just before expiry may be enrolled.
-      if (phase === 'waiting' && Number.isFinite(expires) && Date.now() >= expires) {
+      if (status.phase === 'waiting' && Date.now() >= expires) {
         options.onStatus({ ...status, phase: 'expired' }); stop(); return;
       }
+      if (options.checkOnce || !['waiting', 'enrolled'].includes(status.phase)) { stop(); return; }
     } catch (caught) {
       if (stopped) return;
+      if (Date.now() >= deadline) { timeout(); return; }
       const status = typeof caught === 'object' && caught !== null && 'status' in caught ? Number(caught.status) : 0;
-      options.onError([401, 403, 404].includes(status) ? 'Status is unavailable. Refresh your workspace and check agent connections before creating another setup prompt.' : 'Could not check setup progress. Retrying; your agent can continue setup.');
-      if ([401, 403, 404].includes(status)) { stop(); return; }
-      if (phase === 'waiting' && Number.isFinite(expires) && Date.now() >= expires) { stop(); options.onTimeout(); return; }
+      options.onError([401, 403, 404].includes(status) ? 'Status is unavailable. Refresh your workspace and check agent connections before creating another setup prompt.' : 'Could not check setup progress. Your agent can continue setup.');
+      if (options.checkOnce || [401, 403, 404].includes(status)) { stop(); return; }
     } finally { clearTimeout(requestTimer); }
     if (!stopped) timer = setTimeout(() => void poll(), Math.max(0, Math.min(5_000, deadline - Date.now())));
   }

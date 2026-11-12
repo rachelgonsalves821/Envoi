@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EnrollmentDialog, RuntimePicker, RuntimePreparation } from '../src/App';
+import { EnrollmentDialog, RuntimePicker } from '../src/App';
 import { api } from '../src/api';
 import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
 import type { Inbox } from '../src/types';
@@ -76,9 +76,6 @@ describe('Quick Connect handoff', () => {
     expect(picker).toContain(`checked="" value="${option.id}"`);
     expect(picker.match(/type="radio"/g)).toHaveLength(6);
     expect(picker.match(/disabled=""/g)).toHaveLength(3);
-    const preparation = renderToStaticMarkup(createElement(RuntimePreparation, { runtime: option.id, command: 'prepare', apiUrl: 'https://envoi.example' }));
-    expect(preparation.includes('generates or reuses the local API Server key')).toBe(option.id === 'hermes');
-    expect(preparation).not.toContain('repository checkout');
   });
 
   it('warns remote hosts about loopback and keeps reconnect identity instructions', () => {
@@ -90,23 +87,16 @@ describe('Quick Connect handoff', () => {
     expect(prompt).toContain('do not interrupt this session');
   });
 
-  it('reconnects through runtime preparation without asking for a new name, address or permissions', () => {
+  it('starts reconnect with the existing runtime selected', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
       workspace: { id: 'inbox_1' } as Inbox,
       reconnectAgent: { id: 'agent_1', name: 'Potato', address: handoff.address, runtime: 'hermes', status: 'active', onboardingStatus: 'approved' },
       result: null, setResult: vi.fn(), onClose: vi.fn()
     }));
-    expect(markup).toContain('Continue');
     expect(markup).toContain('checked="" value="hermes"');
     expect(markup).toContain('Reconnect Potato');
-    expect(markup).toContain('revokes the old credentials when replacement setup completes');
-    expect(markup).toContain('prepare --runtime hermes');
-    expect(markup).toContain('--prepare-runtime');
-    expect(markup).toContain('doctor --state-dir');
-    expect(markup).toContain('stop its connector before applying reconnect');
-    expect(markup).not.toContain('Agent address name');
-    expect(markup).not.toContain('Agent permissions');
-    expect(markup).not.toContain('name="name"');
+    expect(markup.match(/<button class="button primary"/g)).toHaveLength(1);
+    expect(markup).not.toContain('<details');
     expect(markup.match(/<input[^>]*value="dots"[^>]*>/)?.[0]).not.toContain('disabled');
   });
 
@@ -134,20 +124,20 @@ describe('Quick Connect handoff', () => {
     expect(suggestedAgentAddress(name)).toBe(address);
   });
 
-  it('makes the prompt primary while preserving advanced setup and honest runtime verification', () => {
+  it('keeps private handoff alternatives in a single closed disclosure', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, { workspace: { id: 'inbox_1' } as Inbox,
       result: { enrollmentId: 'enrollment_1', enrollmentToken: handoff.enrollmentToken, enrollmentUrl: '/?enroll=secret', expiresAt: handoff.expiresAt,
         agentProfile: { name: handoff.agentName, localPart: 'potato' }, quickConnect: handoff }, setResult: vi.fn(), onClose: vi.fn() }));
-    expect(markup).toContain('Copy agent prompt');
-    expect(markup).toContain('Download agent skill file');
-    expect(markup).toContain(`value="${handoff.address}"`);
-    expect(markup).toContain('Waiting for your agent');
-    expect(markup).toContain('Download setup file');
-    expect(markup).toContain('Terminal fallback');
-    expect(markup).toContain('Advanced setup');
-    expect(markup).toContain('Enrollment alone does not confirm');
+    expect(markup.match(/<button class="button primary"/g)).toHaveLength(1);
+    const help = markup.match(/<details[^>]*>[\s\S]*?<\/details>/g);
+    expect(help).toHaveLength(1);
+    expect(help![0]).not.toMatch(/<details[^>]* open/);
+    expect(help![0]).toMatch(/<textarea[^>]*readOnly/i);
+    expect(help![0]).toContain('Download agent skill file');
+    expect(help![0]).toContain('Download setup file');
+    expect(help![0]).toContain('prepare --runtime openclaw');
+    expect(help![0]).toContain(`value="${handoff.enrollmentToken}"`);
     expect(markup).not.toContain('/?enroll=secret');
-    expect(markup).not.toContain('I’ve copied the token');
   });
 
   it('reads scoped status through the human session without sending the enrollment secret', async () => {
@@ -232,12 +222,36 @@ describe('bounded enrollment progress', () => {
     expect(monitor.onError).toHaveBeenCalledWith(expect.stringContaining('Refresh your workspace'));
   });
 
-  it('bounds repeated transient failures', async () => {
+  it('watches a 30-minute code and stops exactly five minutes after expiry', async () => {
+    vi.useFakeTimers();
+    const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+    const request = vi.fn().mockResolvedValue(status('enrolled'));
+    const monitor = watch(request, { expiresAt });
+    await vi.advanceTimersByTimeAsync(34 * 60_000 + 59_999);
+    expect(request).toHaveBeenCalledTimes(420);
+    expect(monitor.onTimeout).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(monitor.onTimeout).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(request).toHaveBeenCalledTimes(420);
+  });
+
+  it('bounds repeated transient failures even if the code has expired', async () => {
     vi.useFakeTimers();
     const request = vi.fn().mockRejectedValue(new Error('offline'));
-    const monitor = watch(request, { maxDurationMs: 10_000 });
+    const monitor = watch(request, { expiresAt: new Date(Date.now() - 290_000).toISOString() });
     await vi.advanceTimersByTimeAsync(30_000);
     expect(request).toHaveBeenCalledTimes(2);
     expect(monitor.onTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks once on request after automatic progress checks end', async () => {
+    vi.useFakeTimers();
+    const request = vi.fn().mockResolvedValue(status('enrolled'));
+    const monitor = watch(request, { expiresAt: new Date(Date.now() - 360_000).toISOString(), checkOnce: true });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(monitor.onStatus).toHaveBeenCalledWith(expect.objectContaining({ phase: 'enrolled' }));
+    expect(monitor.onTimeout).not.toHaveBeenCalled();
   });
 });

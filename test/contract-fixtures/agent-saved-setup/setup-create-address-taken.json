@@ -1,0 +1,48 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "setup-create-address-taken",
+  "description": "The address already belongs to an agent or a live approval. A saved setup never holds an address.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_workspace_example/agent-setups",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "savedSetupCreateRequest",
+    "body": {
+      "runtime": "dots",
+      "name": "Milo",
+      "localPart": "milo",
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ]
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ADDRESS_TAKEN",
+      "error": "ADDRESS_TAKEN",
+      "message": "That agent address is already taken. Choose another.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "choose_another_address",
+    "next": "Ask for another address on the same step."
+  }
+}

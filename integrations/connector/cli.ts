@@ -20,7 +20,7 @@ Hermes --prepare-runtime configures its local API key and API settings.\n
 It does not configure a missing model provider or restart a Gateway serving your chat.\n`;
 const stringOptions = ['--handoff', '--state-dir', '--runtime', '--api-url', '--config', '--profile', '--agent', '--gateway-url'];
 const flagOptions = ['--handoff-stdin', '--install-service', '--prepare-runtime'];
-export async function connectorMain(args = process.argv.slice(2)) {
+export async function connectorMain(args = process.argv.slice(2), onOrigin?: (apiUrl: string) => void) {
   if (!args.length || args.length === 1 && args[0] === '--help') { process.stdout.write(usage); return; }
   if (Number(process.versions.node.split('.')[0]) < 22) throw new ConnectorSetupError('NODE_UNSUPPORTED', 'Install Node.js 22 or newer before connecting');
   const [command, ...rest] = args;
@@ -34,9 +34,11 @@ export async function connectorMain(args = process.argv.slice(2)) {
   const options = { configPath: values.get('--config'), profile: values.get('--profile'), agentId: values.get('--agent'),
     gatewayUrl: values.get('--gateway-url'), prepareRuntime: flags.has('--prepare-runtime') };
   if (command === 'prepare') {
-    if (!CONNECTOR_RUNTIMES.includes(values.get('--runtime') as ConnectorRuntime) || !values.get('--api-url') || flags.has('--install-service')
+    const apiUrl = values.get('--api-url');
+    if (apiUrl) onOrigin?.(apiUrl);
+    if (!CONNECTOR_RUNTIMES.includes(values.get('--runtime') as ConnectorRuntime) || !apiUrl || flags.has('--install-service')
       || flags.has('--handoff-stdin') || values.has('--handoff') || values.has('--state-dir')) throw new ConnectorSetupError('ARGUMENT_INVALID', 'Supply --runtime and --api-url for prepare. Run --help');
-    const result = await prepareConnection(values.get('--runtime') as ConnectorRuntime, values.get('--api-url')!, adapterFor, options);
+    const result = await prepareConnection(values.get('--runtime') as ConnectorRuntime, apiUrl, adapterFor, options);
     process.stdout.write(`${JSON.stringify(result)}\n`); return;
   }
   if (command === 'setup') {
@@ -54,6 +56,7 @@ export async function connectorMain(args = process.argv.slice(2)) {
     }
     let input: unknown;
     try { input = JSON.parse(source); } catch { throw new ConnectorSetupError('HANDOFF_INVALID', 'Download a valid Envoi setup file'); }
+    if (input && typeof input === 'object' && 'apiUrl' in input && typeof input.apiUrl === 'string') onOrigin?.(input.apiUrl);
     const result = await setupConnection(input, adapterFor, { ...options, stateDir: values.get('--state-dir'),
       installService: flags.has('--install-service'), executableFile: fileURLToPath(import.meta.url), onProgress: text => process.stderr.write(`${text}…\n`) });
     process.stdout.write(`${JSON.stringify(result)}\n`);

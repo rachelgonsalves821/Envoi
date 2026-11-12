@@ -61,7 +61,8 @@ import { projectCaseForHuman, projectWorkspaceForHuman } from './human-projectio
 import { attachInboxPreferencesToView, createInboxPreferencesHttp } from './inbox-preferences-http.js';
 import { getPrefsForCases } from './inbox-preferences.js';
 import { createProviderMembershipCache, streamRecheckMs } from './provider-membership.js';
-import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenceRecorder, ownerConnection, reportedFamily } from './agent-presence.js';
+import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenceRecorder, ownerConnection, presenceOf, reportedFamily } from './agent-presence.js';
+import { createSavedSetups, validSavedSetupId } from './agent-saved-setup.js';
 import { createAgentSlots, legacyApprovalPermissions } from './agent-approval.js';
 import { createInstallationReader, installationSummary, ownerInstallationList, publicInstallation } from './agent-installations.js';
 import { readOnboardingFlags, routeAvailability } from './onboarding-flags.js';
@@ -126,6 +127,9 @@ const policySigningKeys = (() => {
 const policyKeyring = Object.freeze({ activeKeyId: policyActiveKeyId, keys: Object.freeze(policySigningKeys) });
 const emailTransport = createEmailTransport();
 const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.ENVOI_AGENT_ACCESS_TOKEN_TTL_SECONDS || 900));
+// One-use setup codes for enrollment, reconnect and re-enrollment. 30 minutes leaves time for a first-time
+// runtime fix without a new code; the connector checks everything before it spends the code.
+const enrollmentTokenTtlMs = 30 * 60_000;
 const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
 const agentRotationRecoveryMs = 5 * 60_000;
 const configuredAgentWorkLeaseMs = Number(process.env.ENVOI_AGENT_WORK_LEASE_MS || 60_000);
@@ -1102,9 +1106,17 @@ async function handleConsentRoute(req, res, route) {
   res.setHeader('cache-control', 'no-store');
   if (action === 'approve') {
     const input = await readJsonBody(req);
-    const outcome = await registrations.approveConsent(human, consentRequest(opened), handleDigest, input.invalid ? null : input.value);
+    let body = input.invalid ? null : input.value;
+    // agent-saved-setup v1 §5: a well-formed savedSetupId is taken out before the unchanged approval checks. It may link
+    // the setup inside the approval's batch, and it never blocks or changes the approval. A malformed one stays in the
+    // body, so the approval refuses it as today (CLAIM_INVALID).
+    const savedSetupId = body && typeof body === 'object' && !Array.isArray(body) && validSavedSetupId(body.savedSetupId) ? body.savedSetupId : null;
+    let linked = false;
+    if (savedSetupId) { const { savedSetupId: _omitted, ...rest } = body; body = rest; }
+    const extraDocuments = savedSetupId ? async context => { const link = await savedSetups.linkDocuments(human, savedSetupId, context); linked = link.linked; return link.documents; } : null;
+    const outcome = await registrations.approveConsent(human, consentRequest(opened), handleDigest, body, { extraDocuments });
     if (outcome.decided) return json(res, 200, outcome.decided);
-    return json(res, 200, { redirectTo: consentRedirect(opened, origin, { code: outcome.code }), ...outcome.approved });
+    return json(res, 200, { redirectTo: consentRedirect(opened, origin, { code: outcome.code }), ...outcome.approved, ...(savedSetupId ? { savedSetup: { setupId: savedSetupId, linked } } : {}) });
   }
   if (action === 'deny') {
     const decided = await registrations.consentViewDecision(human, handleDigest);
@@ -1119,10 +1131,12 @@ async function handleConsentRoute(req, res, route) {
   if (!client && !decision) throw invalid();
   const requestedPermissions = permissionsForScopes(sealed.scopes);
   const maximum = organizationMaximumPermissions();
+  // agent-saved-setup v1 §4: only an undecided remote_mcp_oauth request, and only this human's live Dots setup.
+  const savedSetup = savedSetups.enabled && !decision && sealed.connectionRoute === 'remote_mcp_oauth' ? await savedSetups.forConsent(human, requestedPermissions) : null;
   return json(res, 200, {
     client: consentClient(client, sealed), connectionRoute: sealed.connectionRoute,
     requestedPermissions, grantablePermissions: requestedPermissions.filter(permission => maximum.includes(permission)),
-    expiresAt: new Date(sealed.exp * 1000).toISOString(), ...(decision ? { decision } : {})
+    expiresAt: new Date(sealed.exp * 1000).toISOString(), ...(decision ? { decision } : {}), ...(savedSetup ? { savedSetup } : {})
   });
 }
 
@@ -1189,6 +1203,16 @@ const registrations = createAgentRegistrations({
   canManageLive: (human, inbox) => canManageInbox(human, inbox, { maxAgeMs: 0 }),
   normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest,
   memberOf: async (human, organizationId) => Boolean(organizationId && await getMembership(organizationId, human.id))
+});
+// agent-saved-setup v1: owner-only saved Dots setups that pre-fill the approval page. Flag ENVOI_SAVED_SETUP, off by default.
+const savedSetups = createSavedSetups({
+  store, enabled: process.env.ENVOI_SAVED_SETUP === 'true', coded: codedError, now: () => new Date(store.now()), newId: prefix => store.id(prefix),
+  normalizeLocalPart: normalizeAgentLocalPart, addressFor: agentAddressForLocalPart, addressTaken: address => registrations.addressTaken(address),
+  canManage: (human, inbox) => canManageInbox(human, inbox), getInbox: inboxId => store.getJson(path.join('inboxes', inboxId, 'inbox.json')),
+  workspaceNameOf: inbox => String(inbox?.name || 'Workspace').slice(0, 80), getRegistration: id => registrations.getRegistration(id),
+  lastSeenFor: async registration => registration.agentInboxId && registration.credentialFamilyId
+    ? presenceOf(await store.getJson(agentPresencePath(registration.agentInboxId, registration.agentId, registration.credentialFamilyId))).lastSeenAt ?? null : null,
+  audit: (inboxId, type, data) => audit(inboxId, type, data)
 });
 async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = [], allowRemoved = false, transactionOptions = {}) {
   const committedEvents = [];
@@ -5572,6 +5596,20 @@ async function route(req, res) {
     return json(res, 200, enrollmentConnectionStatus(record, agent, family));
   }
 
+  // agent-saved-setup v1 §2 (save) and §3 (status). Owner-only; FEATURE_DISABLED while ENVOI_SAVED_SETUP is off.
+  const savedSetupRoute = suffix.match(/^agent-setups(?:\/([^/]+))?$/);
+  if (savedSetupRoute && ((req.method === 'POST' && !savedSetupRoute[1]) || (req.method === 'GET' && savedSetupRoute[1]))) {
+    if (!savedSetups.enabled) throw codedError(404, 'FEATURE_DISABLED', 'Saved setup is not available on this deployment.');
+    const human = await auth.getHuman(req);
+    if (!human) throw codedError(401, 'AUTHENTICATION_REQUIRED', 'Please sign in again.');
+    res.setHeader('cache-control', 'no-store');
+    if (req.method === 'POST') {
+      const input = await readJsonBody(req);
+      return json(res, 201, await savedSetups.create(human, inbox, input.invalid ? null : input.value));
+    }
+    return json(res, 200, await savedSetups.status(human, inbox, savedSetupRoute[1]));
+  }
+
   if (req.method === 'POST' && suffix === 'agent-enrollment-tokens') {
     const human = await auth.getHuman(req);
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
@@ -5590,7 +5628,7 @@ async function route(req, res) {
     if (localPart && await registrations.addressTaken(agentAddressForLocalPart(localPart))) return fail(res, 409, 'That agent address is already taken');
     const agentProfile = profileName ? { name: profileName, slug: localPart || slugify(input.agentProfile?.slug || profileName), ...(localPart ? { localPart } : {}), capabilities: Array.isArray(input.agentProfile?.capabilities) ? input.agentProfile.capabilities.slice(0, 20) : [] } : null;
     const rawToken = crypto.randomBytes(32).toString('base64url');
-    const record = { id: store.id('enrollment'), runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    const record = { id: store.id('enrollment'), runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + enrollmentTokenTtlMs).toISOString(), usedAt: null };
     await store.putJsonBatch([
       document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
       document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
@@ -5617,7 +5655,7 @@ async function route(req, res) {
     const permissions = reenroll ? (Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages']).filter(permission => allowedPermissions.has(permission)) : null;
     if (reenroll && !permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
     const rawToken = crypto.randomBytes(32).toString('base64url');
-    const record = { id: store.id('enrollment'), kind: reenroll ? 'reenroll' : 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, accessGeneration: agent.accessGeneration || 0, ...(reenroll ? { permissions } : {}), createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    const record = { id: store.id('enrollment'), kind: reenroll ? 'reenroll' : 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, accessGeneration: agent.accessGeneration || 0, ...(reenroll ? { permissions } : {}), createdAt: store.now(), expiresAt: new Date(Date.now() + enrollmentTokenTtlMs).toISOString(), usedAt: null };
     await store.putJsonBatch([
       document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
       document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
