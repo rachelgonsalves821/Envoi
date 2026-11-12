@@ -342,6 +342,7 @@ async function inspectControlledProgressAuthority(input:ControlledInspectionInpu
 export type AdmittedWorkflowStop=Readonly<{
  previousLedger:ProgressPin;currentLedgerSha256:string;execution:ProgressPin;stop:ProgressPin;
  admission:ProgressPin;consumed:ProgressPin;
+ priorResume?:Readonly<{marker:ProgressPin;execution:ProgressPin;stop:ProgressPin;failure:ProgressPin}>;
 }>;
 
 /** A failed pre-native startup can reattach only to its already admitted
@@ -386,5 +387,29 @@ export async function inspectAdmittedControlledWorkflow(input:ControlledInspecti
  if(after.pending!==0||after.unresolvedDispatches!==0||
    (['chargedAttempts','knownDispatchedRequests','knownOpenClawDispatches'] as const).some(key=>before[key]!==after[key]))
   refuse('NATIVE_WORKFLOW_ALREADY_STARTED');
- return inspection;
+ let resumeMarker=path.resolve(releaseRoot,'phase-c-admitted-workflow-resume-'+window+'.used.json');
+ if(proof.priorResume){
+  const prior=proof.priorResume,previousDirectory=path.dirname(prior.stop.path);
+  if(path.resolve(prior.marker.path)!==resumeMarker||
+    path.dirname(previousDirectory)!==path.dirname(directory)||previousDirectory===directory||
+    path.basename(prior.stop.path)!=='operator-stopped.private.json'||
+    path.resolve(prior.execution.path)!==path.join(previousDirectory,'controlled-execution.private.json')||
+    path.resolve(prior.failure.path)!==path.join(previousDirectory,'operator-failure.private.log'))
+   refuse('EXACT_FAILED_REATTACHMENT_REQUIRED');
+  const [marker,previousExecution,previousStop]=await Promise.all([prior.marker,prior.execution,prior.stop].map(async pin=>(await read(pin)).value));
+  const failure=(await read(prior.failure,false)).raw.toString('utf8');
+  if(!equal(marker,{purpose:'phase-c-resume-admitted-workflow',window,ledgerSha256:proof.currentLedgerSha256,stopSha256:proof.stop.sha256})||
+    !equal(previousExecution,execution)||previousStop.state!==stop.state||
+    previousStop.phase!=='checked-controlled-progress-admission'||previousStop.gateComplete!==false||
+    previousStop.packetSha256!==r.targetPacket.sha256||!Number.isFinite(Date.parse(previousStop.observedAtUtc))||
+    Date.parse(previousStop.observedAtUtc)<Date.parse(stop.observedAtUtc)||
+    !failure.startsWith("TypeError: Cannot read properties of undefined (reading 'source')")||
+    !failure.includes('inspectApprovedOperationBounds'))refuse('EXACT_FAILED_REATTACHMENT_REQUIRED');
+  for(const name of ['owner-controls-context.private.json','owner-requests','actual-events.private.jsonl','openclaw-evidence']){
+   try{await fs.lstat(path.join(previousDirectory,name));refuse('NATIVE_WORKFLOW_ALREADY_STARTED');}
+   catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+  }
+  resumeMarker=path.resolve(releaseRoot,'phase-c-admitted-workflow-reattachment-'+window+'.used.json');
+ }
+ return {...inspection,resumeMarker};
 }

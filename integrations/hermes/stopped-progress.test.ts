@@ -947,6 +947,47 @@ it.each(['changed-server','wrong-consumed-receipt','native-started','ledger-mism
   await expect(ContinuationController.prepareControlledWorkflow(o)).rejects.toThrow();
   expect(await fs.readFile(s.filename)).toEqual(s.ledger);
  });
+
+it('checks operation bounds before consuming an admitted-workflow reattachment',async()=>{
+ const s=await admittedWorkerStopSetup(),handle=await ContinuationController.prepareControlledWorkflow(s.options);
+ await expect(ContinuationController.startControlledWorkflow(handle,controller=>{
+  expect(controller.operationBounds).toEqual({operationCap:62,normalCeiling:54,cleanupReserve:8});
+  expect(controller.active()).toBe(false);
+  expect(controller.modelActive()).toBe(false);
+  throw Error('inert pre-reattachment refusal');
+ })).rejects.toThrow('inert pre-reattachment refusal');
+ await expect(fs.lstat(path.join(s.root,'phase-c-admitted-workflow-resume-'+handle.window+'.used.json'))).rejects.toMatchObject({code:'ENOENT'});
+ expect(await fs.readFile(s.filename)).toEqual(s.ledger);
+});
+
+it('preserves a failed reattachment marker and permits one exact reattachment before native startup',async()=>{
+ const s=await admittedWorkerStopSetup(),first=await ContinuationController.prepareControlledWorkflow(s.options);
+ const controller=await ContinuationController.startControlledWorkflow(first);
+ controller.stop();
+ const previousDirectory=path.join(s.root,'failed-reattachment');
+ await fs.mkdir(previousDirectory);
+ const marker=path.join(s.root,'phase-c-admitted-workflow-resume-'+first.window+'.used.json');
+ const markerBytes=await fs.readFile(marker);
+ const relative=path.basename(previousDirectory);
+ const priorResume={
+  marker:{path:marker,sha256:hash(markerBytes)},
+  execution:await s.pin(path.join(relative,'controlled-execution.private.json'),await fs.readFile(s.options.admittedStop.execution.path,'utf8')),
+  stop:await s.pin(path.join(relative,'operator-stopped.private.json'),{state:'controlled_recovery_stopped_preserve_originals',
+   phase:'checked-controlled-progress-admission',gateComplete:false,packetSha256:s.options.receipt.packetSha256,
+   observedAtUtc:new Date(Date.now()).toISOString()}),
+  failure:await s.pin(path.join(relative,'operator-failure.private.log'),
+   "TypeError: Cannot read properties of undefined (reading 'source')\n at inspectApprovedOperationBounds"),
+ };
+ const options={...s.options,admittedStop:{...s.options.admittedStop,priorResume}};
+ const handle=await ContinuationController.prepareControlledWorkflow(options);
+ const resumed=await ContinuationController.startControlledWorkflow(handle);
+ expect(resumed.receipt).toEqual(s.options.receipt);
+ resumed.stop();
+ expect(await fs.readFile(marker)).toEqual(markerBytes);
+ expect(await fs.readFile(s.filename)).toEqual(s.ledger);
+ const duplicate=await ContinuationController.prepareControlledWorkflow(options);
+ await expect(ContinuationController.startControlledWorkflow(duplicate)).rejects.toMatchObject({code:'EEXIST'});
+});
 it.each(['fake-hardstop','wrong-lifetime','legacy-adoption','packet-policy','budget-change','replayed-handle'] as const)('refuses invalid persistent authority before changing ledger: %s',async fault=>{
  const s=await persistentWorkflowSetup(),o=s.options;
  if(fault==='fake-hardstop')(o.receipt as any).hardStopUtc='2099-01-01T00:00:00.000Z';if(fault==='wrong-lifetime')(o.receipt as any).lifetime='forever';

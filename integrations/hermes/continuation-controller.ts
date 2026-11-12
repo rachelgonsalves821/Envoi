@@ -100,9 +100,10 @@ export class ContinuationController {
     const handle=Object.freeze({kind:'verified-controlled-workflow' as const,window:hash(JSON.stringify(options.receipt)),priorWindow:inspection.priorWindow,ledgerSha256:ledger.contentSha256,carriedStateSha256:inspection.stateSha256});
     controlledWorkflowHandles.set(handle,options);return handle;
   }
-  static async startControlledWorkflow(handle:PreparedControlledWorkflow){
+  static async startControlledWorkflow(handle:PreparedControlledWorkflow,verifyBeforeReattachment?:(controller:ContinuationController)=>void|Promise<void>){
     const options=controlledWorkflowHandles.get(handle);if(!options)refuse('PREPARED_CONTROLLED_WORKFLOW_REQUIRED');controlledWorkflowHandles.delete(handle);
-    if(options.admittedStop)return this.resumeAdmittedWorkflow(options,handle,options.admittedStop);
+    if(options.admittedStop)return this.resumeAdmittedWorkflow(options,handle,options.admittedStop,verifyBeforeReattachment);
+    if(verifyBeforeReattachment)refuse('STOPPED_ADMITTED_WORKFLOW_REQUIRED');
     return this.startInspectedControlledProgress(options,handle);
   }
   private static async inspectControlledOptions(options:ControlledProgressOptions|ControlledWorkflowOptions){
@@ -134,12 +135,22 @@ export class ContinuationController {
     await ledger.amendReviewedPlan(options.reviewedPlan,proof);
     return this.openControlledController(options,inspection);
   }
-  private static async resumeAdmittedWorkflow(options:ControlledWorkflowOptions,handle:PreparedControlledWorkflow,stop:AdmittedWorkflowStop){
+  private static async resumeAdmittedWorkflow(options:ControlledWorkflowOptions,handle:PreparedControlledWorkflow,stop:AdmittedWorkflowStop,
+    verifyBeforeReattachment?:(controller:ContinuationController)=>void|Promise<void>){
     const {inspection,ledger}=await this.inspectControlledOptions(options);
-    if(ledger.contentSha256!==handle.ledgerSha256||ledger.window!==handle.window)refuse('CONTROLLED_LEDGER_CHANGED');
+    if(ledger.contentSha256!==handle.ledgerSha256||ledger.window!==handle.window||
+      !('resumeMarker' in inspection)||typeof inspection.resumeMarker!=='string')refuse('CONTROLLED_LEDGER_CHANGED');
     const controller=await this.openControlledController(options,inspection);
     if(controller.ledger.contentSha256!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
-    const file=await fs.open(path.join(options.releaseRoot,'phase-c-admitted-workflow-resume-'+handle.window+'.used.json'),'wx',0o600);
+    // A stopped preview exposes the actual receipt and operation bounds
+    // without letting the callback admit work before the one-use receipt.
+    if(verifyBeforeReattachment){
+      const preview=await this.openControlledController(options,inspection);
+      preview.stop('READ_ONLY_ADMITTED_REATTACHMENT_INSPECTION');
+      await verifyBeforeReattachment(preview);
+    }
+    if(await controller.ledger.readInspectionBytes().then(hash)!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
+    const file=await fs.open(inspection.resumeMarker,'wx',0o600);
     try{
       await file.writeFile(JSON.stringify({purpose:'phase-c-resume-admitted-workflow',window:handle.window,
         ledgerSha256:handle.ledgerSha256,stopSha256:stop.stop.sha256}));
