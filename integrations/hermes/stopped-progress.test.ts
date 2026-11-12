@@ -893,6 +893,60 @@ it('adopts the exact tested server in a persistent workflow without extending bu
  const c=await ContinuationController.startControlledWorkflow(handle);expect(c.receipt.serverSource).toBe(s.serverSource);expect(c.receipt).not.toHaveProperty('hardStopUtc');
  expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(c.operationBounds.operationCap).toBe(62);expect(await fs.readFile(original.d.execution.path)).toEqual(historical);c.stop();
 });
+
+async function admittedWorkerStopSetup(){
+ const s=await serverAdoptionSetup(await persistentWorkflowSetup()),o=s.options;
+ const directory='admitted-worker';
+ s.serverTarget.directory=path.join(s.root,directory);
+ await fs.mkdir(s.serverTarget.directory);
+ await s.refreshServer();
+ const previousLedger=await s.pin('before-admission.jsonl',(await fs.readFile(s.filename)).toString());
+ const handle=await ContinuationController.prepareControlledWorkflow(o);
+ const controller=await ContinuationController.startControlledWorkflow(handle);
+ controller.stop('INERT_WORKER_STOP');
+ const window=handle.window,ledger=await fs.readFile(s.filename);
+ const execution=await s.pin(path.join(directory,'controlled-execution.private.json'),{
+  purpose:'actual-controlled-checkpoint-recovery',window,receipt:o.receipt,actualStartedAtUtc:o.receipt.startUtc,
+  graphApprovalRaw:o.graphApprovalRaw,priorExecution:s.adoption.priorExecutionSha256===o.recovery.execution.sha256
+   ?o.recovery.execution:s.d.execution,carriedState:o.recovery.state,carriedCheckpoint:o.recovery.carry,
+ });
+ const stop=await s.pin(path.join(directory,'operator-stopped.private.json'),{
+  state:'controlled_recovery_stopped_preserve_originals',phase:'owned-runtime-startup',gateComplete:false,
+  packetSha256:o.receipt.packetSha256,observedAtUtc:new Date(Date.now()).toISOString(),
+ });
+ const readPin=async(name:string)=>{const file=path.join(s.root,name);return{path:file,sha256:hash(await fs.readFile(file))};};
+ const admission=await readPin('phase-c-controlled-progress-'+handle.priorWindow+'.used.json');
+ const consumed=await readPin('phase-c-recovery-time-'+h('pjsk02\0'+s.adoption.decisionId)+'.used.json');
+ return{...s,ledger,options:{...o,admittedStop:{previousLedger,currentLedgerSha256:hash(ledger),execution,stop,admission,consumed}}};
+}
+
+it('reattaches an admitted workflow to the same receipt and work without appending ledger rows',async()=>{
+ const s=await admittedWorkerStopSetup(),journal=await fs.readFile(s.journalPin.path);
+ const handle=await ContinuationController.prepareControlledWorkflow(s.options);
+ const controller=await ContinuationController.startControlledWorkflow(handle);
+ expect(controller.receipt).toEqual(s.options.receipt);
+ expect(controller.ledger.snapshot().chargedAttempts).toBe(35);
+ expect(controller.operationBounds.operationCap).toBe(62);
+ expect(controller.modelActive()).toBe(false);
+ controller.releaseGroup(['openclaw']);
+ expect(()=>controller.expectWork('openclaw',s.workId+'-other',h('different checkpoint'))).toThrow('CANONICAL_WORK_BINDING_CHANGED');
+ controller.stop();
+ expect(await fs.readFile(s.filename)).toEqual(s.ledger);
+ expect(await fs.readFile(s.journalPin.path)).toEqual(journal);
+ const replay=await ContinuationController.prepareControlledWorkflow(s.options);
+ await expect(ContinuationController.startControlledWorkflow(replay)).rejects.toMatchObject({code:'EEXIST'});
+});
+
+it.each(['changed-server','wrong-consumed-receipt','native-started','ledger-mismatch'] as const)(
+ 'refuses to resume an admitted workflow with %s',async fault=>{
+  const s=await admittedWorkerStopSetup(),o=s.options;
+  if(fault==='changed-server')o.receipt={...o.receipt,serverSource:'9'.repeat(40)};
+  if(fault==='wrong-consumed-receipt')o.admittedStop.consumed=o.admittedStop.admission;
+  if(fault==='native-started')await fs.mkdir(path.join(s.serverTarget.directory,'owner-requests'));
+  if(fault==='ledger-mismatch')o.admittedStop.currentLedgerSha256=h('other ledger');
+  await expect(ContinuationController.prepareControlledWorkflow(o)).rejects.toThrow();
+  expect(await fs.readFile(s.filename)).toEqual(s.ledger);
+ });
 it.each(['fake-hardstop','wrong-lifetime','legacy-adoption','packet-policy','budget-change','replayed-handle'] as const)('refuses invalid persistent authority before changing ledger: %s',async fault=>{
  const s=await persistentWorkflowSetup(),o=s.options;
  if(fault==='fake-hardstop')(o.receipt as any).hardStopUtc='2099-01-01T00:00:00.000Z';if(fault==='wrong-lifetime')(o.receipt as any).lifetime='forever';

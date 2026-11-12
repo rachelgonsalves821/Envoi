@@ -151,11 +151,15 @@ async function inspectPreNativeAdmissionStop(input:HistoryInput,proof:ProgressPi
    admission.ledgerSha256!==previous.priorLedger.sha256)refuseAdmissionStop();
 
  const activeActionLedger=path.join(releaseRoot,'phase-c-cumulative-actions.jsonl');
- const [rows,frozen,actions,priorActions]=await Promise.all([
-  ledger.readInspectionBytes(),read(d.actualLedger,false),read(d.actionLedger,false),read(r.history.actionLedger,false),
+ const [rows,actions,priorActions]=await Promise.all([
+  ledger.readInspectionBytes(),read(d.actionLedger,false),read(r.history.actionLedger,false),
  ]);
+ // This pin originally named the live ledger. A later admitted workflow can
+ // inspect its exact anchored prefix without rewriting the original receipt.
+ const frozen=path.resolve(d.actualLedger.path)===path.resolve(ledger.filename)
+  ? rows : (await read(d.actualLedger,false)).raw;
  const prefix=await priorLedger.readInspectionBytes();
- if(!rows.equals(frozen.raw)||!rows.subarray(0,prefix.length).equals(prefix)||!rows.toString().endsWith('\n')||
+ if(hash(frozen)!==d.actualLedger.sha256||!rows.equals(frozen)||!rows.subarray(0,prefix.length).equals(prefix)||!rows.toString().endsWith('\n')||
    hash(rows)!==ledger.contentSha256||ledger.window!==e.window||ledger.reviewedGraphApprovalRaw!==e.graphApprovalRaw||
    hashReviewedContinuationPlan(p.reviewedGraph)!==ledger.reviewedPlan?.planSha256||
    path.resolve(d.actionLedger.path)!==path.resolve(activeActionLedger)||!actions.raw.equals(priorActions.raw))refuseAdmissionStop();
@@ -243,7 +247,11 @@ async function inspectOriginalControlledProgressHistory(input:HistoryInput){
    actorId:p.actors.openclaw.agentId,carriedControlProofs:controls,carriedControlSource:b.clientSource,pollGapSha256:r.pollGap.sha256,runtimePacket:p,initialReceipt:a,metadataReceipts,
    priorExecution:startup?.proof.execution??r.execution,priorLedger:startup?.proof.ledger??r.ledger,startup,acceptedCheckpoint:undefined as AcceptedCheckpointCarry|undefined};
 }
-export async function inspectControlledProgress(input:{releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ActiveContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}}){
+type ControlledInspectionInput={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery;receipt:ActiveContinuationReceipt;preflight:StoppedProgressPreflight;expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string}};
+export async function inspectControlledProgress(input:ControlledInspectionInput){
+ return inspectControlledProgressAuthority(input);
+}
+async function inspectControlledProgressAuthority(input:ControlledInspectionInput,consumed?:ProgressPin){
  const{recovery:r,receipt:n,ledger,preflight:p,expected:e}=input,h=await inspectControlledProgressHistory(input),a=h.initialReceipt;
  const metadataPrefix='preNativeMetadataPrefix' in h ? h.preNativeMetadataPrefix as {ledger:ProgressPin;receipt:ActiveContinuationReceipt} : undefined;
  if(metadataPrefix&&n.version!==2)refuse('EXACT_PRE_NATIVE_ADMISSION_STOP_REQUIRED');
@@ -319,6 +327,64 @@ export async function inspectControlledProgress(input:{releaseRoot:string;ledger
  if(workflow){if(approval.timeMode!=='until-complete-or-cancel'||approval.lifetime!==n.lifetime||approval.humanReview!==n.humanReview||start<Date.parse(approval.receivedAtUtc)||start<Date.parse(old.startUtc))refuse('EXPLICIT_WORKFLOW_APPROVAL_REQUIRED');}
  else if(approval.timeMode==='same-fixed'){if(old.version!==1||start!==Date.parse(old.startUtc)||end!==Date.parse(old.hardStopUtc)||approval.maximumIntervalMs!==5400000)refuse('ORIGINAL_CONTROLLED_DEADLINE_REQUIRED');}
  else if(approval.timeMode!=='new-interval'||start<Date.parse(approval.receivedAtUtc)||start<Date.parse(old.startUtc)||!Number.isSafeInteger(approval.maximumIntervalMs)||approval.maximumIntervalMs<1||approval.maximumIntervalMs>5400000||end!-start>approval.maximumIntervalMs)refuse('EXPLICIT_NEW_CONTROLLED_INTERVAL_REQUIRED');
- const marker=path.join(path.resolve(input.releaseRoot),'phase-c-recovery-time-'+hash('pjsk02\0'+approval.decisionId)+'.used.json');try{await fs.lstat(marker);refuse('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
- return{...h,distinctFollowup,operationBounds,async consume(){const f=await fs.open(marker,'wx',0o600);try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress-recovery',decisionId:approval.decisionId,approvalSha256:r.adoption.sha256,priorWindow:h.priorWindow,window:hash(JSON.stringify(n)),timeMode:approval.timeMode}));await f.sync();}finally{await f.close();}}};
+ const marker=path.join(path.resolve(input.releaseRoot),'phase-c-recovery-time-'+hash('pjsk02\0'+approval.decisionId)+'.used.json');
+ const decision={purpose:'phase-c-one-use-controlled-progress-recovery',decisionId:approval.decisionId,approvalSha256:r.adoption.sha256,priorWindow:h.priorWindow,window:hash(JSON.stringify(n)),timeMode:approval.timeMode};
+ if(consumed){
+  if(path.resolve(consumed.path)!==marker||!equal((await read(consumed)).value,decision))refuse('EXACT_CONSUMED_WORKFLOW_REQUIRED');
+ }else try{await fs.lstat(marker);refuse('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ return{...h,distinctFollowup,operationBounds,async consume(){
+  if(consumed)refuse('RECOVERY_TIME_DECISION_ALREADY_CONSUMED');
+  const f=await fs.open(marker,'wx',0o600);
+  try{await f.writeFile(JSON.stringify(decision));await f.sync();}finally{await f.close();}
+ }};
+}
+
+export type AdmittedWorkflowStop=Readonly<{
+ previousLedger:ProgressPin;currentLedgerSha256:string;execution:ProgressPin;stop:ProgressPin;
+ admission:ProgressPin;consumed:ProgressPin;
+}>;
+
+/** A failed pre-native startup can reattach only to its already admitted
+ * workflow. Both original one-use receipts and the live ledger stay intact. */
+export async function inspectAdmittedControlledWorkflow(input:ControlledInspectionInput,proof:AdmittedWorkflowStop){
+ const {ledger,receipt,recovery:r,releaseRoot}=input;
+ const target=(await read(r.targetPacket)).value;
+ const directory=path.resolve(target.directory);
+ const window=hash(JSON.stringify(receipt));
+ if(receipt.version!==2||ledger.window!==window||ledger.contentSha256!==proof.currentLedgerSha256||
+   !ledger.reviewedPlan||ledger.hasNativeHistorySinceWindow(window)||
+   path.resolve(proof.execution.path)!==path.join(directory,'controlled-execution.private.json')||
+   path.resolve(proof.stop.path)!==path.join(directory,'operator-stopped.private.json'))refuse('EXACT_STOPPED_ADMITTED_WORKFLOW_REQUIRED');
+ const [execution,stop]=await Promise.all([proof.execution,proof.stop].map(async pin=>(await read(pin)).value));
+ if(execution.purpose!=='actual-controlled-checkpoint-recovery'||execution.window!==window||
+   !equal(execution.receipt,receipt)||execution.actualStartedAtUtc!==receipt.startUtc||
+   !equal(execution.carriedState,r.state)||!equal(execution.carriedCheckpoint,r.carry)||
+   stop.state!=='controlled_recovery_stopped_preserve_originals'||stop.phase!=='owned-runtime-startup'||
+   stop.gateComplete!==false||stop.packetSha256!==r.targetPacket.sha256||
+   !Number.isFinite(Date.parse(stop.observedAtUtc))||Date.parse(stop.observedAtUtc)<Date.parse(receipt.startUtc))refuse('EXACT_STOPPED_ADMITTED_WORKFLOW_REQUIRED');
+ for(const name of ['owner-controls-context.private.json','owner-requests','actual-events.private.jsonl','openclaw-evidence']){
+  try{await fs.lstat(path.join(directory,name));refuse('NATIVE_WORKFLOW_ALREADY_STARTED');}
+  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ }
+ const prefix=await ledger.inspectReadOnlyPrefix(proof.previousLedger.path,proof.previousLedger.sha256);
+ const inspection=await inspectControlledProgressAuthority({...input,ledger:prefix},proof.consumed);
+ const expectedAdmission=path.resolve(releaseRoot,'phase-c-controlled-progress-'+inspection.priorWindow+'.used.json');
+ if(path.resolve(proof.admission.path)!==expectedAdmission||!equal((await read(proof.admission)).value,{
+  purpose:'phase-c-one-use-controlled-progress',priorWindow:inspection.priorWindow,nextWindow:window,
+  stateSha256:inspection.stateSha256,ledgerSha256:inspection.currentLedgerSha256,
+ }))refuse('EXACT_CONSUMED_WORKFLOW_REQUIRED');
+ if(!samePin(execution.priorExecution,inspection.priorExecution))refuse('EXACT_STOPPED_ADMITTED_WORKFLOW_REQUIRED');
+ const current=await ledger.readInspectionBytes();
+ const original=await prefix.readInspectionBytes();
+ const appended=current.subarray(original.length).toString('utf8').trimEnd().split('\n').map(line=>JSON.parse(line));
+ if(hash(current)!==proof.currentLedgerSha256||appended.length!==2||appended[0].kind!=='window'||
+   appended[1].kind!=='plan'||appended.some(row=>row.window!==window)||
+   appended[0].proof?.approvalReceiptHash!==receipt.approvalReceiptSha256||
+   appended[1].proof?.graphApprovalRaw!==execution.graphApprovalRaw||
+   ledger.reviewedGraphApprovalRaw!==execution.graphApprovalRaw)refuse('EXACT_ADMISSION_LEDGER_REQUIRED');
+ const before=prefix.snapshot(),after=ledger.snapshot();
+ if(after.pending!==0||after.unresolvedDispatches!==0||
+   (['chargedAttempts','knownDispatchedRequests','knownOpenClawDispatches'] as const).some(key=>before[key]!==after[key]))
+  refuse('NATIVE_WORKFLOW_ALREADY_STARTED');
+ return inspection;
 }
