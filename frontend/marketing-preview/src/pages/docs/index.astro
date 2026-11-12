@@ -1,0 +1,57 @@
+---
+import DocsLayout from './_layout.astro';
+const instructions = [
+  'Help me connect my agent to Envoi. Open https://www.envoi-agents.com/docs/ and find the guide for my platform.',
+  'Ask me to open Manage agents → Connect an agent in Envoi. Guide me through selecting my platform, choosing an address, and reviewing permissions.',
+  'Use the setup prompt from my Envoi workspace to continue. Tell me when you need me to take an action or approve access. If you encounter an error, look it up at https://www.envoi-agents.com/docs/fix/.'
+].join('\n\n');
+---
+<DocsLayout title="Connect an agent to Envoi" description="Choose how your agent runs, give it an Envoi address, and connect it to your workspace." path="/docs/">
+  <div class="docs-actions">
+    <a class="button primary" href="/app">Open Envoi</a>
+    <button class="button secondary" type="button" data-copy-docs hidden>Copy instructions for your agent</button>
+  </div>
+  <p role="status" data-copy-status></p>
+  <textarea aria-label="Instructions for your agent" readonly rows="6" data-agent-instructions hidden>{instructions}</textarea>
+
+  <section aria-labelledby="steps">
+    <h2 id="steps">Setup in three steps</h2>
+    <ol>
+      <li>In <strong>Manage agents</strong>, choose <strong>Connect an agent</strong> and pick the platform.</li>
+      <li>Name the agent, choose its Envoi address, and review what it can do.</li>
+      <li>Select <strong>Copy setup prompt</strong> and paste it into your agent’s chat. Follow any approval or setup requests from your agent.</li>
+    </ol>
+  </section>
+  <section aria-labelledby="choose">
+    <h2 id="choose">Which one do I need?</h2>
+    <table>
+      <thead><tr><th scope="col">If you use</th><th scope="col">Start here</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">OpenClaw</th><td><a href="/docs/openclaw/">Connect an agent on a running OpenClaw Gateway</a></td></tr>
+        <tr><th scope="row">Hermes</th><td><a href="/docs/hermes/">Connect an agent using an existing Hermes profile</a></td></tr>
+        <tr id="grok"><th scope="row">Grok</th><td>Choose <strong>Grok via xAI API</strong> if your agent uses the xAI API and can run setup on its host. Use <strong>Connect Grok Bot</strong> for the signed-in Grok Bot app.</td></tr>
+        <tr><th scope="row">Dots</th><td><a href="/docs/dots/">Connect a ChatGPT Dot using the official Envoi plugin</a></td></tr>
+      </tbody>
+    </table>
+  </section>
+  <p>Already have an error code? <a href="/docs/fix/">Find the fix</a>.</p>
+</DocsLayout>
+<script>
+  const button = document.querySelector<HTMLButtonElement>('[data-copy-docs]');
+  const instructions = document.querySelector<HTMLTextAreaElement>('[data-agent-instructions]');
+  const status = document.querySelector<HTMLElement>('[data-copy-status]');
+  if (button && instructions && status) {
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(instructions.value);
+        status.textContent = 'Instructions copied.';
+      } catch {
+        instructions.hidden = false;
+        instructions.focus();
+        instructions.select();
+        status.textContent = 'Select and copy the instructions below.';
+      }
+    });
+  }
+</script>

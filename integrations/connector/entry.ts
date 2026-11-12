@@ -1,5 +1,5 @@
 import { connectorMain } from './cli';
-import { connectorErrorMessage } from './error';
+import { connectorFailureMessage } from './error';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -23,8 +23,9 @@ function directlyExecuted(): boolean {
 }
 
 if (directlyExecuted()) {
-  connectorMain().catch(error => {
-    process.stderr.write(`${connectorErrorMessage(error)}\n`);
+  let apiUrl: string | undefined;
+  connectorMain(undefined, value => { apiUrl = value; }).catch(error => {
+    process.stderr.write(`${connectorFailureMessage(error, apiUrl)}\n`);
     process.exitCode = 1;
   });
 }

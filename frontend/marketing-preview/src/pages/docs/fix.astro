@@ -1,0 +1,16 @@
+---
+import DocsLayout from './_layout.astro';
+import fixes from '../../data/setup-fixes.json';
+---
+<DocsLayout title="Problems and fixes" description="Search for the error code shown by Envoi or your agent, or browse the list below." path="/docs/fix/">
+  <div class="docs-fixes">
+    {fixes.map(fix => <section id={fix.code} aria-labelledby={`title-${fix.code}`}>
+      <h2 id={`title-${fix.code}`}>{fix.title}</h2>
+      <p class="docs-fix-meta"><code>{fix.code}</code><span>{fix.appliesTo.join(' · ')}</span></p>
+      <dl>
+        <dt>What happened</dt><dd>{fix.whatHappened}</dd>
+        <dt>What to do</dt><dd>{fix.whatToDo}</dd>
+      </dl>
+    </section>)}
+  </div>
+</DocsLayout>

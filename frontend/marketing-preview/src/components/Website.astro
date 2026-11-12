@@ -16,13 +16,17 @@ import Team from './Team.astro';
 import AgentOrbit from './AgentOrbit.astro';
 import MonadPermissions from './MonadPermissions.astro';
 import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
-interface Props { page: 'about' | 'product' | 'account'; }
-const { page } = Astro.props;
+type Props = { page: 'about' | 'product' | 'account' }
+  | { page: 'docs'; title: string; description: string; path: string };
+const props = Astro.props;
+const { page } = props;
 const isProduct = page === 'product';
 const isAbout = page === 'about';
 const isAccount = page === 'account';
-const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi', account: 'Create your account | Envoi' }[page];
-const canonicalUrl = `https://www.envoi-agents.com${isProduct ? '/product/' : isAccount ? '/create-account/' : '/'}`;
+const isDocs = props.page === 'docs';
+const pageTitle = isDocs ? `${props.title} | Envoi Docs` : { about: 'About | Envoi', product: 'Product | Envoi', account: 'Create your account | Envoi' }[props.page];
+const canonicalUrl = `https://www.envoi-agents.com${isDocs ? props.path : isProduct ? '/product/' : isAccount ? '/create-account/' : '/'}`;
+const description = isDocs ? props.description : isAccount ? 'Create your Envoi account.' : 'Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.';
 const withAppReturn = (url: string) => url.includes('returnTo=') ? url : `${url}${url.includes('?') ? '&' : '?'}returnTo=%2Fapp`;
 const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-in');
 const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-up');
@@ -41,12 +45,12 @@ const features = [
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script is:inline set:html={themeBootstrap}></script>
     <title>{pageTitle}</title>
-    <meta name="description" content={isAccount ? 'Create your Envoi account.' : 'Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.'} />
+    <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
     <meta name="theme-color" content="#f6f9fc" />
     <meta name="robots" content="noindex, nofollow" />
-    <meta property="og:title" content="Envoi" />
-    <meta property="og:description" content="Infrastructure that allows independently owned agents to work together, regardless of where they run." />
+    <meta property="og:title" content={isDocs ? pageTitle : 'Envoi'} />
+    <meta property="og:description" content={isDocs ? description : 'Infrastructure that allows independently owned agents to work together, regardless of where they run.'} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content="https://www.envoi-agents.com/og-image.png" />
@@ -58,7 +62,7 @@ const features = [
     <header class="site-header" data-header>
       <div class="container header-inner">
         <a class="wordmark" href="/" aria-label="Envoi home"><BrandLogo mark decorative /></a>
-        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a></nav>
+        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a>{isDocs && <a href="/docs/" aria-current="true">Docs</a>}</nav>
         <div class="header-auth-actions">
           <a class="header-auth-link" href={signInUrl} data-analytics-auth="sign-in">Log in</a>
           <a class="header-auth-link header-auth-create" href={signUpUrl} data-analytics-auth="sign-up">Create your account <Icon name="arrow" size={15} /></a>
@@ -67,6 +71,7 @@ const features = [
       </div>
     </header>
     <main id="main">
+      {isDocs && <slot />}
       {isAbout && <p class="auth-error-notice container" data-auth-error hidden role="alert">Sign in failed. Please try again.</p>}
       {isAbout && <section id="how-it-works" class="hero container" aria-labelledby="hero-title">
         <div class="hero-ambient" aria-hidden="true"><AgentOrbit /></div>
@@ -125,10 +130,12 @@ const features = [
         </div>
       </section>}
 
-      {!isAccount && <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={createAccountUrl}>{isAbout ? 'Start now' : 'Create your account'} <Icon name="arrow" size={18} /></a></div></section>}
+      {!isAccount && !isDocs && <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={createAccountUrl}>{isAbout ? 'Start now' : 'Create your account'} <Icon name="arrow" size={18} /></a></div></section>}
       {isAbout && <Team />}
     </main>
-    {isAccount ? <footer class="account-footer container">© {new Date().getFullYear()} Envoi</footer> : <Footer isLanding={isAbout} signInUrl={signInUrl} signUpUrl={createAccountUrl} />}
+    {isDocs ? <footer class="docs-footer container"><span>© {new Date().getFullYear()} Envoi</span><a href="/llms.txt">Plain-text index for agents</a></footer>
+      : isAccount ? <footer class="account-footer container">© {new Date().getFullYear()} Envoi</footer>
+      : <Footer isLanding={isAbout} signInUrl={signInUrl} signUpUrl={createAccountUrl} />}
     {isAccount && <script is:inline>
       fetch('/api/auth/me', { credentials: 'same-origin' }).then(response => {
         if (!response.ok) return;

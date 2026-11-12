@@ -2096,6 +2096,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       <FormError message={error} />
       <details className="setup-details setup-help">
         <summary>{setupHelpLabel}</summary>
+        <p><a href={selectedRuntime === 'grok' ? '/docs/#grok' : `/docs/${selectedRuntime}/`} target="_blank" rel="noreferrer">Read the setup guide</a></p>
         {canUseHandoff && handoff && <section className="setup-help-option">
           <label className="field"><strong>View setup prompt</strong><textarea readOnly value={prompt} rows={9} onFocus={event => event.currentTarget.select()} /></label>
           <button className="button secondary" type="button" onClick={downloadAgentSkill}><Download size={16} />Download agent skill file</button>

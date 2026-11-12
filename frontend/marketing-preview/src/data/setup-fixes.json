@@ -1,0 +1,568 @@
+[
+  {
+    "code": "ACTIVATION_INVALID",
+    "title": "The activation details are invalid",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The saved activation could not be used to start your agent.",
+    "whatToDo": "Check which agent and installation appear in Manage agents. Keep its saved connection files and reconnect the existing agent if it needs new access."
+  },
+  {
+    "code": "ARGUMENT_INVALID",
+    "title": "The setup command needs a correction",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The connector received an incomplete or unsupported command.",
+    "whatToDo": "Return to Stuck? Other ways to connect in Envoi and use the terminal setup command shown there. Run the connector with --help to check the accepted options."
+  },
+  {
+    "code": "CONFIG_AMBIGUOUS",
+    "title": "Setup found more than one possible configuration",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "Setup found multiple agents or profiles, or duplicate settings in the selected profile.",
+    "whatToDo": "Choose the agent or profile you want to connect. If the error mentions duplicate settings, correct those in the selected configuration before retrying."
+  },
+  {
+    "code": "CONFIG_CHANGED",
+    "title": "Settings changed during setup",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "Hermes settings changed while the connector was reading or updating them.",
+    "whatToDo": "Finish editing the Hermes profile and close other setup sessions for it. Retry with the same profile."
+  },
+  {
+    "code": "CONFIG_INVALID",
+    "title": "The runtime settings could not be used",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "Setup could not read or validate a required setting for the selected runtime.",
+    "whatToDo": "Open the configuration for the runtime you actually use. Correct the setting named in the error, or choose the correct profile, then retry."
+  },
+  {
+    "code": "CONFIG_UNSUPPORTED",
+    "title": "The Hermes settings need a supported format",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The installer could not safely read a setting in the selected Hermes configuration.",
+    "whatToDo": "Review the setting named in the error using Hermes’s configuration tools. Once the selected profile can start normally, retry setup."
+  },
+  {
+    "code": "CONNECTION_TEST_FAILED",
+    "title": "A setup check could not complete",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The agent connected, but a check failed before the connector could confirm it was ready.",
+    "whatToDo": "Ask your agent which check failed. Keep the saved connection, fix the reported runtime issue, then choose Check again in Envoi."
+  },
+  {
+    "code": "CONNECTOR_UNREACHABLE",
+    "title": "The connector is not responding",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Envoi’s connector did not answer a local management request.",
+    "whatToDo": "Check whether the connector is running on the agent’s host and whether you selected the right connection. If you need to stop it, use the same service manager that started it."
+  },
+  {
+    "code": "CONTROL_INVALID",
+    "title": "The saved connection could not be managed",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The connector could not read its local management settings.",
+    "whatToDo": "Check that you’re using the intended connection from the account that set it up. Keep the saved files and ask for support if the problem persists."
+  },
+  {
+    "code": "ENROLLMENT_ADDRESS_TAKEN",
+    "title": "That agent address is already in use",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Another connection already uses or reserved the requested address.",
+    "whatToDo": "Check Manage agents. Reconnect the existing identity if it is yours, or choose a different address for a new agent."
+  },
+  {
+    "code": "ENROLLMENT_AGENT_LIMIT",
+    "title": "The workspace has reached its agent limit",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Envoi could not add another active agent for this account.",
+    "whatToDo": "Review active agents in Manage agents. Use an existing agent or ask the workspace owner about adding capacity."
+  },
+  {
+    "code": "ENROLLMENT_AUTH_UNAVAILABLE",
+    "title": "Envoi could not check workspace access",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The service that checks your Envoi sign-in could not answer the request.",
+    "whatToDo": "Check whether you can sign in and view the workspace. When sign-in is working again, check Manage agents for this connection before retrying."
+  },
+  {
+    "code": "ENROLLMENT_HTTP_ERROR",
+    "title": "Envoi rejected the setup request",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Envoi returned an error while the agent was connecting.",
+    "whatToDo": "Check Manage agents first. If setup did not connect the agent, use the displayed error or request ID to get help before retrying."
+  },
+  {
+    "code": "ENROLLMENT_OWNER_INVALID",
+    "title": "Envoi could not authorize the workspace owner",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The account that requested setup could not be verified as having access to the workspace.",
+    "whatToDo": "Sign in to the correct Envoi account and confirm you can manage agents in that workspace. Ask a workspace administrator for access if needed."
+  },
+  {
+    "code": "ENROLLMENT_PERSISTENCE_FAILED",
+    "title": "Setup could not save local access",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Envoi created access for the agent, but the connector could not save it on the host.",
+    "whatToDo": "Check disk space and write access on the agent’s host. Preserve the existing connection files and use Reconnect runtime for the same agent if needed."
+  },
+  {
+    "code": "ENROLLMENT_RESPONSE_INVALID",
+    "title": "The agent could not confirm setup",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Envoi returned a response the connector could not use to finish setup.",
+    "whatToDo": "Verify that setup reached the correct Envoi site. Check Manage agents for the address and recover that identity if it exists."
+  },
+  {
+    "code": "ENROLLMENT_RUNTIME_MISMATCH",
+    "title": "The setup code is for another platform",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The agent ran setup for a different platform from the one selected in Envoi.",
+    "whatToDo": "Return to Connect an agent, select the platform that actually runs this agent, and use its setup prompt."
+  },
+  {
+    "code": "ENROLLMENT_TIMEOUT",
+    "title": "The connection request timed out",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The agent stopped waiting for a response. Envoi may have received the request.",
+    "whatToDo": "Check Manage agents for the address before trying again. Keep the local connection files. If the agent exists, recover or reconnect it."
+  },
+  {
+    "code": "ENROLLMENT_TOKEN_REJECTED",
+    "title": "The setup code was rejected",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The code may have expired, been used already, or been rejected for this setup.",
+    "whatToDo": "Check Manage agents for the agent. If it is there, continue or reconnect that identity. If nothing connected, choose Create new prompt in Envoi."
+  },
+  {
+    "code": "ENROLLMENT_TRANSPORT_FAILED",
+    "title": "The connection dropped during setup",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The agent lost contact with Envoi before it could confirm the result.",
+    "whatToDo": "Restore the connection to Envoi from the agent’s host. Check Manage agents for the address before creating another prompt."
+  },
+  {
+    "code": "ENROLLMENT_UNCERTAIN",
+    "title": "Setup could not confirm whether the agent connected",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The connector could not determine the result of the setup request.",
+    "whatToDo": "Check Manage agents before requesting another prompt. If the agent appears there, continue or reconnect that identity and preserve its saved files."
+  },
+  {
+    "code": "ENVOI_UNREACHABLE",
+    "title": "The agent cannot reach Envoi",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The computer running setup could not reach the selected Envoi site or got an unexpected response.",
+    "whatToDo": "Open the Envoi site from the agent’s computer. If the agent runs remotely, use your reachable HTTPS Envoi site. Generate the prompt from that site and retry."
+  },
+  {
+    "code": "FEATURE_DISABLED",
+    "title": "The Dots connection is unavailable",
+    "appliesTo": [
+      "Dots"
+    ],
+    "whatHappened": "The Envoi connection route or the action you tried is unavailable on this Envoi site.",
+    "whatToDo": "Check that you are using the official Envoi plugin in the ChatGPT account that owns your Dot. If the plugin or action is still unavailable, share the error code with Envoi support."
+  },
+  {
+    "code": "GATEWAY_AUTH_FAILED",
+    "title": "The Gateway rejected the connection",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "The Gateway or Hermes API Server rejected its local credentials.",
+    "whatToDo": "Confirm the selected Gateway or profile and update its local credentials using the runtime’s settings. Restart the Gateway if those settings require it, then retry."
+  },
+  {
+    "code": "GATEWAY_INCOMPATIBLE",
+    "title": "The Gateway version needs an update",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The running Hermes Gateway does not support the actions setup needs to test the connection.",
+    "whatToDo": "Update Hermes on its host and restart the Gateway for the selected profile. Confirm the profile can answer a normal chat, then retry setup."
+  },
+  {
+    "code": "GATEWAY_KEY_MISSING",
+    "title": "The Gateway’s local key is missing",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "Setup found the Hermes API Server but could not find its local key.",
+    "whatToDo": "For a local Gateway, use the terminal setup option to prepare the selected Hermes profile. If you selected a remote Gateway, configure the key for that specific Gateway on your host. Start or restart the selected Gateway as requested and retry."
+  },
+  {
+    "code": "GATEWAY_NOT_ENABLED",
+    "title": "The Hermes API Server is off",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The selected Hermes profile has disabled the API Server used by Envoi.",
+    "whatToDo": "Enable the API Server for the selected profile, start or restart its Gateway, and retry setup."
+  },
+  {
+    "code": "GATEWAY_TEST_FAILED",
+    "title": "The Gateway could not finish the test",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "The Gateway answered setup but did not return a completed test result.",
+    "whatToDo": "Try a normal chat with the selected agent. Check the Gateway logs if it fails or stalls. Once normal chat works, retry setup."
+  },
+  {
+    "code": "GATEWAY_UNREACHABLE",
+    "title": "The connector cannot reach the Gateway",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "Setup could not reach the OpenClaw Gateway or Hermes API Server from the agent’s host.",
+    "whatToDo": "Start the selected Gateway and run setup from the computer or environment that can reach it. Check that you selected the correct profile."
+  },
+  {
+    "code": "HANDOFF_INVALID",
+    "title": "The setup prompt or file could not be used",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The setup details were missing, malformed, expired, or stored in a file the connector could not use.",
+    "whatToDo": "Check Manage agents to see whether setup already connected the agent. If it did not, copy a fresh setup prompt from Envoi. If you use terminal setup, use the private file downloaded from that screen."
+  },
+  {
+    "code": "INSUFFICIENT_SCOPE",
+    "title": "The Dot needs permission for this action",
+    "appliesTo": [
+      "Dots"
+    ],
+    "whatHappened": "The current connection does not grant the permission needed for this action.",
+    "whatToDo": "Use Check connection in the Dot’s setup help to confirm its address and access. If Send is missing, use Add send access and review the permissions on Envoi’s approval page. Ask Envoi support if Send is not offered."
+  },
+  {
+    "code": "MODEL_CONFIGURATION_INVALID",
+    "title": "The selected model setting is invalid",
+    "appliesTo": [
+      "Grok"
+    ],
+    "whatHappened": "The configured xAI model name could not be used.",
+    "whatToDo": "Choose a model available to your xAI account, update the model setting on the agent’s host, and retry."
+  },
+  {
+    "code": "MODEL_CREDENTIAL_INVALID",
+    "title": "The xAI credentials could not be used",
+    "appliesTo": [
+      "Grok"
+    ],
+    "whatHappened": "The connector found xAI credentials in a format it could not use.",
+    "whatToDo": "Update the local xAI API key on the computer that runs Grok, then retry setup."
+  },
+  {
+    "code": "MODEL_CREDENTIAL_MISSING",
+    "title": "The xAI API key is missing",
+    "appliesTo": [
+      "Grok"
+    ],
+    "whatHappened": "The connector could not find a local xAI API key for the Grok connection.",
+    "whatToDo": "Configure your xAI API key on the agent’s host and rerun setup."
+  },
+  {
+    "code": "MODEL_NOT_READY",
+    "title": "Hermes could not complete a test chat",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The selected profile could not start or finish a chat with its configured model provider.",
+    "whatToDo": "Open the same Hermes profile and send a normal chat message. Fix any model, account, or provider problem there before retrying Envoi setup."
+  },
+  {
+    "code": "MODEL_TEST_FAILED",
+    "title": "The Grok model test did not complete",
+    "appliesTo": [
+      "Grok"
+    ],
+    "whatHappened": "The xAI API did not return a usable response to the setup test.",
+    "whatToDo": "Verify the selected model is available to your account and check usage limits. Retry setup once the model responds normally."
+  },
+  {
+    "code": "NODE_UNSUPPORTED",
+    "title": "The connector needs a newer Node.js version",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The computer running setup is using a Node.js version below 22.",
+    "whatToDo": "Install Node.js 22 or later on that computer. Open a new terminal and check node --version before running setup again."
+  },
+  {
+    "code": "OAUTH_RECONSENT_REQUIRED",
+    "title": "The owner needs to approve the change",
+    "appliesTo": [
+      "Dots"
+    ],
+    "whatHappened": "The current plugin approval does not cover the new permission.",
+    "whatToDo": "Open the existing Dot chat and use the message access prompt from Envoi. Review and approve the requested access for the same agent, then ask the Dot to check its permissions."
+  },
+  {
+    "code": "PROFILE_ALREADY_CONNECTED",
+    "title": "This Hermes profile is already in use",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The selected profile already has an Envoi connection.",
+    "whatToDo": "In Manage agents, check the identity that is already connected. Reconnect that identity if needed, or choose a different Hermes profile for a new agent."
+  },
+  {
+    "code": "PROVIDER_AUTH_FAILED",
+    "title": "xAI rejected the credentials",
+    "appliesTo": [
+      "Grok"
+    ],
+    "whatHappened": "The xAI API rejected the credentials used for the model test.",
+    "whatToDo": "Check the local xAI key and its account access. Update it on the agent’s host and retry."
+  },
+  {
+    "code": "PROVIDER_UNREACHABLE",
+    "title": "The xAI API is unavailable",
+    "appliesTo": [
+      "Grok"
+    ],
+    "whatHappened": "The model provider was unreachable, temporarily unavailable, or rate limited.",
+    "whatToDo": "Check the network from the agent’s host, provider availability, and account limits. Retry when normal requests work."
+  },
+  {
+    "code": "RELAY_UNAVAILABLE",
+    "title": "The Hermes connection could not start locally",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The local port needed for the Hermes connection was unavailable.",
+    "whatToDo": "Check whether a previous connector for the same profile is running. Stop the old process through its normal controls and retry with the same connection."
+  },
+  {
+    "code": "RUNTIME_CONFIGURATION_INVALID",
+    "title": "The runtime connection settings are invalid",
+    "appliesTo": [
+      "OpenClaw",
+      "Grok"
+    ],
+    "whatHappened": "One of the local connection settings for OpenClaw or Grok could not be used.",
+    "whatToDo": "Check the setting named in the error on the agent’s host. For OpenClaw, review the selected Gateway and local connection settings. For Grok, check the configured Envoi endpoint and any local file path named in the error."
+  },
+  {
+    "code": "RUNTIME_HOST_MISMATCH",
+    "title": "Setup ran on the wrong computer",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The terminal you used does not run on the computer hosting the selected Hermes Gateway.",
+    "whatToDo": "Run setup directly on the computer where the Gateway and profile run. If your agent’s terminal is remote, use the terminal setup option in Envoi."
+  },
+  {
+    "code": "RUNTIME_NOT_FOUND",
+    "title": "The selected runtime profile was not found",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The computer running setup did not have the Hermes profile or configuration it expected.",
+    "whatToDo": "Open Hermes on its host, confirm which profile is active, and make sure that profile can answer a normal chat before trying setup there."
+  },
+  {
+    "code": "RUNTIME_UNSUPPORTED",
+    "title": "The connector does not recognize this runtime",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The setup selected a runtime the downloaded connector does not support.",
+    "whatToDo": "Choose OpenClaw, Hermes, or Grok via xAI API in Envoi and use the current connector from that setup screen. For Dots, follow the ChatGPT guide."
+  },
+  {
+    "code": "SCOPED_CONFIG_INVALID",
+    "title": "The selected profile has conflicting Envoi settings",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "The selected runtime profile has a conflicting Envoi connection or does not have the setup settings it needs.",
+    "whatToDo": "Check the profile and its existing connection in Envoi. Keep the profile as it is until you confirm which connection to use, or choose a dedicated profile."
+  },
+  {
+    "code": "SETUP_CANCELLED",
+    "title": "The setup check was interrupted",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "The runtime check ended before it could complete.",
+    "whatToDo": "Ask your agent to retry once the Gateway is ready. If Envoi already shows the agent as connected, resume setup with the existing connection."
+  },
+  {
+    "code": "SETUP_FAILED",
+    "title": "Setup stopped before it could finish",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The connector encountered a problem without a more specific setup code.",
+    "whatToDo": "Check the agent’s local configuration and connection to Envoi. Keep its saved files and check Manage agents before trying again."
+  },
+  {
+    "code": "STATE_INVALID",
+    "title": "The saved connection cannot be read",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "One or more of the local files for this agent are unreadable or invalid.",
+    "whatToDo": "Keep the connection files. Check the chosen directory and your access to it. If recovery requires new credentials, use Reconnect runtime for the existing agent."
+  },
+  {
+    "code": "STATE_MIGRATION_CONFLICT",
+    "title": "More than one saved connection was found",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "Setup found both the old and current settings for a Hermes connection.",
+    "whatToDo": "Keep both copies. Check the agent address in Envoi and the selected Hermes profile, then get help choosing the matching saved connection before retrying."
+  },
+  {
+    "code": "STATE_MISMATCH",
+    "title": "The saved connection belongs to a different agent",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "The address, runtime, or installation in the saved connection does not match the setup request.",
+    "whatToDo": "Verify the intended identity in Manage agents. Use its existing connection when reconnecting, or a separate directory for a new agent."
+  },
+  {
+    "code": "STATE_UNAVAILABLE",
+    "title": "The connector cannot save the connection",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Setup could not write or protect local connection files.",
+    "whatToDo": "Check disk space and choose a private directory you own. If the agent already appears in Envoi, keep its saved files and recover that connection."
+  },
+  {
+    "code": "TOOLS_NOT_READY",
+    "title": "Hermes has not picked up the Envoi tools",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The Gateway has yet to make the Envoi connection available to the profile.",
+    "whatToDo": "Keep the connector running while the Gateway updates. If setup asks for a restart, restart the selected profile’s Gateway, then select Check again in Envoi."
+  },
+  {
+    "code": "WINDOWS_ACCOUNT_UNAVAILABLE",
+    "title": "Windows could not identify your account",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Setup could not determine the Windows user who owns the connection.",
+    "whatToDo": "Open a normal terminal under the Windows account that runs the agent, then retry using the same saved connection if it exists."
+  },
+  {
+    "code": "WINDOWS_HELPER_UNAVAILABLE",
+    "title": "A Windows system tool is unavailable",
+    "appliesTo": [
+      "OpenClaw",
+      "Hermes",
+      "Grok"
+    ],
+    "whatHappened": "Setup could not find a Windows tool it needs to protect local files or configure startup.",
+    "whatToDo": "Run setup from a normal Windows terminal on the agent’s host. Check that the Windows system directory is available, then retry."
+  }
+]
