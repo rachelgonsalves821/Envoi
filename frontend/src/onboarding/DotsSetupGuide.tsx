@@ -3,12 +3,12 @@ import { dotsDiagnosticPrompt, dotsMessageAccessPrompt, dotsMonitoringPrompt, do
 import type { Agent } from '../types';
 import { canReconnectAgent } from './types';
 
-export function DotsSetupGuide({ origin, name, address = '', reconnect = false }: {
-  origin: string; name?: string; address?: string; reconnect?: boolean;
+export function DotsSetupGuide({ origin, name, address = '', reconnect = false, savedSetup = false }: {
+  origin: string; name?: string; address?: string; reconnect?: boolean; savedSetup?: boolean;
 }) {
   const [copied, setCopied] = useState('');
   const [error, setError] = useState('');
-  const connectionPrompt = dotsSetupPrompt(origin, name ?? 'my Dot', address || 'the address I approve', reconnect);
+  const connectionPrompt = dotsSetupPrompt(origin, name ?? 'my Dot', address || 'the address I approve', reconnect, savedSetup);
   const accessPrompt = dotsMessageAccessPrompt(address);
   const primaryPrompt = reconnect ? accessPrompt : connectionPrompt;
   const primaryLabel = reconnect ? 'Message access prompt' : 'Setup prompt';

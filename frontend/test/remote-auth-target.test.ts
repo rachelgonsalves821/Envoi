@@ -4,6 +4,7 @@ import { contractRegistry, loadContractFixture } from '../../integrations/contra
 import { ConsentTargetForm, type ConsentTargetFormProps } from '../src/onboarding/ConsentTargetForm';
 import { ClaimController } from '../src/onboarding/claim-state';
 import type { OnboardingApi } from '../src/onboarding/types';
+import type { Inbox } from '../src/types';
 
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0 }));
 vi.mock('react', async importOriginal => {
@@ -86,4 +87,34 @@ it('selects the newest active installation and refuses submission when the form 
   tree = render({ ...props, disabled: true }); controls(tree, 'form')[0].props.onSubmit!({ preventDefault() {} }); expect(onApprove).not.toHaveBeenCalled();
   tree = render(props); controls(tree, 'form')[0].props.onSubmit!({ preventDefault() {} });
   expect(onApprove.mock.calls[0][0].target).toEqual({ kind: 'existing_agent', agentId: revoked.id, replacesInstallationId: 'installation_newer' });
+});
+
+it('prefills editable saved values and includes the setup ID after the owner chooses a free address', () => {
+  const savedSetup = {
+    setupId: 'setup_milo', workspaceInboxId: 'inbox_saved', workspaceName: 'Saved workspace',
+    name: 'Milo', localPart: 'milo', address: 'milo@envoi-agents.com', expiresAt: '2026-11-12T15:30:00.000Z',
+    permissions: ['receive_agent_messages', 'send_agent_messages', 'create_assets'],
+    notRequested: ['send_agent_messages'], addressAvailable: false
+  } satisfies NonNullable<ConsentTargetFormProps['savedSetup']>;
+  const onApprove = vi.fn().mockResolvedValue(true);
+  const props: ConsentTargetFormProps = {
+    workspaces: [{ id: 'inbox_other', name: 'Other workspace' }, { id: 'inbox_saved', name: 'Saved workspace' }] as Inbox[],
+    agents: [], requested: ['receive_agent_messages', 'create_assets', 'execute_cases'], grantable: ['receive_agent_messages', 'execute_cases'],
+    savedSetup, disabled: false, onApprove
+  };
+  let tree = render(props);
+  expect(controls(tree, 'select')[0].props.value).toBe('inbox_saved');
+  const inputs = controls(tree, 'input');
+  expect(inputs.some(input => input.props.value === 'Milo')).toBe(true);
+  const checkboxes = inputs.filter(input => input.props.type === 'checkbox');
+  expect(checkboxes.map(input => [input.props.checked, input.props.disabled])).toEqual([[true, true], [false, true], [false, false]]);
+  controls(tree, 'form')[0].props.onSubmit!({ preventDefault() {} });
+  expect(onApprove).not.toHaveBeenCalled();
+  inputs.find(input => input.props.value === 'milo')!.props.onChange!({ target: { value: 'milo-new' } });
+  tree = render(props);
+  controls(tree, 'form')[0].props.onSubmit!({ preventDefault() {} });
+  expect(onApprove).toHaveBeenCalledExactlyOnceWith({
+    target: { kind: 'new_agent', workspaceInboxId: 'inbox_saved', name: 'Milo', localPart: 'milo-new' },
+    savedSetupId: 'setup_milo', grantedPermissions: ['receive_agent_messages'], policyProfile: 'default'
+  });
 });

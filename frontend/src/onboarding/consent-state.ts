@@ -6,6 +6,11 @@ import type { ConsentApproval, ConsentApproved, ConsentDecided, ConsentView, Rem
 function validView(raw: unknown): raw is ConsentView {
   if (!validate.consentView(raw)) return false;
   const view = raw as ConsentView;
+  const { savedSetup } = view;
+  if (savedSetup) {
+    const missing = savedSetup.permissions.filter(permission => !view.requestedPermissions.includes(permission));
+    if (missing.length !== savedSetup.notRequested.length || missing.some(permission => !savedSetup.notRequested.includes(permission))) return false;
+  }
   return hasRemotePermissions(view.requestedPermissions) && hasRemotePermissions(view.grantablePermissions)
     && (!view.decision || view.decision.status === 'denied' || (remoteGrantAllowed(view.decision.effectivePermissions) && remoteTargetValid(view.decision)));
 }
@@ -99,6 +104,7 @@ export class ConsentController {
   async approve(body: ConsentApproval) {
     if (!this.allowed() || this.decision || this.state.outcome || !this.state.view || Date.parse(this.state.view.expiresAt) <= this.now()) return false;
     if (!validate.consentApproveRequest(body) || !remoteGrantAllowed(body.grantedPermissions)
+      || (body.savedSetupId && (body.target.kind !== 'new_agent' || body.savedSetupId !== this.state.view.savedSetup?.setupId))
       || body.grantedPermissions.some(permission => !this.state.view!.requestedPermissions.includes(permission) || !this.state.view!.grantablePermissions.includes(permission))) return false;
     this.decision = { kind: 'approve', body: structuredClone(body) };
     return this.sendDecision();
@@ -125,13 +131,14 @@ export class ConsentController {
       if (decision.kind === 'approve' ? !validate.consentApproved(raw) : !validate.consentDenied(raw)) this.invalid();
       const response = raw as ConsentApproved;
       if (decision.kind === 'approve' && (!remoteTargetMatches(decision.body.target, response)
+        || response.savedSetup?.setupId !== decision.body.savedSetupId
         || !remoteGrantAllowed(response.effectivePermissions, decision.body.grantedPermissions))) this.invalid();
       const redirect = new URL(response.redirectTo);
       const client = this.state.view!.client;
       if (redirect.host !== client.redirectHost || redirect.username || redirect.password || redirect.hash
         || (client.loopbackRedirect ? redirect.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(redirect.hostname) : redirect.protocol !== 'https:')) this.invalid();
       const outcome = decision.kind === 'approve'
-        ? (({ redirectTo: _redirect, ...safe }) => ({ ...safe, status: 'pending_exchange' as const }))(response)
+        ? (({ redirectTo: _redirect, savedSetup: _savedSetup, ...safe }) => ({ ...safe, status: 'pending_exchange' as const }))(response)
         : { status: 'denied' as const };
       if (outcome.status === 'pending_exchange' && Date.parse(outcome.codeExpiresAt) <= this.now()) {
         this.decision = null; this.update({ outcome: { ...outcome, status: 'expired' }, phase: 'decided', busy: false, uncertain: false }); return true;

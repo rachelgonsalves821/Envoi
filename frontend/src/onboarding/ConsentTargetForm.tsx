@@ -5,29 +5,37 @@ import { ClaimProblemNotice, useClaimClock } from './ClaimPage';
 import { ClaimController, newestActiveInstallation } from './claim-state';
 import { canReconnectAgent, permissionLabel, routeLabel, type ClaimAgent, type OnboardingApi, type RegistrationPermission } from './types';
 import type { ConsentApproval } from './remote-auth-types';
+import type { ConsentSavedSetup } from './saved-setup';
 
 export interface ConsentTargetFormProps {
   workspaces: Inbox[]; agents: ClaimAgent[]; requested: RegistrationPermission[]; grantable: RegistrationPermission[];
-  targetStatus?: 'loading' | 'error';
+  targetStatus?: 'loading' | 'error'; savedSetup?: ConsentSavedSetup;
   disabled: boolean; onApprove: (body: ConsentApproval) => Promise<unknown>; onDeny?: () => void; client?: OnboardingApi; controller?: ClaimController;
 }
 /** The server remains authoritative for management, eligibility, slots and staleness. */
-export function ConsentTargetForm({ workspaces, agents, requested, grantable, targetStatus, disabled, onApprove, onDeny, client = onboardingApi, controller: supplied }: ConsentTargetFormProps) {
+export function ConsentTargetForm({ workspaces, agents, requested, grantable, savedSetup, targetStatus, disabled, onApprove, onDeny, client = onboardingApi, controller: supplied }: ConsentTargetFormProps) {
   const replacement = useMemo(() => supplied ?? new ClaimController(client), [client, supplied]);
   const review = useSyncExternalStore(replacement.subscribe, replacement.getSnapshot, replacement.getSnapshot);
   useEffect(() => () => replacement.dispose(), [replacement]);
   const now = useClaimClock(replacement.now);
   const [kind, setKind] = useState<'new_agent' | 'existing_agent'>('new_agent');
-  const [selectedWorkspaceId, setWorkspaceId] = useState('');
-  const workspaceId = workspaces.find(workspace => workspace.id === selectedWorkspaceId)?.id ?? workspaces[0]?.id ?? '';
-  const [name, setName] = useState(''); const [localPart, setLocalPart] = useState('');
+  const [selectedWorkspaceId, setWorkspaceId] = useState(savedSetup?.workspaceInboxId ?? '');
+  const workspaceId = selectedWorkspaceId
+    ? workspaces.find(workspace => workspace.id === selectedWorkspaceId)?.id ?? (savedSetup ? '' : workspaces[0]?.id ?? '')
+    : workspaces[0]?.id ?? '';
+  const [name, setName] = useState(savedSetup?.name ?? '');
+  const [localPart, setLocalPart] = useState(savedSetup?.localPart ?? '');
   const [agentId, setAgentId] = useState('');
-  const [permissions, setPermissions] = useState<RegistrationPermission[]>(requested.filter(value => grantable.includes(value)));
+  const defaultPermissions = requested.filter(value => grantable.includes(value)
+    && (!savedSetup || savedSetup.permissions.some(permission => permission === value)));
+  const [permissions, setPermissions] = useState<RegistrationPermission[]>(defaultPermissions);
   const eligible = agents.filter(canReconnectAgent);
   const agent = eligible.find(value => value.id === agentId);
   const current = review.installations ? newestActiveInstallation(review.installations) : null;
   const ready = Boolean(agent && review.replacementScope?.agentId === agent.id && review.installations && review.replacementConfirmed);
   const locked = disabled || review.busy || review.blocked || review.retryAt > now;
+  const addressTaken = savedSetup?.addressAvailable === false && localPart.trim() === savedSetup.localPart;
+  const canCreate = Boolean(workspaceId && name.trim() && localPart.trim() && !addressTaken);
   function chooseAgent(id: string) {
     setAgentId(id); const selected = eligible.find(item => item.id === id);
     setPermissions(requested.filter(value => grantable.includes(value) && (value === 'receive_agent_messages' || selected?.permissions.includes(value))));
@@ -35,22 +43,25 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, ta
   }
   return <form className="onboarding-approval-form" onSubmit={event => {
     event.preventDefault(); if (locked || (kind === 'existing_agent' && !ready)) return;
-    if (kind === 'new_agent' && (!workspaceId || !name.trim() || !localPart.trim())) return;
+    if (kind === 'new_agent' && !canCreate) return;
     void onApprove({ target: kind === 'new_agent'
       ? { kind, workspaceInboxId: workspaceId, name: name.trim(), localPart: localPart.trim() }
-      : { kind, agentId, replacesInstallationId: current?.id ?? null }, grantedPermissions: [...permissions], policyProfile: 'default' });
+      : { kind, agentId, replacesInstallationId: current?.id ?? null }, grantedPermissions: [...permissions], policyProfile: 'default',
+      ...(kind === 'new_agent' && savedSetup ? { savedSetupId: savedSetup.setupId } : {}) });
   }}>
     <ClaimProblemNotice problem={review.problem} now={now} />
     <fieldset disabled={locked}><legend>Choose the agent identity</legend>
-      <label><input type="radio" name="oauth-target" checked={kind === 'new_agent'} onChange={() => { setKind('new_agent'); setPermissions(requested.filter(value => grantable.includes(value))); }} />Create a new agent</label>
+      <label><input type="radio" name="oauth-target" checked={kind === 'new_agent'} onChange={() => { setKind('new_agent'); setPermissions(defaultPermissions); }} />Create a new agent</label>
       <label><input type="radio" name="oauth-target" checked={kind === 'existing_agent'} disabled={!eligible.length} onChange={() => { setKind('existing_agent'); chooseAgent(agentId); }} />Reconnect an existing agent</label>
       {!eligible.length && <p role="status">{targetStatus === 'loading' ? 'Checking your workspaces for existing agents…'
         : targetStatus === 'error' ? 'Some workspaces could not load. Refresh to check for your agent again.'
         : 'No eligible agents are available. In Manage agents, check that your agent is approved and that you can manage its inbox.'}</p>}
       {kind === 'new_agent' ? <div className="onboarding-fields">
+        {savedSetup && <p>Using the setup you saved in Envoi. You can edit it before approving.</p>}
         <label className="field"><span>Workspace</span><select value={workspaceId} onChange={event => setWorkspaceId(event.target.value)} required><option value="">Choose a workspace</option>{workspaces.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
         <label className="field"><span>Agent name</span><input value={name} onChange={event => setName(event.target.value)} maxLength={80} required /></label>
-        <label className="field"><span>Address name</span><input value={localPart} onChange={event => setLocalPart(event.target.value)} autoCapitalize="none" autoComplete="off" spellCheck={false} minLength={3} maxLength={32} pattern="[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*" required /></label>
+        <label className="field"><span>Address name</span><input value={localPart} onChange={event => setLocalPart(event.target.value)} autoCapitalize="none" autoComplete="off" spellCheck={false} minLength={3} maxLength={32} pattern="[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*" aria-invalid={addressTaken || undefined} aria-describedby={addressTaken ? 'saved-setup-address-taken' : undefined} required /></label>
+        {addressTaken && <p id="saved-setup-address-taken" className="onboarding-notice" role="status">The saved address is already taken. Choose another address to continue.</p>}
       </div> : <>
         <label className="field"><span>Existing agent</span><select value={agentId} onChange={event => chooseAgent(event.target.value)} required><option value="">Choose an agent</option>{eligible.map(item => <option key={item.id} value={item.id}>{item.name} · {item.address}</option>)}</select></label>
         {agent && <div className="onboarding-replacement">
@@ -64,6 +75,7 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, ta
     </fieldset>
     <fieldset disabled={locked}><legend>Permissions</legend><p>Only requested permissions allowed by workspace policy can be granted. Receiving messages is required.</p>
       {kind === 'existing_agent' && <p>Existing permissions are selected initially. To add a requested permission, select it explicitly before approving.</p>}
+      {kind === 'new_agent' && savedSetup?.notRequested.includes('send_agent_messages') && <p role="status">You selected Send in Envoi. This assistant did not request Send, so it is unavailable on this approval.</p>}
       <div className="onboarding-permissions">{requested.map(value => <label key={value}>
         <input type="checkbox" checked={permissions.includes(value)} disabled={value === 'receive_agent_messages' || !grantable.includes(value)} onChange={event => setPermissions(previous => event.target.checked ? [...new Set([...previous, value])] : previous.filter(item => item !== value))} />
         {permissionLabel(value)}{value === 'receive_agent_messages' ? ' (required)' : !grantable.includes(value) ? ' (not grantable)' : ''}
@@ -71,7 +83,7 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, ta
       {!permissions.includes('send_agent_messages') && <p className="onboarding-notice" role="status">This approval allows receiving only; the assistant cannot send messages or replies.{requested.includes('send_agent_messages') && grantable.includes('send_agent_messages') ? ' Select send agent messages above if you want two-way messaging.' : ' Sending must first be requested by the plugin and allowed by workspace policy.'}</p>}
     </fieldset>
     <div className="onboarding-actions">{onDeny && <button className="button secondary" type="button" disabled={locked} onClick={onDeny}>Decline connection</button>}
-      <button className="button primary" disabled={locked || (kind === 'existing_agent' ? !ready : !workspaceId || !name.trim() || !localPart.trim())}>Approve access</button>
+      <button className="button primary" disabled={locked || (kind === 'existing_agent' ? !ready : !canCreate)}>Approve access</button>
     </div>
   </form>;
 }

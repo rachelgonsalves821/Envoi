@@ -2,9 +2,11 @@ import { Children, isValidElement, type ReactElement, type ReactNode } from 'rea
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentPermissionPicker, EnrollmentDialog, RuntimePicker } from '../src/App';
-import { api } from '../src/api';
+import { api, ApiError } from '../src/api';
 import { DotsSetupGuide } from '../src/onboarding/DotsSetupGuide';
-import { setupPrompt, type EnrollmentResult, type EnrollmentStatus } from '../src/quick-connect';
+import { SavedSetupProgress } from '../src/onboarding/SavedSetupProgress';
+import { savedSetupApi } from '../src/onboarding/saved-setup';
+import { dotsSetupPrompt, setupPrompt, type EnrollmentResult, type EnrollmentStatus } from '../src/quick-connect';
 import type { Agent, Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
@@ -111,6 +113,7 @@ it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three st
     ...enrollment, quickConnect: { ...handoff, runtime: runtime === 'dots' ? 'openclaw' : runtime }
   });
   vi.spyOn(api, 'enrollmentStatus').mockResolvedValue(status('waiting'));
+  const save = vi.spyOn(savedSetupApi, 'create').mockRejectedValue(new ApiError('Disabled', 404, 'FEATURE_DISABLED'));
   const dialog = wizard();
   const first = dialog.draw();
   expectStep(first, 1);
@@ -125,7 +128,7 @@ it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three st
   const permissions = second.find(node => node.type === AgentPermissionPicker)!;
   const toggles = elements(AgentPermissionPicker(permissions.props)).filter(node => node.props.type === 'checkbox');
   expect(toggles.map(node => [node.props.checked, node.props.disabled])).toEqual([
-    [true, true], [true, runtime === 'dots'], [false, runtime === 'dots'], [false, runtime === 'dots']
+    [true, true], [true, false], [false, false], [false, false]
   ]);
   const name = second.find(node => node.props.name === 'name')!;
   name.props.onChange({ target: { value: 'Milo' } });
@@ -136,11 +139,12 @@ it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three st
   const third = await dialog.submit(dialog.draw());
   if (runtime === 'dots') {
     expect(create).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledWith(workspace.id, { name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages', 'send_agent_messages'] }, expect.any(AbortSignal));
     const guide = third.find(node => node.type === DotsSetupGuide)!;
-    expect(guide.props).toMatchObject({ name: 'Milo', address: handoff.address, reconnect: false });
+    expect(guide.props).toMatchObject({ name: 'Milo', address: handoff.address, reconnect: false, savedSetup: false });
     expectStep([...third, ...elements(DotsSetupGuide(guide.props))], 3);
     expect(third.some(node => node.props.title === 'Dots connection is off here')).toBe(true);
-    expect(third.some(node => node.props.phase)).toBe(false);
+    expect(third.some(node => node.type === SavedSetupProgress)).toBe(false);
   } else {
     expect(create).toHaveBeenCalledWith(workspace.id, 'Milo', 'milo', ['receive_agent_messages', 'send_agent_messages', 'create_assets'], runtime);
     expectStep(third, 3);
@@ -149,6 +153,37 @@ it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three st
     third.find(node => node.type === 'button' && node.props.className === 'button primary')!.props.onClick();
     expect(writeText).toHaveBeenCalledExactlyOnceWith(setupPrompt({ ...handoff, runtime }));
   }
+});
+
+it('saves the edited Dots permissions and opens progress for the returned setup', async () => {
+  const saved = {
+    setupId: 'setup_example', workspaceInboxId: workspace.id, workspaceName: 'Workspace',
+    name: 'Milo', localPart: 'milo', address: handoff.address, runtime: 'dots', status: 'waiting',
+    permissions: ['receive_agent_messages'], createdAt: '2026-11-12T12:00:00.000Z', expiresAt: '2026-11-12T12:30:00.000Z'
+  } as const;
+  const save = vi.spyOn(savedSetupApi, 'create').mockResolvedValue({ ...saved, permissions: [...saved.permissions] });
+  const dialog = wizard();
+  dialog.draw().find(node => node.type === RuntimePicker)!.props.onSelectDots();
+  const second = await dialog.submit(dialog.draw());
+  second.find(node => node.props.name === 'name')!.props.onChange({ target: { value: 'Milo' } });
+  const picker = second.find(node => node.type === AgentPermissionPicker)!;
+  const options = elements(AgentPermissionPicker(picker.props)).filter(node => node.props.type === 'checkbox');
+  options[1].props.onChange({ target: { checked: false } });
+  dialog.draw();
+  await vi.advanceTimersByTimeAsync(250);
+
+  const third = await dialog.submit(dialog.draw());
+  expect(save).toHaveBeenCalledExactlyOnceWith(workspace.id, {
+    name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages']
+  }, expect.any(AbortSignal));
+  expect(third.find(node => node.type === SavedSetupProgress)?.props.setup).toEqual(saved);
+  const guide = third.find(node => node.type === DotsSetupGuide)!;
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  elements(DotsSetupGuide(guide.props)).find(node => node.type === 'button' && node.props.className === 'button primary')!.props.onClick();
+  const prompt = dotsSetupPrompt(origin, saved.name, saved.address, false, true);
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(prompt);
+  expect(prompt).not.toContain(saved.setupId);
 });
 
 describe('setup progress', () => {
