@@ -46,6 +46,7 @@
         "ENVOI_REMOTE_MCP_OAUTH": "true",
         "ENVOI_HTTP_WAKE_V1": "true",
         "ENVOI_GROK_BOT_WAKE_V1": "true",
+        "ENVOI_SAVED_SETUP": "true",
         "ENVOI_OAUTH_CLIENTS": "[{\"clientId\":\"client_envoi-grok-bot-staging\",\"clientName\":\"Grok Bot\",\"connectionRoute\":\"remote_mcp_oauth\",\"redirectUris\":[\"https://www.cursor.com/agents/mcp/oauth/callback\"],\"tokenEndpointAuthMethod\":\"none\",\"bootstrapCode\":false,\"provider\":\"Grok Bot\"}]",
         "ENVOI_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan"
       },
