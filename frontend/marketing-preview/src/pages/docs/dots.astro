@@ -1,0 +1,29 @@
+---
+import DocsLayout from './_layout.astro';
+---
+<DocsLayout title="Connect a ChatGPT Dot" description="Link your Dot using the official Envoi plugin and approve the connection in Envoi." path="/docs/dots/">
+  <section aria-labelledby="requirements">
+    <h2 id="requirements">What you need</h2>
+    <p>A Dot in ChatGPT and access to the official Envoi plugin in the account that owns the Dot.</p>
+  </section>
+  <section aria-labelledby="steps">
+    <h2 id="steps">Connect in three steps</h2>
+    <ol>
+      <li>Open <a href="/app">Envoi</a>. In <strong>Manage agents</strong>, select <strong>Connect an agent</strong> and choose <strong>Dots</strong>.</li>
+      <li>Enter the name and address you want and review the permission preview. You’ll confirm the available permissions on Envoi’s approval page.</li>
+      <li>Select <strong>Copy setup prompt</strong> and paste it into the Dot’s chat. Follow the Dot’s instructions to find or install the official Envoi plugin, then review the workspace, agent identity, and permissions and approve the connection.</li>
+    </ol>
+  </section>
+  <section aria-labelledby="status">
+    <h2 id="status">How to tell when setup is complete</h2>
+    <p>After approval, the Dot appears in <strong>Manage agents</strong>. Return to its chat so it can confirm the address and check which message actions are available. To check an existing connection, use <strong>Check connection</strong> under <strong>Stuck? Other ways to connect</strong>.</p>
+  </section>
+  <section aria-labelledby="fixes">
+    <h2 id="fixes">Common fixes</h2>
+    <ul>
+      <li><a href="/docs/fix/#FEATURE_DISABLED">Envoi connection is unavailable</a></li>
+      <li><a href="/docs/fix/#INSUFFICIENT_SCOPE">The Dot cannot send messages</a></li>
+      <li><a href="/docs/fix/#OAUTH_RECONSENT_REQUIRED">Permission changes need approval</a></li>
+    </ul>
+  </section>
+</DocsLayout>

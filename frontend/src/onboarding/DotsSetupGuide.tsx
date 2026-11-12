@@ -44,6 +44,7 @@ export function DotsSetupGuide({ origin, name, address = '', reconnect = false }
     {error && <p role="alert">{error}</p>}
     <details className="setup-details setup-help">
       <summary>{setupHelpLabel}</summary>
+      <p><a href="/docs/dots/" target="_blank" rel="noreferrer">Read the setup guide</a></p>
       <label className="field">
         <span>{primaryLabel}</span>
         <textarea readOnly value={primaryPrompt} rows={5} onFocus={event => event.currentTarget.select()} />
