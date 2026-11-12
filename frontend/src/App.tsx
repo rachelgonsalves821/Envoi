@@ -873,6 +873,18 @@ export function AppShell(props: ShellProps) {
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
   const agentInboxes = workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === rootWorkspace.id);
   const agentInboxKey = agentInboxes.map(item => item.id).sort().join(',');
+  const consentInboxes = authorizationRoute ? workspaces.filter(inbox => inbox.status !== 'removed') : [];
+  const consentInboxKey = consentInboxes.map(inbox => inbox.id).sort().join(',');
+  const consentView = (inbox: Workspace) => inbox.id === workspace.id ? view : childViews[inbox.id];
+  const consentEntries: AgentEntry[] = consentInboxes.flatMap(inbox => {
+    const candidate = consentView(inbox);
+    const agent = candidate?.canManageInbox && inbox.kind === 'agent'
+      ? candidate.agents.find(item => item.id === inbox.ownerAgentId) : undefined;
+    return candidate && agent ? [{ inbox, agent, view: candidate }] : [];
+  });
+  const missingConsentViews = consentInboxes.filter(inbox => !consentView(inbox));
+  const consentTargetStatus = missingConsentViews.some(inbox => childViewFailures.includes(inbox.id))
+    ? 'error' : missingConsentViews.length ? 'loading' : undefined;
   const agentEntries: AgentEntry[] = agentInboxes.flatMap(inbox => (childViews[inbox.id] || (workspace.id === inbox.id ? view : null))?.agents.filter(agent => agent.id === inbox.ownerAgentId).map(agent => ({ agent, inbox, view: childViews[inbox.id] || view })) || []);
   if (workspace.id === rootWorkspace.id) {
     for (const agent of view.agents) if (!agentEntries.some(entry => entry.agent.id === agent.id)) agentEntries.push({ agent, inbox: workspace, view });
@@ -933,7 +945,9 @@ export function AppShell(props: ShellProps) {
     let cancelled = false;
     // The selected root view is already loaded. Only child inboxes contribute
     // cases to the All inboxes and Done aggregates.
-    const inboxes = agentInboxes.filter(inbox => inbox.status !== 'removed');
+    const inboxes = authorizationRoute
+      ? consentInboxes.filter(inbox => inbox.id !== workspace.id)
+      : agentInboxes.filter(inbox => inbox.status !== 'removed');
     let loading = false;
     async function refreshChildren() {
       if (loading) return;
@@ -958,7 +972,7 @@ export function AppShell(props: ShellProps) {
     void refreshChildren();
     const timer = window.setInterval(() => void refreshChildren(), 30_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [rootWorkspace.id, agentInboxKey]);
+  }, [rootWorkspace.id, agentInboxKey, authorizationRoute, consentInboxKey, workspace.id]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
@@ -1115,7 +1129,7 @@ export function AppShell(props: ShellProps) {
       <section className={`application ${utilitySection || props.claimRoute ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
         {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span></div>}
 
-        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
+        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.status !== 'removed' && consentView(item)?.canManageInbox)))} entries={authorizationRoute ? consentEntries : agentEntries} consentTargetStatus={consentTargetStatus} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
 {section === 'documents' && <SharedFilesPage view={workspaceAggregate} notify={setToast} onOpenCase={openCaseFromUtility}
@@ -1151,9 +1165,9 @@ export function AppShell(props: ShellProps) {
   );
 }
 
-function ClaimWorkspace({ humanId, workspaces, entries, onRefresh, onSelectAgent, authorizationSearch }: { authorizationSearch?: string; humanId: string; workspaces: Workspace[]; entries: AgentEntry[]; onRefresh: () => Promise<unknown>; onSelectAgent: (agentId: string, address?: string) => Promise<void> }) {
+function ClaimWorkspace({ humanId, workspaces, entries, onRefresh, onSelectAgent, authorizationSearch, consentTargetStatus }: { authorizationSearch?: string; consentTargetStatus?: 'loading' | 'error'; humanId: string; workspaces: Workspace[]; entries: AgentEntry[]; onRefresh: () => Promise<unknown>; onSelectAgent: (agentId: string, address?: string) => Promise<void> }) {
   const [revision, setRevision] = useState(0);
-  return <>{authorizationSearch !== undefined ? <AuthorizeAgentPage humanId={humanId} handle={authorizationHandle(authorizationSearch)} startError={authorizationStartError(authorizationSearch)} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent' && entry.view.canManageInbox).map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} /> : <ClaimPage humanId={humanId} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent').map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} onComplete={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={() => window.location.assign('/app')} />}<OwnerClaims key={`${humanId}:${revision}`} humanId={humanId} onSelectAgent={(agentId, address) => { void onSelectAgent(agentId, address); }} /></>;
+  return <>{authorizationSearch !== undefined ? <AuthorizeAgentPage humanId={humanId} handle={authorizationHandle(authorizationSearch)} startError={authorizationStartError(authorizationSearch)} targetStatus={consentTargetStatus} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent' && entry.view.canManageInbox).map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} /> : <ClaimPage humanId={humanId} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent').map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} onComplete={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={() => window.location.assign('/app')} />}<OwnerClaims key={`${humanId}:${revision}`} humanId={humanId} onSelectAgent={(agentId, address) => { void onSelectAgent(agentId, address); }} /></>;
 }
 
 const AGENT_COLORS = ['var(--accent)', 'var(--agent-purple)', 'var(--green)', 'var(--orange)', 'var(--agent-teal)', 'var(--red)', 'var(--ink2)'];

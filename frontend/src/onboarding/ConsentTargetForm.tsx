@@ -8,16 +8,18 @@ import type { ConsentApproval } from './remote-auth-types';
 
 export interface ConsentTargetFormProps {
   workspaces: Inbox[]; agents: ClaimAgent[]; requested: RegistrationPermission[]; grantable: RegistrationPermission[];
+  targetStatus?: 'loading' | 'error';
   disabled: boolean; onApprove: (body: ConsentApproval) => Promise<unknown>; onDeny?: () => void; client?: OnboardingApi; controller?: ClaimController;
 }
 /** The server remains authoritative for management, eligibility, slots and staleness. */
-export function ConsentTargetForm({ workspaces, agents, requested, grantable, disabled, onApprove, onDeny, client = onboardingApi, controller: supplied }: ConsentTargetFormProps) {
+export function ConsentTargetForm({ workspaces, agents, requested, grantable, targetStatus, disabled, onApprove, onDeny, client = onboardingApi, controller: supplied }: ConsentTargetFormProps) {
   const replacement = useMemo(() => supplied ?? new ClaimController(client), [client, supplied]);
   const review = useSyncExternalStore(replacement.subscribe, replacement.getSnapshot, replacement.getSnapshot);
   useEffect(() => () => replacement.dispose(), [replacement]);
   const now = useClaimClock(replacement.now);
   const [kind, setKind] = useState<'new_agent' | 'existing_agent'>('new_agent');
-  const [workspaceId, setWorkspaceId] = useState(workspaces[0]?.id ?? '');
+  const [selectedWorkspaceId, setWorkspaceId] = useState('');
+  const workspaceId = workspaces.find(workspace => workspace.id === selectedWorkspaceId)?.id ?? workspaces[0]?.id ?? '';
   const [name, setName] = useState(''); const [localPart, setLocalPart] = useState('');
   const [agentId, setAgentId] = useState('');
   const [permissions, setPermissions] = useState<RegistrationPermission[]>(requested.filter(value => grantable.includes(value)));
@@ -42,6 +44,9 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, di
     <fieldset disabled={locked}><legend>Choose the agent identity</legend>
       <label><input type="radio" name="oauth-target" checked={kind === 'new_agent'} onChange={() => { setKind('new_agent'); setPermissions(requested.filter(value => grantable.includes(value))); }} />Create a new agent</label>
       <label><input type="radio" name="oauth-target" checked={kind === 'existing_agent'} disabled={!eligible.length} onChange={() => { setKind('existing_agent'); chooseAgent(agentId); }} />Reconnect an existing agent</label>
+      {!eligible.length && <p role="status">{targetStatus === 'loading' ? 'Checking your workspaces for existing agents…'
+        : targetStatus === 'error' ? 'Some workspaces could not load. Refresh to check for your agent again.'
+        : 'No eligible agents are available. In Manage agents, check that your agent is approved and that you can manage its inbox.'}</p>}
       {kind === 'new_agent' ? <div className="onboarding-fields">
         <label className="field"><span>Workspace</span><select value={workspaceId} onChange={event => setWorkspaceId(event.target.value)} required><option value="">Choose a workspace</option>{workspaces.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
         <label className="field"><span>Agent name</span><input value={name} onChange={event => setName(event.target.value)} maxLength={80} required /></label>

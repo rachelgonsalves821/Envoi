@@ -10,7 +10,7 @@ import type { RemoteAuthApi } from './remote-auth-types';
 export interface AuthorizeAgentPageProps {
   humanId: string; handle: string | null; workspaces: Inbox[]; agents: ClaimAgent[];
   client?: RemoteAuthApi; controller?: ConsentController; replacementClient?: OnboardingApi;
-  startError?: AuthorizationStartError | null;
+  startError?: AuthorizationStartError | null; targetStatus?: 'loading' | 'error';
 }
 const navigate = (url: string) => window.location.replace(url);
 export function AuthorizationEntry({ search, signInPath, notice }: { search: string; signInPath: string; notice?: string }) {
@@ -39,7 +39,7 @@ export function AuthorizeAgentPage(props: AuthorizeAgentPageProps) {
   </section>;
   return <AuthorizeAgentSession key={props.humanId + ':' + props.handle} {...props} />;
 }
-function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = remoteAuthApi, controller: supplied, replacementClient }: AuthorizeAgentPageProps) {
+function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = remoteAuthApi, controller: supplied, replacementClient, targetStatus }: AuthorizeAgentPageProps) {
   const controller = useMemo(() => supplied ?? new ConsentController(handle, client, navigate), [humanId, handle, client, supplied]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   useEffect(() => { void controller.load(); return () => controller.dispose(); }, [controller]);
@@ -76,7 +76,7 @@ function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = r
     {view && !outcome && !state.uncertain && <>
       <p>Request expires at <time dateTime={view.expiresAt}>{new Date(view.expiresAt).toLocaleString()}</time>.</p>
       {expired ? <p role="status">This request expired. Start again from your assistant.</p>
-        : <ConsentTargetForm key={state.attempts} workspaces={workspaces} agents={agents} requested={view.requestedPermissions} grantable={view.grantablePermissions}
+        : <ConsentTargetForm key={state.attempts} workspaces={workspaces} agents={agents} targetStatus={targetStatus} requested={view.requestedPermissions} grantable={view.grantablePermissions}
           disabled={locked} onApprove={body => controller.approve(body)} onDeny={() => void controller.deny()} client={replacementClient} />}
     </>}
     <button className="button secondary" type="button" disabled={locked} onClick={() => void controller.load()}>Refresh outcome</button>

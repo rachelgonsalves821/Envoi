@@ -138,6 +138,15 @@ describe('consent revision 2 owner behavior', () => {
     for (const value of ['Example Assistant', '(claims to be)', 'assistant.example.com', 'Authorization returns to', 'send agent messages', 'Create a new agent', 'Reconnect an existing agent']) expect(html).toContain(value);
     expect(html).not.toContain(handle); expect(html).not.toContain('envoi_oauth_code_');
   });
+  it('distinguishes unresolved reconnect targets from an empty result', async () => {
+    const controller = new ConsentController(handle, client(), vi.fn(), () => initialTime); await controller.load();
+    const render = (targetStatus?: 'loading' | 'error') => renderToStaticMarkup(createElement(AuthorizeAgentPage, {
+      humanId: 'human_example', handle, workspaces: [], agents: [], controller, targetStatus
+    }));
+    expect(render('loading')).toContain('Checking your workspaces for existing agents');
+    expect(render('error')).toContain('Some workspaces could not load');
+    expect(render()).toContain('No eligible agents are available');
+  });
   it('warns explicitly for loopback and renders provider identity from pre-registration', async () => {
     const api = client(); vi.mocked(api.view).mockResolvedValue(body('consent-view-loopback'));
     const controller = new ConsentController(handle, api, vi.fn(), () => initialTime); await controller.load();
