@@ -5479,3 +5479,26 @@ Server grant support remains authorization_code/refresh_token plus the existing 
 Client-rejection diagnostics may contain only fixed reason/stage and a hash of client ID. Never log raw client IDs/documents, credentials, authorization parameters, callback/redirect URLs, error text or stacks; observer failures cannot change authorization outcomes. Public OAuth errors retain their wire shape. The authorization UI may distinguish a single allowlisted pre-consent error with fixed guidance, never render raw query error_description or call consent without a handle.
 
 Canonical fixtures: test/contract-fixtures/agent-remote-auth-cimd-grants/,21 independent metadata vectors. Validate amended grant fields against its schema and unchanged non-grant fields against the frozen original after normalizing only the two approved auth/grant amendments. Retain malformed/count/length/duplicate/missing-code refusals and unsupported token-grant tests. Local mocks/source checks do not establish production owner authentication or native processing acceptance.
+
+
+## managed-file-mcp v1
+
+**Status** — `CONTRACT-APPROVED managed-file-mcp v1` by pjsk02 on November 11, 2026. This contract records the managed-file MCP behavior in staging source `503cae5`. The fixture registry carries it through [envoi-names v2](#envoi-names-v2) and [provider-connector-tools v2](#provider-connector-tools-v2).
+
+The three tools appear in the legacy installation catalog. OAuth and case-scoped MCP credentials cannot discover or invoke them. Native case sessions retain their scoped tool catalog. The MCP table records a null general permission because the managed-file routes enforce current authority. The agent must be the active owner agent of the inbox and the file must grant that agent the required access. Managed files use their own access and revision records, separate from case assets.
+
+| Tool | Closed arguments | Authorization and effect |
+| --- | --- | --- |
+| `envoi_list_managed_files` | Empty object | Lists metadata for files with current read or edit access. |
+| `envoi_read_managed_file` | Required `fileId` | Returns metadata and base64 bytes for a clean file with current read or edit access. The route checks access and the revision again before returning bytes. |
+| `envoi_edit_managed_file` | Required `fileId`, `revision` and `contentBase64` | Writes a new revision when the agent has current edit access and supplies the current positive integer revision. The replacement must pass the malware scan. |
+
+File IDs use the existing MCP identifier schema. The edit schema limits the encoded content string to 4–60,000 characters. The route validates base64 and decoded bytes. A stale revision returns a conflict, a read-only grant refuses editing, and missing access hides the file. List and read change no file state. Edit changes the stored file revision.
+
+## envoi-names v2
+
+The v2 legacy tools/list fixture and schema include the three managed-file tools in their deployed order after work failure and before the case-asset tools. The full legacy installation list has 25 entries. The case-read fixture retains its three tools. Credential formats, retired-name refusals and health identity carry forward from [envoi-names v1](#envoi-names-v1).
+
+## provider-connector-tools v2
+
+The v2 classification includes the managed-file tools and marks them as legacy-installation-only. List and read are reads. Edit writes a file revision. OAuth visibility fixtures continue to use the existing permission and scope combinations and exclude all three tools. The ten-tool provider submission set in [provider-connector-tools v1](#provider-connector-tools-v1) remains the minimum.

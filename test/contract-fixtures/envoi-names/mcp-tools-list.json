@@ -1,6 +1,6 @@
 {
   "contract": "envoi-names",
-  "version": 1,
+  "version": 2,
   "id": "mcp-tools-list",
   "description": "An access token lists exactly the 22 Envoi tools; no sinaloa_* name appears.",
   "kind": "http",
@@ -214,6 +214,59 @@
             "description": "Envoi tool fail work.",
             "inputSchema": {
               "type": "object"
+            }
+          },
+          {
+            "name": "envoi_list_managed_files",
+            "description": "List the files an owner selected for this agent, including access and revision.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "envoi_read_managed_file",
+            "description": "Read an owner-selected file as base64. Requires current read or edit access.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+                }
+              },
+              "required": [
+                "fileId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "envoi_edit_managed_file",
+            "description": "Replace an owner-selected file with malware-scanned base64 content. Requires edit access and the current revision. Use the managed-files REST endpoint for larger files.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "contentBase64": {
+                  "type": "string",
+                  "minLength": 4,
+                  "maxLength": 60000
+                }
+              },
+              "required": [
+                "fileId",
+                "revision",
+                "contentBase64"
+              ],
+              "additionalProperties": false
             }
           },
           {

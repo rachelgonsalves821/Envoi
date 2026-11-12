@@ -1,6 +1,6 @@
 {
   "contract": "envoi-names",
-  "version": 1,
+  "version": 2,
   "id": "mcp-call-old-name",
   "description": "A retired sinaloa_* tool name is not an alias: it is unavailable like any unknown tool.",
   "kind": "http",

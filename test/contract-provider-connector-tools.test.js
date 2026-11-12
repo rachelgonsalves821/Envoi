@@ -46,9 +46,10 @@ test('provider-connector-tools: effect classes follow permission and side effect
 
 test('provider-connector-tools: visible tool lists, the minimum set and the read-only decision are explicit', async () => {
   const { schemas, fixtures } = await load();
+  const legacyOnly = new Set(schemas['x-tool-classification'].filter(row => row.credential === 'legacy_installation').map(row => row.name));
   for (const [key, list] of Object.entries(schemas['x-visible-by-permission'])) {
     const permissions = key.split('+');
-    assert.deepEqual(list, agentMcpTools.filter(tool => has(permissions, tool.permission)).map(tool => tool.name), key);
+    assert.deepEqual(list, agentMcpTools.filter(tool => !legacyOnly.has(tool.name) && has(permissions, tool.permission)).map(tool => tool.name), key);
   }
   assert.deepEqual(fixtures.get('tools-list-envoi-agent-only').response.body.result.tools.map(t => t.name), schemas['x-visible-by-permission'].receive_agent_messages);
   assert.deepEqual(fixtures.get('tools-list-envoi-agent-and-send').response.body.result.tools.map(t => t.name), schemas['x-visible-by-permission']['receive_agent_messages+send_agent_messages']);
@@ -61,6 +62,17 @@ test('provider-connector-tools: visible tool lists, the minimum set and the read
   assert.ok(minimum.tools.includes('envoi_send_message') && !minimum.tools.includes('envoi_start_case'), 'reply to the current case only, no arbitrary new case');
   assert.match(schemas['x-rules'].R6, /must not be described/);
   assert.deepEqual(Object.keys(schemas['x-read-only-options']).sort(), ['A', 'B', 'C']);
+});
+
+test('provider-connector-tools: managed-file reads and edits have distinct effects and require legacy file access', async () => {
+  const { schemas } = await load();
+  const managed = schemas['x-tool-classification'].filter(row => row.credential === 'legacy_installation');
+  assert.deepEqual(managed.map(({ name, scope, effect, stateChange, authorization }) => ({ name, scope, effect, stateChange, authorization })), [
+    { name: 'envoi_list_managed_files', scope: null, effect: 'read', stateChange: 'none', authorization: 'active_inbox_owner_agent_with_read_or_edit_access' },
+    { name: 'envoi_read_managed_file', scope: null, effect: 'read', stateChange: 'none', authorization: 'active_inbox_owner_agent_with_read_or_edit_access' },
+    { name: 'envoi_edit_managed_file', scope: null, effect: 'write', stateChange: 'managed_file_revision', authorization: 'active_inbox_owner_agent_with_edit_access' },
+  ]);
+  for (const { name } of managed) assert.ok(schemas['x-minimum-submission-set'].excluded.includes(name), name);
 });
 
 test('provider-connector-tools: provider approval is never an argument, and refusals match the approved behaviour', async () => {

@@ -1,6 +1,6 @@
 {
   "contract": "provider-connector-tools",
-  "version": 1,
+  "version": 2,
   "id": "send-provider-approval-field-refused",
   "kind": "http",
   "description": "§4: tool arguments are closed. A provider cannot pass its own approval as an argument and have Envoi treat it as authority; the call is invalid and nothing is sent.",

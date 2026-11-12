@@ -1,6 +1,6 @@
 {
   "contract": "provider-connector-tools",
-  "version": 1,
+  "version": 2,
   "id": "tools-list-envoi-agent-only",
   "kind": "http",
   "description": "§3: a connection granted only the required envoi.agent scope lists the read, claim and settlement tools. It cannot send. This is not \"read-only\": claim and settlement authority is included.",

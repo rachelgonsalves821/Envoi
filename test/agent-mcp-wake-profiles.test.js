@@ -26,13 +26,29 @@ async function canonical(contract,file,ref){
 function wakeTools(httpWake={}){return createMcpWakeTools({httpWake,enabled:true,clientFor:()=>({connectionRoute:'provider_connector',wakeOrigins:['https://hooks.envoi-provider.com']})});}
 
 test('default MCP behavior retains the original tools and version negotiation',async()=>{
-  const list=await invoke('tools/list',{});assert.equal(list.status,200);assert.deepEqual(list.value.result.tools.map(publicTool),agentMcpTools.map(publicTool));assert.equal(list.value.result.tools.length,22);
+  const list=await invoke('tools/list',{});assert.equal(list.status,200);assert.deepEqual(list.value.result.tools.map(publicTool),agentMcpTools.map(publicTool));assert.equal(list.value.result.tools.length,25);
   assert.equal(list.value.result.tools.find(tool=>tool.name==='envoi_agent_info').annotations.readOnlyHint,true);
   assert.deepEqual(list.value.result.tools.find(tool=>tool.name==='envoi_send_message').annotations,{readOnlyHint:false,destructiveHint:true,openWorldHint:true});
   assert.ok(list.value.result.tools.every(tool=>tool.securitySchemes===undefined),'legacy credentials do not declare OAuth');
   const initialize=await invoke('initialize',{protocolVersion:protocol,capabilities:{},clientInfo:{name:'test',version:'1'}});assert.equal(initialize.status,200);assert.equal(initialize.value.result.protocolVersion,'2025-11-25');assert.deepEqual(initialize.value.result.capabilities,{tools:{listChanged:false}});
   const invalid=await invoke('tools/call',{name:'envoi_claim_work',arguments:{unexpected:true}});assert.equal(invalid.value.error.code,-32602);
   const unknown=await invoke('tools/list',{}, {}, {'mcp-protocol-version':protocol});assert.equal(unknown.status,400);assert.equal(unknown.value.error.code,-32600);
+});
+test('managed-file MCP tools are visible to legacy installations and refused for OAuth and case-scoped credentials', async () => {
+  const names = ['envoi_list_managed_files', 'envoi_read_managed_file', 'envoi_edit_managed_file'];
+  const expected = agentMcpTools.filter(tool => names.includes(tool.name)).map(publicTool);
+  const legacy = await invoke('tools/list', {});
+  assert.deepEqual(legacy.value.result.tools.filter(tool => names.includes(tool.name)).map(publicTool), expected);
+  for (const restricted of [{ ...identity, oauth: true }, { ...identity, mcpScope: { caseId: 'case_mcp_wake' } }]) {
+    const options = { identity: restricted, callRest: () => assert.fail('Denied tool reached the file route') };
+    const list = await invoke('tools/list', {}, options);
+    assert.equal(list.status, 200);
+    assert.ok(list.value.result.tools.every(tool => !names.includes(tool.name)));
+    for (const name of names) {
+      const call = await invoke('tools/call', { name }, options);
+      assert.deepEqual(call.value.error, { code: -32602, message: 'Tool not available to this agent' });
+    }
+  }
 });
 test('disabled and unqualified event methods answer method-not-found even with the MCP2026 header',async()=>{
   for(const options of [{},{eventsEnabled:false,providerEvents:{available:()=>false}},{eventsEnabled:true,providerEvents:{available:()=>false}}]){

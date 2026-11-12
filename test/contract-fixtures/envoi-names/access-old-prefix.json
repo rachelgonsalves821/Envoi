@@ -1,6 +1,6 @@
 {
   "contract": "envoi-names",
-  "version": 1,
+  "version": 2,
   "id": "access-old-prefix",
   "description": "An access token issued before the cutover (sinaloa_ prefix) is refused.",
   "kind": "http",

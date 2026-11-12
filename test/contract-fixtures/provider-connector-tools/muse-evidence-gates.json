@@ -1,6 +1,6 @@
 {
   "contract": "provider-connector-tools",
-  "version": 1,
+  "version": 2,
   "id": "muse-evidence-gates",
   "kind": "evidence",
   "description": "§6: what the public Meta requirements say (as recorded in the Lane B readiness packet #204) and what is unproven. Provider submission, account operations and test accounts stay with their owner.",
