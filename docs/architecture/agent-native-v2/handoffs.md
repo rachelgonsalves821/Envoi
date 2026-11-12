@@ -5556,7 +5556,7 @@ A saved setup can pre-fill an approval for **any** `remote_mcp_oauth` client the
 
 agent-remote-auth §5.2's `consentApproveRequest` gains an optional `savedSetupId`. The approval's checks, precedence, codes and transaction are unchanged. In the same transaction, the server links the setup when it is this human's `waiting` setup and the target is `new_agent`: it records the registration id and sets the status to `approved`. Otherwise it links nothing. **An unusable `savedSetupId` never blocks or changes an approval.**
 
-When the request names a `savedSetupId`, the response adds `savedSetup: { setupId, linked }` to `consentApproved` (`consentApprovedWithSavedSetup`). Without one, the response is unchanged. An identical retry gets the same `linked` value. `consentDecided`, deny and withdraw are unchanged.
+When the request names a `savedSetupId`, the response adds `savedSetup: { setupId, linked }` to `consentApproved` (`consentApprovedWithSavedSetup`). Without one, the response is unchanged. An identical retry gets agent-remote-auth's unchanged `consentDecided`; the setup's status (§3) shows whether it was linked. (Clarification during implementation, 2026-11-12: it resolves a conflict with "consentDecided ... unchanged" below, and no fixture changes.) `consentDecided`, deny and withdraw are unchanged.
 
 ### 6. Stored record
 
