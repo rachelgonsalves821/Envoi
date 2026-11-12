@@ -998,6 +998,31 @@
         "control-item.json",
         "non-ascii-item.json"
       ]
+    },
+    {
+      "id": "agent-saved-setup",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-saved-setup-v1",
+      "dir": "agent-saved-setup",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "consent-approve-saved-setup-unusable.json",
+        "consent-approve-saved-setup.json",
+        "consent-view-saved-setup.json",
+        "setup-create-address-taken.json",
+        "setup-create-invalid.json",
+        "setup-create-receive-added.json",
+        "setup-create.json",
+        "setup-feature-disabled.json",
+        "setup-not-found.json",
+        "setup-status-approved.json",
+        "setup-status-connected-seen.json",
+        "setup-status-connected.json",
+        "setup-status-expired.json",
+        "setup-status-replaced.json",
+        "setup-status-waiting.json"
+      ]
     }
   ]
 }

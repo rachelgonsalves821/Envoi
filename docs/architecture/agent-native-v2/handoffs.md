@@ -5479,3 +5479,114 @@ Server grant support remains authorization_code/refresh_token plus the existing 
 Client-rejection diagnostics may contain only fixed reason/stage and a hash of client ID. Never log raw client IDs/documents, credentials, authorization parameters, callback/redirect URLs, error text or stacks; observer failures cannot change authorization outcomes. Public OAuth errors retain their wire shape. The authorization UI may distinguish a single allowlisted pre-consent error with fixed guidance, never render raw query error_description or call consent without a handle.
 
 Canonical fixtures: test/contract-fixtures/agent-remote-auth-cimd-grants/,21 independent metadata vectors. Validate amended grant fields against its schema and unchanged non-grant fields against the frozen original after normalizing only the two approved auth/grant amendments. Retain malformed/count/length/duplicate/missing-code refusals and unsupported token-grant tests. Local mocks/source checks do not establish production owner authentication or native processing acceptance.
+
+## agent-saved-setup v1
+
+**Contract:** `agent-saved-setup`, version 1 (simple-setup plan Phase 2b, part 1: `docs/architecture/agent-native-v2/onboarding-simple-setup.md` §5). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+
+**Fixtures:** [`test/contract-fixtures/agent-saved-setup/`](../../../test/contract-fixtures/agent-saved-setup/): `schemas.json` (draft-07 definitions plus `x-codes`, `x-limits` and `x-status`) and 15 cases. Every session, CSRF value, handle and code in them is a placeholder.
+
+**Owner:** Lane A. **Consumers:** Lane B: the Connect wizard's Dots step and the owner approval page (`/authorize-agent`).
+
+**What it covers.** The owner chooses a Dot's name, address and permissions **once**, in the Connect wizard. Envoi keeps that choice for 30 minutes. When the owner's Dot opens Envoi's approval page, the page is pre-filled from it, and the wizard can show the Dot's progress. The contract is additive. It changes nothing in agent-remote-auth's checks, permission rule, codes or tokens.
+
+**Not in v1:**
+- Other runtimes. OpenClaw, Hermes and Grok keep their one-use setup code.
+- Reconnecting an existing agent.
+- Address holds.
+- Granting a permission the assistant did not request. That needs a separate agent-remote-auth revision after the owner's live ChatGPT test (plan §7).
+
+### 1. Rules that hold throughout
+
+- A saved setup is **owner data, not a credential**. Every route needs the owner's human session. The assistant, the OAuth client and the agent never see it.
+- It **never holds an address**, slot or permission. Approval re-checks everything exactly as today (agent-remote-auth §5.2).
+- It **only pre-fills**. The approve body stays authoritative, and effective permissions stay requested ∩ granted ∩ organization maximum.
+- Each human has at most one live (`waiting`) setup per runtime (`x-limits.liveSetupsPerHumanPerRuntime`). Saving a new one marks the previous one `replaced`.
+
+### 2. Save
+
+`POST /api/inboxes/{workspaceInboxId}/agent-setups`, human session and CSRF. The body is `savedSetupCreateRequest`: `{ runtime: "dots", name, localPart, permissions }`. `permissions` is a subset of the four registration permissions. The server adds `receive_agent_messages` if it is missing.
+
+Precedence:
+1. `FEATURE_DISABLED` (§7);
+2. session and CSRF;
+3. `RATE_LIMITED` (`x-limits.savedSetupCreatesPerHumanPerHour`, 20);
+4. `SETUP_INVALID`;
+5. `SETUP_FORBIDDEN` (the human does not manage the workspace);
+6. `ADDRESS_TAKEN` (an agent, or a live approval's hold, has the address now).
+
+**`201` `savedSetup`**, `cache-control: no-store`: `status: "waiting"`, `expiresAt` = `createdAt` + `x-limits.savedSetupTtlSeconds` (1800). Audit: `agent.setup_saved` with `setupId`, `humanId` and `runtime`.
+
+### 3. Status
+
+`GET /api/inboxes/{workspaceInboxId}/agent-setups/{setupId}`, human session. Only the human who saved it can read it. Anything else gets `404 SETUP_NOT_FOUND`, identical in every case. Responds `200` `savedSetup`, `no-store`. The wizard polls serially, no faster than `x-limits.statusPollMinIntervalSeconds` (5), while its dialog is open, and stops at `connected` with `agent.lastSeenAt` set, `expired` or `replaced`.
+
+| `status` | When (`x-status`) | Extra fields |
+| --- | --- | --- |
+| `waiting` | Saved and unused; `expiresAt` has not passed. | none |
+| `approved` | An approval linked it (§5); the code is not exchanged yet. | `agent { name, address }` |
+| `connected` | The linked approval's code was exchanged. | `agent { id, name, address, lastSeenAt }`, `effectivePermissions` |
+| `expired` | `reason: not_used` when `expiresAt` passed while waiting; `reason: approval_lapsed` when the linked approval expired or was withdrawn. | `reason` |
+| `replaced` | A newer setup for the same runtime replaced it while it was waiting. | none |
+
+After linking, the status follows the linked registration, as agent-remote-auth §5.2's `consentDecided` derives it, so it survives a restart. `agent.lastSeenAt` is the agent's existing last-seen time: `null` until its first authenticated call. A saved setup is kept for `x-limits.savedSetupRetentionSeconds` (86400) after creation, then answers `404 SETUP_NOT_FOUND`.
+
+### 4. Approval page: `consentView.savedSetup`
+
+agent-remote-auth §5.1's `consentView` gains one optional field, `savedSetup` (`consentSavedSetup`). It is present only when all of these hold:
+- the flag is on;
+- the request has no `decision`;
+- its `connectionRoute` is `remote_mcp_oauth`;
+- this human has a `waiting` Dots setup;
+- this human still manages that setup's workspace.
+
+It carries the setup's workspace, name, `localPart`, address and permissions, plus:
+- `notRequested`: saved permissions the client did not request, so the page can say, for example, that the assistant did not ask for Send;
+- `addressAvailable`: the address check made now.
+
+**What the page does.**
+- It pre-fills the new-agent target from `savedSetup` and pre-ticks `savedSetup.permissions ∩ grantablePermissions`.
+- It labels the pre-fill as the setup the owner saved, and it keeps every field editable.
+- When `addressAvailable` is false, it asks for another address.
+- It still shows everything `x-consent-display` requires: the client name as a claim, the redirect host, and so on.
+
+A saved setup can pre-fill an approval for **any** `remote_mcp_oauth` client the owner opens. The page's existing client display is what lets the owner notice an unexpected client.
+
+### 5. Approve: `savedSetupId`
+
+agent-remote-auth §5.2's `consentApproveRequest` gains an optional `savedSetupId`. The approval's checks, precedence, codes and transaction are unchanged. In the same transaction, the server links the setup when it is this human's `waiting` setup and the target is `new_agent`: it records the registration id and sets the status to `approved`. Otherwise it links nothing. **An unusable `savedSetupId` never blocks or changes an approval.**
+
+When the request names a `savedSetupId`, the response adds `savedSetup: { setupId, linked }` to `consentApproved` (`consentApprovedWithSavedSetup`). Without one, the response is unchanged. An identical retry gets agent-remote-auth's unchanged `consentDecided`; the setup's status (§3) shows whether it was linked. (Clarification during implementation, 2026-11-12: it resolves a conflict with "consentDecided ... unchanged" below, and no fixture changes.) `consentDecided`, deny and withdraw are unchanged.
+
+### 6. Stored record
+
+One JSON document per setup at `saved-setups/{humanId}/{setupId}.json`. It holds:
+- `id`, `humanId`, `organizationId`, `workspaceInboxId` and `runtime`;
+- `name`, `localPart` and `permissions`;
+- `createdAt`, `expiresAt` and `status`;
+- `replacedBy`, `registrationId` and `linkedAt` when set.
+
+It works on FileStore and PostgreSQL through the existing documents table, with no migration. Cleanup removes records past retention.
+
+### 7. Flag and rollout
+
+`ENVOI_SAVED_SETUP` defaults to off. While it is off:
+- both routes answer `404 FEATURE_DISABLED`;
+- `consentView` never carries `savedSetup`;
+- `savedSetupId` is ignored, and the response's `savedSetup.linked` is `false`.
+
+The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:** turn the flag off. No grant, registration or token depends on a saved setup.
+
+### 8. Validation
+
+- Lane A: fixtures replayed against FileStore and PostgreSQL. Tests cover:
+  - the precedence order;
+  - replacement;
+  - expiry and retention;
+  - linking inside the approval transaction;
+  - an unusable id never blocking approval;
+  - status following the registration across a restart;
+  - another human getting `SETUP_NOT_FOUND`;
+  - flag off.
+- Lane B: consuming tests for the wizard and approval page.
+- Hosted: owner-run evidence with a real Dot, separate from local and CI results.
