@@ -1,5 +1,7 @@
 # Offline remote MCP authorization plan
 
+For owner-authorized native receiving, see [the acknowledgement and request workflow](RECEIVING-WORKFLOW.md). The setup skill source is under `plugin/skills/envoi-dots-setup/SKILL.md`; adding source here does not update an installed plugin or an existing host task.
+
 This module consumes the approved `agent-remote-auth v1` revision 4 discovery and authorization request contract plus `agent-remote-auth-cimd v1` for public-client auth-method negotiation. A trusted host supplies previously fetched protected-resource metadata, authorization-server metadata and its own client metadata document. The pure `planRemoteMcpAuthorization` function checks their exact issuer/resource relationship and builds an S256 PKCE authorization URL. The caller must generate and privately retain the verifier and state, check the returned issuer and state, and keep the authorization URL, code and tokens out of model context and logs.
 
 It does not fetch metadata, attest the metadata document, store credentials, open a browser, exchange or refresh tokens, revoke, offer the route, or establish a host installation. Envoi's server still performs its full metadata URL/address and client checks. OAuth installations have no wake path in v1; this helper makes no closed-app reachability claim.
