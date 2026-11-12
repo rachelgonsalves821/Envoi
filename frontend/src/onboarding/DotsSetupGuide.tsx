@@ -8,28 +8,28 @@ export function DotsSetupGuide({ origin, name, address = '', reconnect = false, 
   origin: string; name?: string; address?: string; reconnect?: boolean; savedSetup?: boolean;
 }) {
   const [copied, setCopied] = useState('');
-  const [error, setError] = useState('');
+  const [manualCopy, setManualCopy] = useState<{ value: string; label: string } | null>(null);
   const connectionPrompt = dotsSetupPrompt(origin, name ?? 'my Dot', address || 'the address I approve', reconnect, savedSetup);
   const accessPrompt = dotsMessageAccessPrompt(address);
   const primaryPrompt = reconnect ? accessPrompt : connectionPrompt;
   const primaryLabel = reconnect ? 'Message access prompt' : 'Setup prompt';
   const alternatives = [
-    { title: 'Check connection', label: 'Verification prompt', prompt: dotsVerificationPrompt(address) },
     reconnect
-      ? { title: 'Reconnect an existing agent', label: 'Connection prompt', prompt: connectionPrompt }
-      : { title: 'Add send access', label: 'Message access prompt', prompt: accessPrompt },
-    { title: 'Background receiving', label: 'Monitoring prompt', prompt: dotsMonitoringPrompt },
-    { title: 'Collect a report', label: 'Diagnostic prompt', prompt: dotsDiagnosticPrompt(address) }
+      ? { label: 'Connection prompt', prompt: connectionPrompt }
+      : { label: 'Message access prompt', prompt: accessPrompt },
+    { label: 'Verification prompt', prompt: dotsVerificationPrompt(address) },
+    { label: 'Monitoring prompt', prompt: dotsMonitoringPrompt },
+    { label: 'Diagnostic prompt', prompt: dotsDiagnosticPrompt(address) }
   ];
 
   async function copy(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value);
       setCopied(label);
-      setError('');
+      setManualCopy(null);
     } catch {
       setCopied('');
-      setError(`Clipboard access is unavailable. Open “${setupHelpLabel}” and select the text to copy it.`);
+      setManualCopy({ value, label });
     }
   }
 
@@ -39,25 +39,23 @@ export function DotsSetupGuide({ origin, name, address = '', reconnect = false, 
       <button className="button primary" type="button" onClick={() => void copy(primaryPrompt, primaryLabel)}>
         <Copy size={16} />{reconnect ? 'Copy message access prompt' : 'Copy setup prompt'}
       </button>
+      {alternatives.map(({ label, prompt }) => <button key={label} className="button secondary" type="button" onClick={() => void copy(prompt, label)}>
+        {`Copy ${label.toLowerCase()}`}
+      </button>)}
     </div>
     {!reconnect && <div className="setup-approval"><Info size={16} aria-hidden="true" /><p>After you approve on Envoi's page, {name || 'your Dot'} appears in your agents.</p></div>}
     {copied && <p role="status">{copied} copied.</p>}
-    {error && <p role="alert">{error}</p>}
+    {manualCopy && <div>
+      <p role="alert">Clipboard access is unavailable. Select the text below to copy it.</p>
+      <label className="field">
+        <span>{manualCopy.label}</span>
+        <textarea readOnly value={manualCopy.value} rows={5} onFocus={event => event.currentTarget.select()} />
+      </label>
+    </div>}
     <details className="setup-details setup-help">
       <summary>{setupHelpLabel}</summary>
       <p><a href="/docs/dots/" target="_blank" rel="noreferrer">Read the setup guide</a></p>
-      <label className="field">
-        <span>{primaryLabel}</span>
-        <textarea readOnly value={primaryPrompt} rows={5} onFocus={event => event.currentTarget.select()} />
-      </label>
       {reconnect && <p>Envoi replaces this agent’s active installations after approval and ends their monitoring subscriptions. Review the installations before confirming.</p>}
-      {alternatives.map(({ title, label, prompt }) => <section key={label} className="setup-help-option">
-        <label className="field">
-          <strong>{title}</strong>
-          <textarea aria-label={label} readOnly value={prompt} rows={5} onFocus={event => event.currentTarget.select()} />
-        </label>
-        <button className="button secondary" type="button" onClick={() => void copy(prompt, label)}>Copy {label.toLowerCase()}</button>
-      </section>)}
       <label className="field">
         <span>MCP server URL</span>
         <input readOnly value={`${origin}/mcp`} onFocus={event => event.currentTarget.select()} />
