@@ -199,7 +199,7 @@ export const api = {
     headers: { 'Idempotency-Key': `${actionKey}-${caseId}-${crypto.randomUUID()}` },
     body: JSON.stringify({ actionKey, externalRefs })
   }),
-  agentAddressAvailability: (inboxId: string, localPart: string) => request<{ localPart: string; address: string; available: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-address-availability?localPart=${encodeURIComponent(localPart)}`),
+  agentAddressAvailability: (inboxId: string, localPart: string, signal?: AbortSignal) => request<{ localPart: string; address: string; available: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-address-availability?localPart=${encodeURIComponent(localPart)}`, { signal }),
   enrollmentToken: (inboxId: string, name: string, localPart: string, permissions: string[], runtime: ConnectorRuntime = 'openclaw') => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens`, {
     method: 'POST',
     body: JSON.stringify({ runtime, permissions, agentProfile: { name, localPart } })

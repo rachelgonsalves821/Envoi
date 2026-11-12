@@ -391,11 +391,13 @@
 .app-shell .modal .sdk-next-step { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .app-shell .modal .sdk-next-step > * { min-width: 0; max-width: 100%; }
 .app-shell .modal .sdk-next-step pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.app-shell .enroll-steps { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
-.app-shell .enroll-steps span { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink3); font-size: 12px; }
-.app-shell .enroll-steps span::first-letter { color: var(--accent); }
-.app-shell .enroll-steps span.current, .app-shell .enroll-steps span.complete { color: var(--accent); }
-.app-shell .enroll-steps b { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.app-shell .enroll-steps { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin: 0; padding: 16px 0; list-style: none; }
+.app-shell .enroll-steps li { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink3); font-size: 12px; }
+.app-shell .enroll-steps li.current, .app-shell .enroll-steps li.complete { color: var(--accent); }
+.app-shell .enroll-step-number { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; font-weight: 650; }
+.app-shell .enroll-steps .current .enroll-step-number { border-color: var(--accent); background: var(--accent); color: #fff; }
+.app-shell .enroll-steps .complete .enroll-step-number { border-color: var(--accent); }
+.app-shell .enroll-steps b { font-weight: 600; }
 .app-shell .enroll-step { display: grid; gap: 12px; min-width: 0; }
 .app-shell .runtime-picker { min-width: 0; margin: 0; padding: 0; border: 0; }
 .app-shell .runtime-picker legend { margin-bottom: 8px; font-weight: 600; }
