@@ -328,7 +328,7 @@
       "Grok"
     ],
     "whatHappened": "The configured xAI model name could not be used.",
-    "whatToDo": "Choose a model available to your xAI account, update the model setting on the agent’s host, and retry."
+    "whatToDo": "Set XAI_MODEL on the bridge host to a model available to your xAI account, then retry setup."
   },
   {
     "code": "MODEL_CREDENTIAL_INVALID",
@@ -337,7 +337,7 @@
       "Grok"
     ],
     "whatHappened": "The connector found xAI credentials in a format it could not use.",
-    "whatToDo": "Update the local xAI API key on the computer that runs Grok, then retry setup."
+    "whatToDo": "Update XAI_API_KEY privately on the bridge host. Remove any extra whitespace and rerun setup."
   },
   {
     "code": "MODEL_CREDENTIAL_MISSING",
@@ -346,7 +346,7 @@
       "Grok"
     ],
     "whatHappened": "The connector could not find a local xAI API key for the Grok connection.",
-    "whatToDo": "Configure your xAI API key on the agent’s host and rerun setup."
+    "whatToDo": "Set XAI_API_KEY in the bridge host’s private environment or secret manager, then rerun setup."
   },
   {
     "code": "MODEL_NOT_READY",
@@ -364,7 +364,7 @@
       "Grok"
     ],
     "whatHappened": "The xAI API did not return a usable response to the setup test.",
-    "whatToDo": "Verify the selected model is available to your account and check usage limits. Retry setup once the model responds normally."
+    "whatToDo": "Check XAI_MODEL, account usage limits, and whether the model can complete a normal request from the bridge host. Retry setup once the request works."
   },
   {
     "code": "NODE_UNSUPPORTED",
@@ -402,7 +402,7 @@
       "Grok"
     ],
     "whatHappened": "The xAI API rejected the credentials used for the model test.",
-    "whatToDo": "Check the local xAI key and its account access. Update it on the agent’s host and retry."
+    "whatToDo": "Check that the key in XAI_API_KEY is active and that its xAI account has access to the selected model. Update it privately on the bridge host and retry setup."
   },
   {
     "code": "PROVIDER_UNREACHABLE",
@@ -411,7 +411,7 @@
       "Grok"
     ],
     "whatHappened": "The model provider was unreachable, temporarily unavailable, or rate limited.",
-    "whatToDo": "Check the network from the agent’s host, provider availability, and account limits. Retry when normal requests work."
+    "whatToDo": "Check whether the bridge host can reach the xAI API. Check xAI service availability and account rate limits, then retry when normal requests work."
   },
   {
     "code": "RELAY_UNAVAILABLE",
@@ -430,7 +430,7 @@
       "Grok"
     ],
     "whatHappened": "One of the local connection settings for OpenClaw or Grok could not be used.",
-    "whatToDo": "Check the setting named in the error on the agent’s host. For OpenClaw, review the selected Gateway and local connection settings. For Grok, check the configured Envoi endpoint and any local file path named in the error."
+    "whatToDo": "Check the setting named in the error on the agent’s host. For OpenClaw, review the selected Gateway and local connection settings. For Grok, use the Envoi origin plus /mcp if ENVOI_MCP_URL is set. If the error names an asset manifest, check that its path is absolute and the file is readable."
   },
   {
     "code": "RUNTIME_HOST_MISMATCH",

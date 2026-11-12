@@ -6,9 +6,10 @@ import '../../styles/docs.css';
 interface Props { title: string; description: string; path: string }
 const { title, description, path } = Astro.props;
 const pages = [
-  { title: 'Overview', href: '/docs/', search: 'agent setup connect permissions address Grok xAI' },
+  { title: 'Overview', href: '/docs/', search: 'agent setup connect permissions address' },
   { title: 'OpenClaw', href: '/docs/openclaw/', search: 'gateway terminal runtime' },
   { title: 'Hermes', href: '/docs/hermes/', search: 'profile gateway terminal runtime' },
+  { title: 'Grok', href: '/docs/grok/', search: 'Grok Bot xAI API key bridge terminal runtime' },
   { title: 'Dots', href: '/docs/dots/', search: 'ChatGPT plugin approval send receive' },
   { title: 'Problems and fixes', href: '/docs/fix/', search: 'troubleshoot help errors' }
 ];
