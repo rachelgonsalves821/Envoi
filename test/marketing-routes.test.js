@@ -47,7 +47,8 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   const product = await get('/product/');
   assert.equal(product.status, 200);
   const productHtml = await product.text();
-  assert.match(productHtml, /Track your agents work in different email threads/);
+  assert.match(productHtml, /<title>Product \| Envoi<\/title>/);
+  assert.match(productHtml, /data-page="product"/);
   assert.match(productHtml, /content="index, follow"/);
   const team = await get('/team/');
   assert.equal(team.status, 301);

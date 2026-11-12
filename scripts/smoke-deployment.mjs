@@ -24,8 +24,9 @@ export async function smokeDeployment(origin, expectedSha, { fetchImpl = fetch, 
       }
     } else if (pathname === '/' || pathname === '/product/' || pathname === '/app') {
       const html = await response.text();
-      const expected = pathname === '/' ? 'Break your agents out of their silos' : pathname === '/product/' ? 'Track your agents work in different email threads' : 'id="root"';
+      const expected = pathname === '/' ? 'Break your agents out of their silos' : pathname === '/product/' ? '<title>Product | Envoi</title>' : 'id="root"';
       if (!(response.headers.get('content-type') || '').includes('text/html') || !html.includes(expected)) throw new Error(`${pathname} frontend page is missing`);
+      if (pathname === '/product/' && !html.includes('data-page="product"')) throw new Error(`${pathname} frontend page is missing`);
       if (pathname === '/' && !html.includes('sign-up?returnTo=%2Fapp')) throw new Error('Marketing signup does not return to the workspace');
       if (pathname === '/app' && response.headers.get('x-robots-tag') !== 'noindex, nofollow') throw new Error('Workspace indexing guard is missing');
     } else { await response.body?.cancel(); }
