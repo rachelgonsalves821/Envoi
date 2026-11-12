@@ -55,7 +55,8 @@ If either lane needs a file in the other column, post `REQUEST lane-a` or `REQUE
 - [x] One constant, `enrollmentTokenTtlMs = 30 * 60_000`, used for enrollment, reconnect and re-enrollment codes (`src/server.js`).
 - [x] Test: new and reconnect codes last 30 minutes, and the handoff carries the same expiry (`test/auth-enrollment.test.js`).
 - [x] Update the "15-minute" text in `docs/deployment.md` and `docs/agent-connectivity-beta.md`.
-- [ ] Integrate the Lane B PR into the base; full CI on the base head.
+- [x] Integrate both Phase 1 PRs into the base: #358 and #359, base head `b246057`. Lane B's changes stay within its files, with no overlap.
+- [ ] Full CI on the combined base head, through the base-check PR (`lane-a/onb-p1-base-check`). This branch has no push CI.
 - [ ] Prepare the Phase 2 contract draft once the §7 test results are in.
 
 ### Lane B (Codex): `lane-b/onb-p1-simple-screens`
