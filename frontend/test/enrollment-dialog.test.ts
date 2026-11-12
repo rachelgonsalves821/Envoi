@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentPermissionPicker, EnrollmentDialog, RuntimePicker } from '../src/App';
 import { api, ApiError } from '../src/api';
+import { EnrollmentSteps } from '../src/onboarding/EnrollmentSteps';
+import { GrokBotDetails, GrokBotSetup } from '../src/onboarding/GrokBotSetup';
 import { DotsSetupGuide } from '../src/onboarding/DotsSetupGuide';
 import { SavedSetupProgress } from '../src/onboarding/SavedSetupProgress';
 import { savedSetupApi } from '../src/onboarding/saved-setup';
@@ -86,8 +88,7 @@ function wizard(initialResult: EnrollmentResult | null = null, reconnectAgent?: 
 }
 
 function expectStep(tree: ReactElement<any>[], number: number) {
-  const current = tree.find(node => node.props['aria-current'] === 'step');
-  expect(current?.props.children[0]).toBe(number);
+  expect(tree.find(node => node.type === EnrollmentSteps)?.props.currentStep).toBe(number - 1);
   expect(tree.filter(node => node.type === 'button' && node.props.className === 'button primary')).toHaveLength(1);
 }
 
@@ -106,6 +107,33 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+
+it.each([false, true])('uses the shared wizard for hosted Grok (hosted required: %s)', async hostedRequired => {
+  vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ available: true, hostedRequired })));
+  const create = vi.spyOn(api, 'enrollmentToken');
+  const dialog = wizard();
+  dialog.draw();
+  await vi.advanceTimersByTimeAsync(0);
+
+  const first = dialog.draw();
+  expectStep(first, 1);
+  const picker = first.find(node => node.type === RuntimePicker)!;
+  const options = elements(RuntimePicker(picker.props));
+  expect(options.some(node => node.props.value === 'hosted-grok')).toBe(true);
+  expect(options.some(node => node.props.value === 'grok')).toBe(!hostedRequired);
+  picker.props.onSelectHostedGrok();
+
+  const second = await dialog.submit(dialog.draw());
+  expectStep(second, 2);
+  const details = second.find(node => node.type === GrokBotDetails)!;
+  expect(renderToStaticMarkup(GrokBotDetails(details.props))).toContain('Choose during Envoi approval');
+  const third = await dialog.submit(second);
+  expect(third.find(node => node.type === EnrollmentSteps)?.props.currentStep).toBe(2);
+  expect(third.some(node => node.type === GrokBotSetup)).toBe(true);
+  expect(create).not.toHaveBeenCalled();
+  third.find(node => node.type === 'button' && node.props.children === 'Back')!.props.onClick();
+  expectStep(dialog.draw(), 2);
 });
 
 it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three steps for %s', async runtime => {

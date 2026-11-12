@@ -13,7 +13,7 @@ it('makes the existing identity’s message-access request the sole primary acti
   expect(prompt).toContain('Do not send messages, claim work, create an agent or switch identities');
   expect(dotsSetupPrompt('https://envoi.example','Onion','onion@envoi-agents.com',true)).toContain('envoi_request_message_access');
   const html=renderToStaticMarkup(createElement(DotsSetupGuide,{origin:'https://envoi.example',address:'onion@envoi-agents.com',reconnect:true}));
-  const primary=html.match(/<button class="button primary"[^>]*>[^<]*<\/button>/g);
-  expect(primary).toEqual(['<button class="button primary" type="button">Copy message access prompt</button>']);
+  const primary = [...html.matchAll(/<button class="button primary"[^>]*>(.*?)<\/button>/g)];
+  expect(primary.map(match => match[1].replace(/<[^>]+>/g, ''))).toEqual(['Copy message access prompt']);
   expect(html.match(/<button class="button secondary"[^>]*>Copy connection prompt<\/button>/g)).toHaveLength(1);
 });

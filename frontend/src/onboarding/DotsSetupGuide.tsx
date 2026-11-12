@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Copy, Info } from 'lucide-react';
 import { dotsDiagnosticPrompt, dotsMessageAccessPrompt, dotsMonitoringPrompt, dotsSetupPrompt, dotsVerificationPrompt, setupHelpLabel } from '../quick-connect';
 import type { Agent } from '../types';
 import { canReconnectAgent } from './types';
@@ -36,10 +37,10 @@ export function DotsSetupGuide({ origin, name, address = '', reconnect = false, 
     <p>{reconnect ? 'Paste this into your existing Dot chat to review or update its message access.' : "Paste this into your Dot's chat. It will guide you through the Envoi plugin and approval."}</p>
     <div className="setup-handoff-actions">
       <button className="button primary" type="button" onClick={() => void copy(primaryPrompt, primaryLabel)}>
-        {reconnect ? 'Copy message access prompt' : 'Copy setup prompt'}
+        <Copy size={16} />{reconnect ? 'Copy message access prompt' : 'Copy setup prompt'}
       </button>
     </div>
-    {!reconnect && <p>After you approve on Envoi's page, {name || 'your Dot'} appears in your agents.</p>}
+    {!reconnect && <div className="setup-approval"><Info size={16} aria-hidden="true" /><p>After you approve on Envoi's page, {name || 'your Dot'} appears in your agents.</p></div>}
     {copied && <p role="status">{copied} copied.</p>}
     {error && <p role="alert">{error}</p>}
     <details className="setup-details setup-help">
