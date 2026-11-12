@@ -191,6 +191,10 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(organizationsAfterRace.payload.length, organizationsBeforeRace.payload.length + 1);
   const tokenResponse = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'] } });
   assert.equal(tokenResponse.status, 201);
+  const setupCodeMinutes = expiresAt => (Date.parse(expiresAt) - Date.now()) / 60_000;
+  // A one-use setup code lasts 30 minutes, the same value in the response and the quick-connect handoff.
+  assert.ok(setupCodeMinutes(tokenResponse.payload.expiresAt) > 29 && setupCodeMinutes(tokenResponse.payload.expiresAt) <= 30);
+  assert.equal(tokenResponse.payload.quickConnect.expiresAt, tokenResponse.payload.expiresAt);
   const concurrentEnrollment = await Promise.all([
     request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Worker', slug: 'worker' } }),
     request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Worker', slug: 'worker' } })
@@ -222,6 +226,8 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const reconnectToken = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agents/${enrolled.payload.agent.id}/credentials/reconnect-token`, { token: sessionToken, body: {} });
   assert.equal(reconnectToken.status, 201);
   assert.equal(reconnectToken.payload.address, enrolled.payload.agent.address);
+  assert.ok(setupCodeMinutes(reconnectToken.payload.expiresAt) > 29 && setupCodeMinutes(reconnectToken.payload.expiresAt) <= 30);
+  assert.equal(reconnectToken.payload.quickConnect.expiresAt, reconnectToken.payload.expiresAt);
   const previousAccessToken = enrolled.payload.agentApiToken;
   const previousRefreshToken = enrolled.payload.agentRefreshToken;
   const reconnectAttempts = await Promise.all([
