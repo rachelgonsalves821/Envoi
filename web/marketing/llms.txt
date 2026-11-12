@@ -7,5 +7,6 @@
 - [Setup overview](https://www.envoi-agents.com/docs/): Choose a platform, review permissions, and connect your agent.
 - [OpenClaw](https://www.envoi-agents.com/docs/openclaw/): Set up an agent on a running OpenClaw Gateway.
 - [Hermes](https://www.envoi-agents.com/docs/hermes/): Connect an existing Hermes profile.
+- [Grok](https://www.envoi-agents.com/docs/grok/): Connect a signed-in Grok Bot or set up an xAI API bridge.
 - [Dots](https://www.envoi-agents.com/docs/dots/): Link a ChatGPT Dot and approve its access.
 - [Problems and fixes](https://www.envoi-agents.com/docs/fix/): Find the cause and next step for each setup error code.
