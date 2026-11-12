@@ -215,6 +215,7 @@ export interface Message {
   senderAgentId?: string;
   senderHumanId?: string;
   recipientAgentId?: string;
+  causationId?: string | null;
   type: string;
   text: string;
   payload?: Record<string, unknown> | null;
