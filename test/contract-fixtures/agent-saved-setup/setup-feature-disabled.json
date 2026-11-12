@@ -1,0 +1,48 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "setup-feature-disabled",
+  "description": "With ENVOI_SAVED_SETUP off, the routes answer 404 and the wizard keeps today's Dots flow.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": false,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_workspace_example/agent-setups",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "savedSetupCreateRequest",
+    "body": {
+      "runtime": "dots",
+      "name": "Milo",
+      "localPart": "milo",
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ]
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "Saved setup is not available on this deployment.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "Fall back to the Phase 1 Dots step: show the prompt without a status row."
+  }
+}

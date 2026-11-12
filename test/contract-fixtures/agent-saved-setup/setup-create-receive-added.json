@@ -1,0 +1,54 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "setup-create-receive-added",
+  "description": "Receiving is required: the server adds it when the owner leaves it out.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_workspace_example/agent-setups",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "savedSetupCreateRequest",
+    "body": {
+      "runtime": "dots",
+      "name": "Milo",
+      "localPart": "milo",
+      "permissions": []
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "savedSetup",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "setupId": "setup_example_1",
+      "runtime": "dots",
+      "workspaceInboxId": "inbox_workspace_example",
+      "workspaceName": "Example workspace",
+      "name": "Milo",
+      "localPart": "milo",
+      "address": "milo@envoi-agents.com",
+      "permissions": [
+        "receive_agent_messages"
+      ],
+      "status": "waiting",
+      "createdAt": "2026-11-12T15:00:00.000Z",
+      "expiresAt": "2026-11-12T15:30:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show the saved permissions as returned."
+  }
+}

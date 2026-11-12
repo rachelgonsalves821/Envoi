@@ -1,0 +1,706 @@
+{
+  "$id": "agent-saved-setup/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "x-limits": {
+    "savedSetupTtlSeconds": 1800,
+    "savedSetupRetentionSeconds": 86400,
+    "savedSetupCreatesPerHumanPerHour": 20,
+    "statusPollMinIntervalSeconds": 5,
+    "liveSetupsPerHumanPerRuntime": 1
+  },
+  "x-codes": {
+    "SETUP_INVALID": {
+      "status": 400,
+      "when": "§2: the body is not a savedSetupCreateRequest (unknown runtime, bad name or localPart, unknown permission).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "fix_input"
+        }
+      }
+    },
+    "SETUP_FORBIDDEN": {
+      "status": 403,
+      "when": "§2: the human does not manage the workspace.",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "choose_workspace"
+        }
+      }
+    },
+    "ADDRESS_TAKEN": {
+      "status": 409,
+      "when": "§2: the address is held by an agent or a live approval (agent-registration meaning). A saved setup never holds an address.",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "choose_another_address"
+        }
+      }
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "when": "§2: more than x-limits.savedSetupCreatesPerHumanPerHour creates.",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "after_retry_after",
+          "guidance": "service_busy"
+        }
+      }
+    },
+    "SETUP_NOT_FOUND": {
+      "status": 404,
+      "when": "§3: unknown, another human's, or past retention. Identical in every case.",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "start_again"
+        }
+      }
+    },
+    "FEATURE_DISABLED": {
+      "status": 404,
+      "when": "§7: ENVOI_SAVED_SETUP is off.",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "route_unavailable"
+        }
+      }
+    }
+  },
+  "x-status": {
+    "waiting": "Saved and unused; expiresAt has not passed.",
+    "approved": "An approval linked it (§5); the assistant has not exchanged the code yet (agent-remote-auth consentDecided pending_exchange).",
+    "connected": "The linked approval's code was exchanged (consentDecided completed). agent.lastSeenAt is set once the agent makes its first call.",
+    "expired": "reason not_used: expiresAt passed while waiting. reason approval_lapsed: the linked approval expired or was withdrawn.",
+    "replaced": "The same human saved a newer setup for the same runtime while this one was waiting."
+  },
+  "definitions": {
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "localPart": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 32,
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$"
+    },
+    "address": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]*@[a-z0-9.-]+$"
+    },
+    "permission": {
+      "enum": [
+        "receive_agent_messages",
+        "send_agent_messages",
+        "create_assets",
+        "execute_cases"
+      ]
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/definitions/permission"
+      }
+    },
+    "setupId": {
+      "type": "string",
+      "pattern": "^setup_[A-Za-z0-9_-]{1,80}$"
+    },
+    "inboxId": {
+      "type": "string",
+      "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+    },
+    "runtime": {
+      "const": "dots"
+    },
+    "savedSetupCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "name",
+        "localPart",
+        "permissions"
+      ],
+      "properties": {
+        "runtime": {
+          "$ref": "#/definitions/runtime"
+        },
+        "name": {
+          "$ref": "#/definitions/displayName"
+        },
+        "localPart": {
+          "$ref": "#/definitions/localPart"
+        },
+        "permissions": {
+          "$ref": "#/definitions/permissions"
+        }
+      }
+    },
+    "setupAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "address"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "name": {
+          "$ref": "#/definitions/displayName"
+        },
+        "address": {
+          "$ref": "#/definitions/address"
+        },
+        "lastSeenAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "savedSetup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setupId",
+        "runtime",
+        "workspaceInboxId",
+        "workspaceName",
+        "name",
+        "localPart",
+        "address",
+        "permissions",
+        "status",
+        "createdAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "setupId": {
+          "$ref": "#/definitions/setupId"
+        },
+        "runtime": {
+          "$ref": "#/definitions/runtime"
+        },
+        "workspaceInboxId": {
+          "$ref": "#/definitions/inboxId"
+        },
+        "workspaceName": {
+          "$ref": "#/definitions/displayName"
+        },
+        "name": {
+          "$ref": "#/definitions/displayName"
+        },
+        "localPart": {
+          "$ref": "#/definitions/localPart"
+        },
+        "address": {
+          "$ref": "#/definitions/address"
+        },
+        "permissions": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/permissions"
+            },
+            {
+              "minItems": 1,
+              "contains": {
+                "const": "receive_agent_messages"
+              }
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "waiting",
+            "approved",
+            "connected",
+            "expired",
+            "replaced"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "not_used",
+            "approval_lapsed"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "agent": {
+          "$ref": "#/definitions/setupAgent"
+        },
+        "effectivePermissions": {
+          "$ref": "#/definitions/permissions"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "expired"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "approved",
+                  "connected"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "agent"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "agent"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "connected"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "effectivePermissions"
+            ],
+            "properties": {
+              "agent": {
+                "required": [
+                  "id",
+                  "lastSeenAt"
+                ]
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "effectivePermissions"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "consentSavedSetup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setupId",
+        "workspaceInboxId",
+        "workspaceName",
+        "name",
+        "localPart",
+        "address",
+        "permissions",
+        "notRequested",
+        "addressAvailable",
+        "expiresAt"
+      ],
+      "properties": {
+        "setupId": {
+          "$ref": "#/definitions/setupId"
+        },
+        "workspaceInboxId": {
+          "$ref": "#/definitions/inboxId"
+        },
+        "workspaceName": {
+          "$ref": "#/definitions/displayName"
+        },
+        "name": {
+          "$ref": "#/definitions/displayName"
+        },
+        "localPart": {
+          "$ref": "#/definitions/localPart"
+        },
+        "address": {
+          "$ref": "#/definitions/address"
+        },
+        "permissions": {
+          "$ref": "#/definitions/permissions"
+        },
+        "notRequested": {
+          "$ref": "#/definitions/permissions"
+        },
+        "addressAvailable": {
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "consentViewWithSavedSetup": {
+      "description": "agent-remote-auth consentView (§5.1), unchanged, plus optional savedSetup (§4).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client",
+        "connectionRoute",
+        "requestedPermissions",
+        "grantablePermissions",
+        "expiresAt"
+      ],
+      "properties": {
+        "client": {
+          "type": "object"
+        },
+        "connectionRoute": {
+          "enum": [
+            "remote_mcp_oauth",
+            "provider_connector"
+          ]
+        },
+        "requestedPermissions": {
+          "$ref": "#/definitions/permissions"
+        },
+        "grantablePermissions": {
+          "$ref": "#/definitions/permissions"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "decision": {
+          "type": "object"
+        },
+        "savedSetup": {
+          "$ref": "#/definitions/consentSavedSetup"
+        }
+      }
+    },
+    "consentApproveRequestWithSavedSetup": {
+      "description": "agent-remote-auth consentApproveRequest (§5.2), unchanged, plus optional savedSetupId (§5).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "grantedPermissions",
+        "policyProfile"
+      ],
+      "properties": {
+        "target": {
+          "type": "object"
+        },
+        "grantedPermissions": {
+          "$ref": "#/definitions/permissions"
+        },
+        "policyProfile": {
+          "type": "string"
+        },
+        "savedSetupId": {
+          "$ref": "#/definitions/setupId"
+        }
+      }
+    },
+    "consentApprovedWithSavedSetup": {
+      "description": "agent-remote-auth consentApproved (§5.2), unchanged, plus savedSetup when the request named one (§5).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "redirectTo",
+        "registrationId",
+        "target",
+        "workspaceName",
+        "agent",
+        "effectivePermissions",
+        "policyProfile",
+        "codeExpiresAt",
+        "savedSetup"
+      ],
+      "properties": {
+        "redirectTo": {
+          "type": "string"
+        },
+        "registrationId": {
+          "type": "string"
+        },
+        "target": {
+          "enum": [
+            "new_agent",
+            "existing_agent"
+          ]
+        },
+        "workspaceName": {
+          "$ref": "#/definitions/displayName"
+        },
+        "agent": {
+          "$ref": "#/definitions/setupAgent"
+        },
+        "effectivePermissions": {
+          "$ref": "#/definitions/permissions"
+        },
+        "policyProfile": {
+          "type": "string"
+        },
+        "codeExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "savedSetup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "setupId",
+            "linked"
+          ],
+          "properties": {
+            "setupId": {
+              "$ref": "#/definitions/setupId"
+            },
+            "linked": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "errorCode": {
+      "enum": [
+        "SETUP_INVALID",
+        "SETUP_FORBIDDEN",
+        "ADDRESS_TAKEN",
+        "RATE_LIMITED",
+        "SETUP_NOT_FOUND",
+        "FEATURE_DISABLED"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "flags",
+        "request",
+        "response",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "agent-saved-setup"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "enum": [
+            "setup-create",
+            "setup-create-receive-added",
+            "setup-create-address-taken",
+            "setup-create-invalid",
+            "setup-feature-disabled",
+            "setup-status-waiting",
+            "setup-status-approved",
+            "setup-status-connected",
+            "setup-status-connected-seen",
+            "setup-status-expired",
+            "setup-status-replaced",
+            "setup-not-found",
+            "consent-view-saved-setup",
+            "consent-approve-saved-setup",
+            "consent-approve-saved-setup-unusable"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "http"
+        },
+        "flags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ENVOI_SAVED_SETUP",
+            "ENVOI_REMOTE_MCP_OAUTH"
+          ],
+          "properties": {
+            "ENVOI_SAVED_SETUP": {
+              "type": "boolean"
+            },
+            "ENVOI_REMOTE_MCP_OAUTH": {
+              "type": "boolean"
+            }
+          }
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "path",
+            "auth",
+            "headers"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/api/"
+            },
+            "auth": {
+              "const": "human_session"
+            },
+            "headers": {
+              "type": "object"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "body": {
+              "type": "object"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "schema",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "type": "integer"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "headers": {
+              "type": "object"
+            },
+            "body": {
+              "type": "object"
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "surface",
+            "next"
+          ],
+          "properties": {
+            "surface": {
+              "const": "owner_ui"
+            },
+            "lifecycle": {
+              "type": "string"
+            },
+            "retry": {
+              "type": "string"
+            },
+            "guidance": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

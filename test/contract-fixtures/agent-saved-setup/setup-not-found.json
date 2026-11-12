@@ -1,0 +1,36 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "setup-not-found",
+  "description": "Unknown, another human's, or past retention: identical in every case.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_workspace_example/agent-setups/setup_unknown",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "SETUP_NOT_FOUND",
+      "error": "SETUP_NOT_FOUND",
+      "message": "This setup is no longer available. Start again.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "start_again",
+    "next": "Stop polling and offer Start again."
+  }
+}

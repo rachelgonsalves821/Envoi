@@ -1,0 +1,67 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "consent-approve-saved-setup-unusable",
+  "description": "A replaced, expired or used setup never blocks approval: the approval proceeds and nothing is linked.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_1/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "consentApproveRequestWithSavedSetup",
+    "body": {
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Milo",
+        "localPart": "milo"
+      },
+      "grantedPermissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "policyProfile": "default",
+      "savedSetupId": "setup_example_old"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "consentApprovedWithSavedSetup",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "redirectTo": "https://assistant.example.com/oauth/callback?code=envoi_oauth_code_PLACEHOLDER_1&state=example-state&iss=https%3A%2F%2Fwww.envoi-agents.com",
+      "registrationId": "registration_oauth_example",
+      "target": "new_agent",
+      "workspaceName": "Example workspace",
+      "agent": {
+        "name": "Milo",
+        "address": "milo@envoi-agents.com"
+      },
+      "effectivePermissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "policyProfile": "default",
+      "codeExpiresAt": "2026-11-12T15:06:00.000Z",
+      "savedSetup": {
+        "setupId": "setup_example_old",
+        "linked": false
+      }
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Navigate to redirectTo, as today. No wizard status row follows this approval."
+  }
+}

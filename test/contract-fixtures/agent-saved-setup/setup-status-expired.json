@@ -1,0 +1,47 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "setup-status-expired",
+  "description": "Not used within 30 minutes.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_workspace_example/agent-setups/setup_example_1",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "savedSetup",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "setupId": "setup_example_1",
+      "runtime": "dots",
+      "workspaceInboxId": "inbox_workspace_example",
+      "workspaceName": "Example workspace",
+      "name": "Milo",
+      "localPart": "milo",
+      "address": "milo@envoi-agents.com",
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "status": "expired",
+      "createdAt": "2026-11-12T15:00:00.000Z",
+      "expiresAt": "2026-11-12T15:30:00.000Z",
+      "reason": "not_used"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Status row: This setup expired. Nothing was connected. Offer Start again."
+  }
+}

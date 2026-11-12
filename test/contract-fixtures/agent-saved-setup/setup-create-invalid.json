@@ -1,0 +1,47 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "setup-create-invalid",
+  "description": "v1 saves Dots setups only; other runtimes use their one-use setup code.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_workspace_example/agent-setups",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "body": {
+      "runtime": "openclaw",
+      "name": "Milo",
+      "localPart": "milo",
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "SETUP_INVALID",
+      "error": "SETUP_INVALID",
+      "message": "This setup could not be saved. Check the agent details and try again.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "fix_input",
+    "next": "Keep the form and point to the field to fix."
+  }
+}
