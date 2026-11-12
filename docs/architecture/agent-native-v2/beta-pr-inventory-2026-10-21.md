@@ -1,0 +1,190 @@
+# Envoi PR inventory for beta audit (2026-10-21)
+
+GitHub pull requests #1–#184 were enumerated in two creation-date windows; #34 is an issue. This audit's own draft #185 was then added below. Status was rechecked for each closed PR and for the open set. This inventory is a status map, not a claim that every historical diff requires a fresh beta gate. Launch-critical dispositions are in `definitive-beta-launch-roadmap-2026-10-21.md`.
+
+Counts: 184 total including this audit PR; 53 open; 113 merged; 18 closed unmerged.
+
+- [#1](https://github.com/rachelgonsalves821/Envoi/pull/1) — MERGED — Prepare Cloudflare deployment recovery and harden runtime consistency
+- [#2](https://github.com/rachelgonsalves821/Envoi/pull/2) — CLOSED, UNMERGED — Make R1 onboarding and staging acceptance evidence based
+- [#3](https://github.com/rachelgonsalves821/Envoi/pull/3) — CLOSED, UNMERGED — R2: renewable MCP clients and real relay acceptance
+- [#4](https://github.com/rachelgonsalves821/Envoi/pull/4) — CLOSED, UNMERGED — P4: issue case-scoped MCP read credentials
+- [#5](https://github.com/rachelgonsalves821/Envoi/pull/5) — CLOSED, UNMERGED — Integrate R1/R2 beta client and human flows
+- [#6](https://github.com/rachelgonsalves821/Envoi/pull/6) — MERGED — Integrate R1/R2 beta platform and isolated staging readiness
+- [#7](https://github.com/rachelgonsalves821/Envoi/pull/7) — MERGED — Close beta readiness gaps and prepare Rachel's deployment handoff
+- [#8](https://github.com/rachelgonsalves821/Envoi/pull/8) — MERGED — Enable Hermes Agent onboarding and unattended message wake
+- [#9](https://github.com/rachelgonsalves821/Envoi/pull/9) — MERGED — Integrate beta readiness and Hermes bridge for main
+- [#10](https://github.com/rachelgonsalves821/Envoi/pull/10) — MERGED — Fix session renewal and prevent workspace restoration after logout
+- [#11](https://github.com/rachelgonsalves821/Envoi/pull/11) — MERGED — Add beta landing and durable waitlist
+- [#12](https://github.com/rachelgonsalves821/Envoi/pull/12) — MERGED — Unify agent onboarding and durable wake connectors
+- [#13](https://github.com/rachelgonsalves821/Envoi/pull/13) — MERGED — Migrate beta hosting and auth URLs to envoi-agents.com
+- [#14](https://github.com/rachelgonsalves821/Envoi/pull/14) — MERGED — Freeze revoked agents and refresh Envoi link previews
+- [#15](https://github.com/rachelgonsalves821/Envoi/pull/15) — MERGED — Remove landing-page audio control and clarify waitlist confirmation
+- [#16](https://github.com/rachelgonsalves821/Envoi/pull/16) — MERGED — Mirror beta waitlist to private Google Sheet
+- [#17](https://github.com/rachelgonsalves821/Envoi/pull/17) — CLOSED, UNMERGED — Add Envoi social link preview
+- [#18](https://github.com/rachelgonsalves821/Envoi/pull/18) — MERGED — Use dedicated tab for private waitlist Sheet sync
+- [#19](https://github.com/rachelgonsalves821/Envoi/pull/19) — MERGED — Fix OpenClaw password onboarding and connector download checks
+- [#20](https://github.com/rachelgonsalves821/Envoi/pull/20) — MERGED — Preserve enrollment errors and credential recovery state
+- [#21](https://github.com/rachelgonsalves821/Envoi/pull/21) — CLOSED, UNMERGED — Add scoped Muse connector probe and Hermes send test
+- [#22](https://github.com/rachelgonsalves821/Envoi/pull/22) — MERGED — Stop 'Checking your session' on window blur and during first load
+- [#23](https://github.com/rachelgonsalves821/Envoi/pull/23) — MERGED — Quiet background session check on return, with cross-tab account guards (P1)
+- [#24](https://github.com/rachelgonsalves821/Envoi/pull/24) — MERGED — Quiet background session check on return, with cross-tab account guards (P1)
+- [#25](https://github.com/rachelgonsalves821/Envoi/pull/25) — MERGED — Recheck WorkOS membership on open live-update streams
+- [#26](https://github.com/rachelgonsalves821/Envoi/pull/26) — MERGED — Revamp Envoi app UI
+- [#27](https://github.com/rachelgonsalves821/Envoi/pull/27) — MERGED — Resolve UI feedback: personal inbox state and human instructions
+- [#28](https://github.com/rachelgonsalves821/Envoi/pull/28) — MERGED — Recover missing CSRF tokens and make failed sign-out retryable
+- [#29](https://github.com/rachelgonsalves821/Envoi/pull/29) — MERGED — Prevent stale refreshes from restoring conversations after Done
+- [#30](https://github.com/rachelgonsalves821/Envoi/pull/30) — OPEN — Establish agent-native Step 0 baseline and resolve build audit
+- [#31](https://github.com/rachelgonsalves821/Envoi/pull/31) — OPEN — Add durable agent credential rotation recovery
+- [#32](https://github.com/rachelgonsalves821/Envoi/pull/32) — OPEN — Define two-owner agent-first onboarding execution plan
+- [#33](https://github.com/rachelgonsalves821/Envoi/pull/33) — MERGED — Prepare compatible Envoi backend configuration names
+- [#35](https://github.com/rachelgonsalves821/Envoi/pull/35) — MERGED — A-0.2: Stamp staging deploys with the exact release SHA
+- [#36](https://github.com/rachelgonsalves821/Envoi/pull/36) — MERGED — A-0.3: Publish a3-pause-auth v1 contract and fixtures
+- [#37](https://github.com/rachelgonsalves821/Envoi/pull/37) — MERGED — B-0.1: Port scoped Hermes recovery fixes
+- [#38](https://github.com/rachelgonsalves821/Envoi/pull/38) — MERGED — B-0.2: Load shared contract fixtures in client runners
+- [#39](https://github.com/rachelgonsalves821/Envoi/pull/39) — MERGED — B-0.3: Add A3 client contract review
+- [#40](https://github.com/rachelgonsalves821/Envoi/pull/40) — MERGED — A-0.2: Restart a stale container once per deployed release
+- [#41](https://github.com/rachelgonsalves821/Envoi/pull/41) — MERGED — B-1: durable connector lifecycle and pause/revocation fences
+- [#42](https://github.com/rachelgonsalves821/Envoi/pull/42) — MERGED — A-1: Implement a3-pause-auth v1 pause semantics and stable auth codes
+- [#43](https://github.com/rachelgonsalves821/Envoi/pull/43) — MERGED — A-1: subscribe workspace lifecycle events and harden outage test timing
+- [#44](https://github.com/rachelgonsalves821/Envoi/pull/44) — MERGED — A-2.0: Publish a4-wake v1 contract and fixtures
+- [#45](https://github.com/rachelgonsalves821/Envoi/pull/45) — MERGED — Keep the /health service identity installed connectors check
+- [#46](https://github.com/rachelgonsalves821/Envoi/pull/46) — MERGED — Report the Envoi service identity, together with the connector check
+- [#47](https://github.com/rachelgonsalves821/Envoi/pull/47) — OPEN — Draft the Envoi naming plan
+- [#48](https://github.com/rachelgonsalves821/Envoi/pull/48) — MERGED — Require Envoi service identity in the connector
+- [#49](https://github.com/rachelgonsalves821/Envoi/pull/49) — OPEN — Review published A4 wake fixtures and cursor rules
+- [#50](https://github.com/rachelgonsalves821/Envoi/pull/50) — MERGED — Envoi naming N1: publish envoi-names v1 contract
+- [#51](https://github.com/rachelgonsalves821/Envoi/pull/51) — MERGED — Pull CI images from the AWS public mirror
+- [#52](https://github.com/rachelgonsalves821/Envoi/pull/52) — MERGED — Lane B: GA3/A2 local PASS and a4/naming contract reviews
+- [#53](https://github.com/rachelgonsalves821/Envoi/pull/53) — MERGED — Retry CI base image pulls across mirror and Docker Hub
+- [#54](https://github.com/rachelgonsalves821/Envoi/pull/54) — MERGED — B-2: resilient SSE wake client
+- [#55](https://github.com/rachelgonsalves821/Envoi/pull/55) — MERGED — N1-client: Envoi clean-cutover client names
+- [#56](https://github.com/rachelgonsalves821/Envoi/pull/56) — MERGED — A-2: Implement a4-wake v1 wake server
+- [#57](https://github.com/rachelgonsalves821/Envoi/pull/57) — MERGED — N1-server: envoi-names v1 server cutover and a3 v2 fixtures
+- [#58](https://github.com/rachelgonsalves821/Envoi/pull/58) — OPEN — Validate coordinated N1 client/server cutover (PRs #55 and #57)
+- [#59](https://github.com/rachelgonsalves821/Envoi/pull/59) — MERGED — GA4: local FileStore wake recovery runner
+- [#60](https://github.com/rachelgonsalves821/Envoi/pull/60) — MERGED — GA4: server-side queue test on FileStore and PostgreSQL
+- [#61](https://github.com/rachelgonsalves821/Envoi/pull/61) — MERGED — A-3.0: publish a5-presence v1 contract
+- [#62](https://github.com/rachelgonsalves821/Envoi/pull/62) — OPEN — Review a5-presence v1 for owner UI and connector doctor
+- [#63](https://github.com/rachelgonsalves821/Envoi/pull/63) — MERGED — N2-events: rename operational backlog events to envoi.*
+- [#64](https://github.com/rachelgonsalves821/Envoi/pull/64) — MERGED — N2-contract: publish envoi-browser-names v1
+- [#65](https://github.com/rachelgonsalves821/Envoi/pull/65) — MERGED — A-3: a5-presence v1 server implementation
+- [#66](https://github.com/rachelgonsalves821/Envoi/pull/66) — MERGED — test(frontend): review envoi-browser-names v1 fixtures
+- [#67](https://github.com/rachelgonsalves821/Envoi/pull/67) — MERGED — B-3: show agent control state and server presence
+- [#68](https://github.com/rachelgonsalves821/Envoi/pull/68) — MERGED — N2-config-1: ENVOI_* names in repo config + dashboard checklist
+- [#69](https://github.com/rachelgonsalves821/Envoi/pull/69) — MERGED — N2-server: envoi-browser-names v1 server (integrate with N2-client)
+- [#70](https://github.com/rachelgonsalves821/Envoi/pull/70) — MERGED — feat(frontend): Envoi N2 browser cutover paired with #69
+- [#71](https://github.com/rachelgonsalves821/Envoi/pull/71) — CLOSED, UNMERGED — test: validate N2 client and server together
+- [#72](https://github.com/rachelgonsalves821/Envoi/pull/72) — MERGED — Draft agent-facing Envoi onboarding skill and approval confirmation
+- [#73](https://github.com/rachelgonsalves821/Envoi/pull/73) — MERGED — Prepare reproducible Phase A real-Hermes hosted gate
+- [#74](https://github.com/rachelgonsalves821/Envoi/pull/74) — MERGED — N2 browser cutover: #69 + #70 on one SHA
+- [#75](https://github.com/rachelgonsalves821/Envoi/pull/75) — MERGED — Plan multiple agent-led onboarding routes
+- [#76](https://github.com/rachelgonsalves821/Envoi/pull/76) — MERGED — Publish agent-registration v1 contract (A-3.1a)
+- [#77](https://github.com/rachelgonsalves821/Envoi/pull/77) — MERGED — Restart the app container when Worker settings change
+- [#78](https://github.com/rachelgonsalves821/Envoi/pull/78) — MERGED — test(sdk): review republished agent-registration v1
+- [#79](https://github.com/rachelgonsalves821/Envoi/pull/79) — MERGED — Retire SINALOA_* settings except the data encryption key (N2-config-2)
+- [#80](https://github.com/rachelgonsalves821/Envoi/pull/80) — MERGED — test(bridges): use ENVOI_P2_SERVER_ENTRY for N2-config-2
+- [#81](https://github.com/rachelgonsalves821/Envoi/pull/81) — MERGED — N2-config-2 paired: retire SINALOA_* settings (#79 + #80 on one SHA)
+- [#82](https://github.com/rachelgonsalves821/Envoi/pull/82) — MERGED — Say Envoi in the current docs and README (N2-docs)
+- [#83](https://github.com/rachelgonsalves821/Envoi/pull/83) — OPEN — N2: use Envoi in design context
+- [#84](https://github.com/rachelgonsalves821/Envoi/pull/84) — MERGED — Make Gate GA provable from the server side
+- [#85](https://github.com/rachelgonsalves821/Envoi/pull/85) — MERGED — GA: consume refresh recovery without browser refresh
+- [#86](https://github.com/rachelgonsalves821/Envoi/pull/86) — MERGED — Gate GA evidence paired: server audits + client event list (#84 + #85 on one SHA)
+- [#87](https://github.com/rachelgonsalves821/Envoi/pull/87) — OPEN — Add the H-5 beta release checklist
+- [#88](https://github.com/rachelgonsalves821/Envoi/pull/88) — OPEN — Owner evidence download and explicit beta runtime reliability gates
+- [#89](https://github.com/rachelgonsalves821/Envoi/pull/89) — OPEN — Retry FileStore replace on Windows when a reader holds the file
+- [#90](https://github.com/rachelgonsalves821/Envoi/pull/90) — MERGED — Attribute queue consumers and pin database destinations
+- [#91](https://github.com/rachelgonsalves821/Envoi/pull/91) — MERGED — Refuse a database that belongs to another deployment
+- [#92](https://github.com/rachelgonsalves821/Envoi/pull/92) — MERGED — Fix viewer-relative agent identity and Hermes restart recovery
+- [#93](https://github.com/rachelgonsalves821/Envoi/pull/93) — MERGED — Phase A: corrected connector recovery and fault-proxy candidate
+- [#94](https://github.com/rachelgonsalves821/Envoi/pull/94) — MERGED — Phase A candidate: #93 + #90 + #91 on 592e7f4
+- [#95](https://github.com/rachelgonsalves821/Envoi/pull/95) — MERGED — Phase A: bounded lease recovery and isolated held-work prompts
+- [#96](https://github.com/rachelgonsalves821/Envoi/pull/96) — OPEN — Prepare Phase A closeout and Phase B onboarding implementation
+- [#97](https://github.com/rachelgonsalves821/Envoi/pull/97) — MERGED — Plan gated Phase B helper, owner UI and runtime implementation
+- [#98](https://github.com/rachelgonsalves821/Envoi/pull/98) — MERGED — Phase A closeout record @2b18170 + agent-registration v1 status reconciliation
+- [#99](https://github.com/rachelgonsalves821/Envoi/pull/99) — MERGED — A-4.1: shared approval and installation foundation (agent-registration v1)
+- [#100](https://github.com/rachelgonsalves821/Envoi/pull/100) — MERGED — ci: start PostgreSQL in a bounded step with registry fallback
+- [#101](https://github.com/rachelgonsalves821/Envoi/pull/101) — MERGED — A-4.2: durable registration and authenticated human claim (agent-registration v1)
+- [#102](https://github.com/rachelgonsalves821/Envoi/pull/102) — MERGED — A-4.3: private activation, response recovery, cleanup and revocation (agent-registration v1)
+- [#103](https://github.com/rachelgonsalves821/Envoi/pull/103) — MERGED — B-4: refresh workspace on installation and claim audit events
+- [#104](https://github.com/rachelgonsalves821/Envoi/pull/104) — MERGED — B-4: private helper, owner claim and local runtime onboarding
+- [#105](https://github.com/rachelgonsalves821/Envoi/pull/105) — MERGED — Integrate Lane B client #104 onto integration (generated web rebuilt)
+- [#106](https://github.com/rachelgonsalves821/Envoi/pull/106) — MERGED — A-4.4: /connect app shell and reviewed skill content (unpublished until the route is offered)
+- [#107](https://github.com/rachelgonsalves821/Envoi/pull/107) — MERGED — Integrate Lane B client plan #97 onto integration
+- [#108](https://github.com/rachelgonsalves821/Envoi/pull/108) — MERGED — Gate B-local prep: local HTTPS front end, evidence extractor views, runbook and template
+- [#109](https://github.com/rachelgonsalves821/Envoi/pull/109) — MERGED — A-4 review follow-ups: honest approver hint, keyed source hashes, member authorization test, rollback note
+- [#110](https://github.com/rachelgonsalves821/Envoi/pull/110) — MERGED — docs: update onboarding PRD and divide remaining Phase B/C work
+- [#111](https://github.com/rachelgonsalves821/Envoi/pull/111) — OPEN — Prepare private installers and background lifecycle plans
+- [#112](https://github.com/rachelgonsalves821/Envoi/pull/112) — MERGED — B-4: precompile route validation to fix blank owner app under CSP
+- [#113](https://github.com/rachelgonsalves821/Envoi/pull/113) — MERGED — Integrate Lane B CSP fix #112 onto integration
+- [#114](https://github.com/rachelgonsalves821/Envoi/pull/114) — OPEN — prep: inventory Phase C client seams and contract prerequisites
+- [#115](https://github.com/rachelgonsalves821/Envoi/pull/115) — MERGED — C-A0: publish case-session v1 contract and fixtures
+- [#116](https://github.com/rachelgonsalves821/Envoi/pull/116) — MERGED — C-A0: publish case-tools v1 revisions 1-3 (all nine case tools)
+- [#117](https://github.com/rachelgonsalves821/Envoi/pull/117) — OPEN — Harden private installation directories and interruption handling
+- [#118](https://github.com/rachelgonsalves821/Envoi/pull/118) — OPEN — C-B1: private case sessions and trusted-host work lifecycle
+- [#119](https://github.com/rachelgonsalves821/Envoi/pull/119) — OPEN — B-4: Prepare explicit-path local helper launchers
+- [#120](https://github.com/rachelgonsalves821/Envoi/pull/120) — OPEN — C-B2: typed scoped case tools and human-decision work
+- [#121](https://github.com/rachelgonsalves821/Envoi/pull/121) — MERGED — C-A0: publish http-wake v1 contract and fixtures
+- [#122](https://github.com/rachelgonsalves821/Envoi/pull/122) — MERGED — Fix registration-cleanup test clock defect at hour boundaries
+- [#123](https://github.com/rachelgonsalves821/Envoi/pull/123) — MERGED — C-A1: case-session v1 server behind ENVOI_CASE_SESSIONS_V1
+- [#124](https://github.com/rachelgonsalves821/Envoi/pull/124) — OPEN — C-B3 increment: scoped xAI recovery and canonical owner decisions
+- [#125](https://github.com/rachelgonsalves821/Envoi/pull/125) — OPEN — C-B3 increment: scoped OpenClaw Responses and ordered recovery
+- [#126](https://github.com/rachelgonsalves821/Envoi/pull/126) — OPEN — C-B4 increment: safe owner file downloads and canonical outcomes
+- [#127](https://github.com/rachelgonsalves821/Envoi/pull/127) — OPEN — C-B3 foundation: private Hermes MCP and ACP transport (runtime disabled)
+- [#128](https://github.com/rachelgonsalves821/Envoi/pull/128) — OPEN — C-B0/C-B6: beta mutation regressions and offline Phase C evidence preparation
+- [#129](https://github.com/rachelgonsalves821/Envoi/pull/129) — OPEN — C-B3 safety: reject unverified OpenClaw scoped admission before side effects
+- [#130](https://github.com/rachelgonsalves821/Envoi/pull/130) — OPEN — C-B5: signed HTTPS wake receiver, durable acknowledgement and host recovery
+- [#131](https://github.com/rachelgonsalves821/Envoi/pull/131) — OPEN — C-B5: bind HTTPS wake to scoped work and fresh lease authority
+- [#132](https://github.com/rachelgonsalves821/Envoi/pull/132) — OPEN — C-B5: package import-safe HTTPS wake APIs in the connector download
+- [#133](https://github.com/rachelgonsalves821/Envoi/pull/133) — OPEN — C-B3: dedicated runtime isolation design (review only)
+- [#134](https://github.com/rachelgonsalves821/Envoi/pull/134) — OPEN — C-B3: offline scoped model admission and durable recovery
+- [#135](https://github.com/rachelgonsalves821/Envoi/pull/135) — OPEN — C-B3: fixed scoped model transport and cancellation regressions
+- [#136](https://github.com/rachelgonsalves821/Envoi/pull/136) — OPEN — C-A1: preserve #123 and fix PostgreSQL session regression setup
+- [#137](https://github.com/rachelgonsalves821/Envoi/pull/137) — OPEN — Phase B: keep Muse/Instinct open and prepare provider review
+- [#138](https://github.com/rachelgonsalves821/Envoi/pull/138) — OPEN — C-A1–C-A5: complete scoped case tools and secure HTTPS wake server
+- [#139](https://github.com/rachelgonsalves821/Envoi/pull/139) — OPEN — Lane b/c b3 original beta runtime
+- [#140](https://github.com/rachelgonsalves821/Envoi/pull/140) — OPEN — C-B4: consume approved Phase C owner events (test-only increment)
+- [#141](https://github.com/rachelgonsalves821/Envoi/pull/141) — OPEN — Muse/Instinct: draft scoped browser-session and polling contract
+- [#142](https://github.com/rachelgonsalves821/Envoi/pull/142) — OPEN — feat(hermes): compose scoped daemon host with durable recovery
+- [#143](https://github.com/rachelgonsalves821/Envoi/pull/143) — MERGED — Phase C combined candidate: scoped tools, Hermes/OpenClaw and HTTPS wake
+- [#144](https://github.com/rachelgonsalves821/Envoi/pull/144) — MERGED — Implement Stage 1 installation-scoped browser gateway and polling
+- [#145](https://github.com/rachelgonsalves821/Envoi/pull/145) — OPEN — Replace public landing page with About and Product pages
+- [#146](https://github.com/rachelgonsalves821/Envoi/pull/146) — MERGED — Add PostHog analytics for Envoi beta
+- [#147](https://github.com/rachelgonsalves821/Envoi/pull/147) — MERGED — Allow PostHog traffic in browser CSP
+- [#148](https://github.com/rachelgonsalves821/Envoi/pull/148) — MERGED — C-A6: three server review fixes on the Phase C candidate (#143 + 1)
+- [#149](https://github.com/rachelgonsalves821/Envoi/pull/149) — CLOSED, UNMERGED — Gate B-local runbook: rerun on f3a71f6 (ENVOI_RELEASE_SHA, fresh runtime profiles)
+- [#150](https://github.com/rachelgonsalves821/Envoi/pull/150) — CLOSED, UNMERGED — C-FU-A: Phase C server hygiene (registry approvals, wake flag, cleanup interval, TOTP 400)
+- [#151](https://github.com/rachelgonsalves821/Envoi/pull/151) — CLOSED, UNMERGED — C-FU-B: scope native reject withdrawal to case tools; prove the delivery wake commits with the delivery
+- [#152](https://github.com/rachelgonsalves821/Envoi/pull/152) — CLOSED, UNMERGED — C-FU-C: scoped case-tool asset loading; per-agent wake subscriptions and indexed wake queue
+- [#153](https://github.com/rachelgonsalves821/Envoi/pull/153) — CLOSED, UNMERGED — C-A6: Phase C staging rollout runbook
+- [#154](https://github.com/rachelgonsalves821/Envoi/pull/154) — MERGED — fix(hermes): keep MCP relay live through helper adoption
+- [#155](https://github.com/rachelgonsalves821/Envoi/pull/155) — CLOSED, UNMERGED — contract(agent-registration): v1 revision 4, owner-UI reconnect eligibility
+- [#156](https://github.com/rachelgonsalves821/Envoi/pull/156) — CLOSED, UNMERGED — fix(onboarding): offer reconnect after installation revoke
+- [#157](https://github.com/rachelgonsalves821/Envoi/pull/157) — CLOSED, UNMERGED — fix(onboarding): report revocation and TLS transport failures
+- [#158](https://github.com/rachelgonsalves821/Envoi/pull/158) — MERGED — Integrate #155 + #156 + #157: Gate B-local row 18 fix (revision 4, reconnect UI, helper outcomes)
+- [#159](https://github.com/rachelgonsalves821/Envoi/pull/159) — MERGED — evidence: Gate B-local PASS @4ad14b6 (21/21, local-server)
+- [#160](https://github.com/rachelgonsalves821/Envoi/pull/160) — CLOSED, UNMERGED — Gate B-local 4ad14b6 follow-ups: evidence corrections and operator scripts
+- [#161](https://github.com/rachelgonsalves821/Envoi/pull/161) — CLOSED, UNMERGED — fix(connect): skill.json names the deployment's own origin (pairs with Lane B)
+- [#162](https://github.com/rachelgonsalves821/Envoi/pull/162) — MERGED — Stage A candidate (draft): #149-#153, #160, #161, #163 on integration 454ab22
+- [#163](https://github.com/rachelgonsalves821/Envoi/pull/163) — MERGED — fix(onboarding): pin skill commands to trusted deployment origin
+- [#164](https://github.com/rachelgonsalves821/Envoi/pull/164) — OPEN — docs: update PRD and pre-onboarding phase plan
+- [#165](https://github.com/rachelgonsalves821/Envoi/pull/165) — MERGED — evidence: Gate B-local PASS 21/21 at e8a958f (countersigned)
+- [#166](https://github.com/rachelgonsalves821/Envoi/pull/166) — CLOSED, UNMERGED — deps: vite 8.3.4 for the launch-editor advisories (new build candidate; do not integrate without Je)
+- [#167](https://github.com/rachelgonsalves821/Envoi/pull/167) — MERGED — Gate B-local script guards (artifact + OpenClaw profile) and first-batch wake scope (Rachel's #160/#162 reviews)
+- [#168](https://github.com/rachelgonsalves821/Envoi/pull/168) — MERGED — evidence: Gate B-local e8a958f sanitized server tables and close checks (completes #165)
+- [#169](https://github.com/rachelgonsalves821/Envoi/pull/169) — MERGED — deps: vite 8.3.3 for the launch-editor advisories; built artifacts byte-identical (replaces #166)
+- [#170](https://github.com/rachelgonsalves821/Envoi/pull/170) — MERGED — Stage A final candidate (draft): #167 + #168 + #169 on f7cafcb; runtime byte-identical to gated e8a958f
+- [#171](https://github.com/rachelgonsalves821/Envoi/pull/171) — MERGED — contract(agent-remote-auth): draft v1, remote MCP/OAuth and provider connectors (A-3.1b)
+- [#172](https://github.com/rachelgonsalves821/Envoi/pull/172) — OPEN — docs: Stage A packet outline (first hosted Phase C batch, wake ON)
+- [#173](https://github.com/rachelgonsalves821/Envoi/pull/173) — OPEN — RA-B1: add remote-auth owner consent and retry UI
+- [#174](https://github.com/rachelgonsalves821/Envoi/pull/174) — OPEN — Fix Windows wake-store identity verification
+- [#175](https://github.com/rachelgonsalves821/Envoi/pull/175) — OPEN — RA-0: a5-presence-on-demand v1 contract (honest owner state for on-demand installations)
+- [#176](https://github.com/rachelgonsalves821/Envoi/pull/176) — OPEN — RA-0: agent-registration v1 revision 5, stored records for agent-remote-auth
+- [#177](https://github.com/rachelgonsalves821/Envoi/pull/177) — OPEN — RA-A1 part 1: remote-auth discovery, clients and authorization request (flags off)
+- [#178](https://github.com/rachelgonsalves821/Envoi/pull/178) — OPEN — Pair registration revision 5 validator and review consumers
+- [#179](https://github.com/rachelgonsalves821/Envoi/pull/179) — OPEN — Phase B: prepare hosted onboarding and portable host route evidence
+- [#180](https://github.com/rachelgonsalves821/Envoi/pull/180) — OPEN — Phase B: audit remote MCP/OAuth client and wake contract gaps
+- [#181](https://github.com/rachelgonsalves821/Envoi/pull/181) — OPEN — Phase B: add private portable REST registration client
+- [#182](https://github.com/rachelgonsalves821/Envoi/pull/182) — OPEN — phase-b: Dots/Grok host gates and xAI MCP token origin
+- [#183](https://github.com/rachelgonsalves821/Envoi/pull/183) — OPEN — RA-B2: render approved on-demand owner presence
+- [#184](https://github.com/rachelgonsalves821/Envoi/pull/184) — OPEN — Phase B: prepare hosted onboarding and staging rollback evidence
+- [#185](https://github.com/rachelgonsalves821/Envoi/pull/185) — OPEN — docs: definitive beta launch decision and PR audit (this audit)
