@@ -100,7 +100,7 @@ If either lane needs a file in the other column, post `REQUEST lane-a` or `REQUE
 **Also**
 - In `integrations/hermes/README.md`, change "15-minute" to "30-minute".
 - Keep the reconnect and re-enroll paths (`reconnectAgent`, `reenroll`) and the "Dots route unavailable" notice working.
-- Rebuild `web/` with `npm run build` (Node 24 on PATH).
+- Rebuild `web/` with `npm run build` (Node 24 on PATH) and commit the result. This also clears a red CI step that is already failing on `main` @ `04ed191`: "Generated files match their sources" fails because `web/index.html` is stale there.
 
 **Tests** (`frontend/test/**`)
 - Rewrite the wording checks in `dots-guide-actions`, `dots-message-access`, `dots-onboarding` and `quick-connect` to check behaviour:
@@ -114,7 +114,7 @@ If either lane needs a file in the other column, post `REQUEST lane-a` or `REQUE
 
 ### Phase 1 checks
 1. Each PR: green CI on its head. Lane B also runs `npm run test:frontend` and `npm run build` locally.
-2. Base: Lane A integrates both PRs and runs full CI on the `onboarding/simple-setup` head.
+2. Base: Lane A integrates both PRs and runs full CI on the `onboarding/simple-setup` head. It must be fully green, including the PostgreSQL, Cloudflare and container steps. Those are skipped on a PR that fails the generated-files step: Lane A's PR #358 fails only there (inherited from `main`), while every test step passes.
 3. Owner: a quick look at the setup screens for one OpenClaw or Hermes connection and the Dots screen. Then the owner merges the base into `main`.
 
 **Done when:** every setup screen has one primary button and one "Stuck?" link, permissions are visible, the status row follows the table above, reconnect still works, and CI is green.
