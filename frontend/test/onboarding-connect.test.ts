@@ -87,3 +87,12 @@ it('shows ended installations on frozen identities and preserves installation-on
   expect(html).toContain('Reconnect this identity'); expect(html).not.toContain('No permissions active');
   expect(render(endedOnly, { ...workspace, kind: 'personal', ownerAgentId: null } as any)).not.toContain('Runtime installations');
 });
+
+
+it('opens the hosted Grok connector guide directly from the public platform link', () => {
+  const html = renderToStaticMarkup(createElement(ConnectPage, { initialAgentId: 'grok' }));
+  expect(html).toContain('Connect Grok Bot');
+  expect(html).toContain('Checking Envoi authorization');
+  expect(html).not.toContain('Show Grok Bot setup');
+  expect(html).not.toContain('Agent connection instructions');
+});

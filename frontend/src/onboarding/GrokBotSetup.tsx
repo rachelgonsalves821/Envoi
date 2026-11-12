@@ -49,9 +49,7 @@ export function GrokBotSetup({ address }: { address?: string }) {
     ? `The approved Envoi address must be ${address}.`
     : 'Ask me to confirm the expected Envoi address before setting up receiving.';
   const prompt = `I have approved the hosted Envoi connector in Connect apps. Use only the existing Remote HTTPS connection at ${serverUrl}. ${expectedIdentity}
-Call envoi_agent_info and report the exact address and permissions. If the connection is missing, authorization fails, or the address differs, stop and direct me to Envoi → Manage agents → Connect Grok Bot. Do not install a connector, run a command, redeem an enrollment token, request an xAI API key, or use a different server.
-
-${grokBotReceivingPrompt(address)}`;
+Call envoi_agent_info and report the exact address and permissions. If the connection is missing, authorization fails, or the address differs, stop and direct me to Envoi → Manage agents → Connect Grok Bot. Do not install a connector, run a command, redeem an enrollment token, request an xAI API key, or use a different server.`;
   const workflowHeading = '## Routine workflow';
   const skill = `---
 name: envoi
@@ -97,10 +95,10 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
     <details className="setup-details setup-help">
       <summary>{setupHelpLabel}</summary>
       <section className="setup-help-option">
-        <strong>Turn on background receiving</strong>
-        <p>After approval, open a fresh chat in the same Bot and paste this message. It asks your Bot to verify the address and set up the five-minute inbox check. Check activity under <strong>Runtime installations → Grok Bot monitoring</strong>.</p>
+        <strong>Verify the connected identity</strong>
+        <p>After approval, use this optional check in the same Bot to confirm its Envoi address and permissions. You can test a reply or set up background receiving under <strong>Manage agents → Runtime installations → Grok Bot setup and verification</strong>.</p>
         <div className="grok-setup-actions">
-          <GrokBotPrompt label="Receiving setup message" copyLabel="Copy receiving setup message" value={prompt} />
+          <GrokBotPrompt label="Identity check message" copyLabel="Copy identity check message" value={prompt} />
         </div>
       </section>
       <section className="setup-help-option">
@@ -128,7 +126,7 @@ function GrokConnectorValue({ label, value, primary = false }: { label: string; 
   </div>;
 }
 
-function GrokBotPrompt({ label, copyLabel, value }: { label: string; copyLabel: string; value: string }) {
+export function GrokBotPrompt({ label, copyLabel, value }: { label: string; copyLabel: string; value: string }) {
   const [feedback, setFeedback] = useState('');
   const [showMessage, setShowMessage] = useState(false);
   return <>
@@ -194,13 +192,13 @@ export function GrokBotMonitoring({ inboxId, agent, installationId, onRefresh }:
   return <details className="onboarding-panel" onToggle={event => { if (event.currentTarget.open) void update(); }}>
     <summary>Grok Bot monitoring</summary>
     {enabled && <>
-      <p>Your Bot sets up the scheduled check during onboarding. The latest inbox check below shows when it last reached Envoi.</p>
+      <p>Set up a routine if you want your Bot to receive work while its chat is closed.</p>
       <details>
-        <summary>Resume monitoring setup</summary>
-        <p>If your Bot stopped after connecting, send it this message to pick up where it left off.</p>
-        <GrokBotPrompt label="Monitoring message" copyLabel="Copy monitoring recovery message" value={monitoringPrompt} />
+        <summary>Set up or resume background receiving</summary>
+        <p>Paste this message into the connected Grok Bot to set up its routine.</p>
+        <GrokBotPrompt label="Monitoring message" copyLabel="Copy monitoring setup message" value={monitoringPrompt} />
       </details>
-      <p>To test the scheduled check, leave the webhook unconfigured, close Grok Bot, and have another staging agent send a message. Look for a new inbox check and a completed item below.</p>
+      <p>Use the background delivery test to verify a reply and completion for a specific message.</p>
     </>}
     <dl>
       <dt>Webhook status</dt><dd>{ownTarget ? (({ active: 'Configured', needs_secret: 'Key needs updating', needs_attention: 'Needs attention', ended: 'Disconnected' } as Record<string, string>)[ownTarget.state] || 'Check webhook settings') : 'Not configured'}</dd>

@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { connectionOffer, connectionPrompt, readConnectionOffer } from './connect-state';
 import { agentCatalog, productAsset, type AgentCatalogId } from './agent-catalog';
 import { DotsSetupGuide } from './DotsSetupGuide';
-import { GrokBotDetails, GrokBotSetup } from './GrokBotSetup';
-import { EnrollmentSteps } from './EnrollmentSteps';
+import { GrokBotSetup } from './GrokBotSetup';
 import { dotsRouteUnavailableNotice } from '../quick-connect';
 
 export function ConnectPage({ initialAvailability, initialAgentId, origin = typeof window === 'undefined' ? 'https://www.envoi-agents.com' : window.location.origin }: { initialAvailability?: unknown; initialAgentId?: AgentCatalogId; origin?: string }) {
@@ -11,7 +10,6 @@ export function ConnectPage({ initialAvailability, initialAgentId, origin = type
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [grokStep, setGrokStep] = useState<0 | 1 | 2>(0);
   const [selectedId, setSelectedId] = useState<AgentCatalogId>(() => {
     const value = initialAgentId || (typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('platform'));
     return agentCatalog.find(item => item.id === value)?.id || 'openclaw';
@@ -34,16 +32,10 @@ export function ConnectPage({ initialAvailability, initialAgentId, origin = type
   return <main className="connect-page">
     <header className="connect-header"><a className="connect-wordmark" href="/app" aria-label="Envoi workspace"><img src={productAsset('/envoi-logo.png')} alt="" width="38" height="38" /><span>Envoi</span></a><a href="/app">← Back to workspace</a></header>
     <section className="connect-intro"><div><p className="eyebrow">Agent onboarding</p><h1>Bring your agent into Envoi.</h1><p>Choose the platform your agent runs on. We’ll show its connection path and what you need before you begin.</p></div><img src={productAsset('/envoi-logo.png')} alt="" width="108" height="108" /></section>
-    <div className="connect-layout"><section className="connect-platforms" aria-label="Agent platforms"><div className="connect-section-heading"><span>01</span><div><h2>Choose an agent</h2><p>Six platforms. One place to understand each setup route.</p></div></div><div className="connect-platform-grid">{agentCatalog.map(item => <button key={item.id} type="button" className={`connect-platform ${selectedId === item.id ? 'selected' : ''}`} aria-pressed={selectedId === item.id} onClick={() => { setSelectedId(item.id); setGrokStep(0); setCopied(false); }}><img src={item.logo} alt="" width="44" height="44" /><strong>{displayName(item)}</strong><small>{displayRoute(item)}</small><span aria-hidden="true">↗</span></button>)}</div><p className="connect-platform-note">A listed platform does not mean its connection route is enabled on this deployment.</p></section>
+    <div className="connect-layout"><section className="connect-platforms" aria-label="Agent platforms"><div className="connect-section-heading"><span>01</span><div><h2>Choose an agent</h2><p>Six platforms. One place to understand each setup route.</p></div></div><div className="connect-platform-grid">{agentCatalog.map(item => <button key={item.id} type="button" className={`connect-platform ${selectedId === item.id ? 'selected' : ''}`} aria-pressed={selectedId === item.id} onClick={() => { setSelectedId(item.id); setCopied(false); }}><img src={item.logo} alt="" width="44" height="44" /><strong>{displayName(item)}</strong><small>{displayRoute(item)}</small><span aria-hidden="true">↗</span></button>)}</div><p className="connect-platform-note">A listed platform does not mean its connection route is enabled on this deployment.</p></section>
     {selectedId === 'grok' ? <section className="connect-guide hosted-grok-flow">
       <h2>Connect Grok Bot</h2>
-      <EnrollmentSteps currentStep={grokStep} />
-      {grokStep === 0 ? <p>Use your signed-in Grok Bot and open Connect apps.</p>
-        : grokStep === 1 ? <GrokBotDetails /> : <GrokBotSetup />}
-      <div className="dialog-actions">
-        {grokStep > 0 && <button type="button" className="button secondary" onClick={() => setGrokStep(grokStep === 2 ? 1 : 0)}>Back</button>}
-        {grokStep < 2 && <button type="button" className="button primary" onClick={() => setGrokStep(grokStep === 0 ? 1 : 2)}>{grokStep === 0 ? 'Continue' : 'Show Grok Bot setup'}</button>}
-      </div>
+      <GrokBotSetup />
     </section> : <section className="connect-guide" aria-live="polite"><div className="connect-guide-heading"><img src={selected.logo} alt="" width="52" height="52" /><span>{selectedCanUseHelper && available ? 'Ready to connect' : 'Setup guide'}</span></div><p className="eyebrow">{selected.route}</p><h2>{selected.name}</h2><p className="connect-guide-summary">{selected.summary}</p><h3>Before you begin</h3><ul>{selected.requirements.map(item => <li key={item}>✓ {item}</li>)}</ul><h3>How this route works</h3><p>{selectedId === 'dots' ? 'Follow the steps below to connect and verify Send and Receive. The approval page opens in Envoi; your Dot stays in ChatGPT.' : selected.instructions}</p></section>}</div>
     {!offer && !error && <p role="status">Checking available connections…</p>}
     {error && <div role="alert"><p>{error}</p><button className="button secondary" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>}
