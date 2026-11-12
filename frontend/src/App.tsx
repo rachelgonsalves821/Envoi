@@ -24,6 +24,8 @@ import { authorizationHandle, authorizationStartError } from './onboarding/conse
 import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
 import { DotsPermissionRecovery, DotsSetupGuide } from './onboarding/DotsSetupGuide';
+import { SavedSetupProgress } from './onboarding/SavedSetupProgress';
+import { savedSetupApi, type SavedSetup } from './onboarding/saved-setup';
 import { PhaseDTrustControls } from './PhaseDTrustControls';
 import { MonadPermissionPanel } from './MonadPermissionPanel';
 import { claimSignInPath } from './onboarding/connect-state';
@@ -1961,6 +1963,9 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
     return () => stop.abort();
   }, []);
   const [dotsGuideOpen, setDotsGuideOpen] = useState(false);
+  const [savedSetup, setSavedSetup] = useState<SavedSetup | null>(null);
+  const saveRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => saveRequest.current?.abort(), []);
   const [dotsRoute, setDotsRoute] = useState<'checking' | 'available' | 'unavailable' | 'unknown'>('checking');
   const addressEdited = useRef(false);
   const [status, setStatus] = useState<EnrollmentStatus | null>(null);
@@ -2005,8 +2010,8 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   }, [result, workspace.id, statusRetry]);
   const envoiOrigin = typeof window === 'undefined' ? '' : window.location.origin;
   const dotsOrigin = envoiOrigin && isLoopbackOrigin(envoiOrigin) ? 'https://www.envoi-agents.com' : envoiOrigin;
-  const dotsName = reconnectAgent?.name || name.trim();
-  const requestedAddress = reconnectAgent?.address || `${localPart}@${agentDomain}`;
+  const dotsName = savedSetup?.name || reconnectAgent?.name || name.trim();
+  const requestedAddress = savedSetup?.address || reconnectAgent?.address || `${localPart}@${agentDomain}`;
   const dotsReconnectAllowed = !reconnectAgent || canReconnectAgent(reconnectAgent);
   useEffect(() => {
     if (!dotsSelected) return;
@@ -2074,7 +2079,11 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
     </div>
     {dotsGuideOpen ? <section className="quick-connect">
       {dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body={dotsRouteUnavailableNotice} tone="attention" />}
-      <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} />
+      <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} savedSetup={Boolean(savedSetup)} />
+      {savedSetup && <SavedSetupProgress setup={savedSetup} onConnected={onRefresh} onStartAgain={() => {
+        setSavedSetup(null);
+        setDotsGuideOpen(false);
+      }} />}
       <div className="dialog-actions"><button className="button secondary" type="button" onClick={onClose}>Close</button></div>
     </section> : result ? <section className="quick-connect">
       {handoff ? <>
@@ -2144,8 +2153,35 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       <div className="dialog-actions"><button className="button secondary" type="button" onClick={onClose}>Close</button></div>
     </section> : <form className="enroll-form" onSubmit={async event => {
       event.preventDefault();
+      if (busy || saveRequest.current) return;
       if (step === 0) { setStep(1); return; }
-      if (dotsSelected) { setDotsGuideOpen(true); return; }
+      if (dotsSelected) {
+        if (reconnectAgent || workspace.id === previewWorkspace.id) { setDotsGuideOpen(true); return; }
+        if (!name.trim() || !validAgentLocalPart(localPart) || availability !== 'available') return;
+        const controller = new AbortController();
+        saveRequest.current = controller;
+        setBusy(true);
+        setError('');
+        try {
+          const setup = await savedSetupApi.create(workspace.id, {
+            name: name.trim(), localPart, permissions: selectedAgentPermissions(selectedPermissions)
+          }, controller.signal);
+          if (controller.signal.aborted) return;
+          setSavedSetup(setup);
+          setDotsGuideOpen(true);
+        } catch (caught) {
+          if (controller.signal.aborted) return;
+          if (caught instanceof ApiError && caught.code === 'FEATURE_DISABLED') setDotsGuideOpen(true);
+          else {
+            if (caught instanceof ApiError && caught.code === 'ADDRESS_TAKEN') setAvailability('taken');
+            setError(errorMessage(caught));
+          }
+        } finally {
+          saveRequest.current = null;
+          if (!controller.signal.aborted) setBusy(false);
+        }
+        return;
+      }
       setBusy(true);
       setError('');
       try {
@@ -2172,7 +2208,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
           <Field label="Agent name" name="name" value={name} onChange={event => {
             setName(event.target.value);
             if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value));
-          }} placeholder="Milo" required />
+          }} placeholder="Milo" maxLength={dotsSelected ? 80 : undefined} required />
           <label className="field"><span>Agent email address</span><span className="enroll-address">
             <input name="localPart" value={localPartInput} onChange={event => {
               addressEdited.current = true;
@@ -2185,7 +2221,8 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
           </p>}
         </>}
         {dotsSelected ? <>
-          <AgentPermissionPicker selected={DEFAULT_AGENT_PERMISSIONS} />
+          <AgentPermissionPicker selected={reconnectAgent ? DEFAULT_AGENT_PERMISSIONS : selectedPermissions}
+            onChange={reconnectAgent ? undefined : setSelectedPermissions} />
           <p className="enroll-note">You'll confirm these on Envoi's approval page.</p>
         </> : reconnectAgent && !reenroll ? <>
           <AgentPermissionPicker selected={reconnectAgent.permissions ?? []} />

@@ -72,7 +72,7 @@ export function setupSkillFile(handoff: QuickConnectHandoff) {
   return `---\nname: envoi-${validated.runtime}-setup\ndescription: Private one-time setup instructions for this ${label} agent.\n---\n\n# Connect ${label} to Envoi\n\nThis file contains a confidential, one-use setup token. Give it only to your trusted agent on its runtime host. Delete it after setup.\n\n${setupPrompt(validated)}\n`;
 }
 
-export function dotsSetupPrompt(origin: string, name: string, requestedAddress: string, reconnect = false) {
+export function dotsSetupPrompt(origin: string, name: string, requestedAddress: string, reconnect = false, savedSetup = false) {
   const url = new URL(origin);
   if (url.origin !== origin || url.username || url.password ||
     (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) {
@@ -81,7 +81,16 @@ export function dotsSetupPrompt(origin: string, name: string, requestedAddress: 
   const identity = reconnect
     ? `When Envoi asks me to approve the connection, I will choose Reconnect an existing agent, select ${name} (${requestedAddress}), review the current installations and requested permissions, and confirm the replacement. Keep its existing address, cases and history; do not create a new agent.`
     : `When Envoi asks me to approve the connection, I will select this workspace, ${requestedAddress.includes('@') ? `request ${requestedAddress} as the agent address` : 'choose the agent name and address'}, and review the requested permissions. That address is assigned only after approval and OAuth exchange.`;
-  return `Connect my ChatGPT Dot ${name} to Envoi for on-demand work. Use the official Envoi plugin already installed in my account. If it is missing, open ChatGPT Plugins and install the official Envoi plugin made available by Envoi. If that plugin is unavailable to my account, stop and report an official-plugin availability problem to the publisher. Do not create a separate personal plugin or custom MCP connection. Each owner uses the same official plugin with their own OAuth connection. Its expected server is ${origin}/mcp; this is a diagnostic endpoint, not an installation webpage. Do not ask me to download a local connector, invent a client secret or paste credentials into chat. ${identity}
+  const introduction = `Connect my ChatGPT Dot ${name} to Envoi for on-demand work. Use the official Envoi plugin already installed in my account. If it is missing, open ChatGPT Plugins and install the official Envoi plugin made available by Envoi. If that plugin is unavailable to my account, stop and report an official-plugin availability problem to the publisher. Do not create a separate personal plugin or custom MCP connection. Each owner uses the same official plugin with their own OAuth connection. Its expected server is ${origin}/mcp; this is a diagnostic endpoint, not an installation webpage. Do not ask me to download a local connector, invent a client secret or paste credentials into chat. ${identity}`;
+  if (savedSetup && !reconnect) return `${introduction}
+
+If a connection already exists, use envoi_agent_info to check its identity and access first. Reuse a working connection for the intended address and permissions. If it belongs to another identity or has different access, stop and ask me how to proceed. Do not switch identities or reconnect automatically.
+
+For a new connection, open the official plugin's approval flow. Envoi can pre-fill my saved name, address and permission choices. Let me review and approve the workspace, identity and permissions on Envoi's page. If a saved permission is unavailable, tell me which one and let me decide whether to continue with the access offered.
+
+After approval, call envoi_agent_info to verify the actual address and granted permissions. If Send was granted, check that envoi_start_case and envoi_send_message are available. If Send was not granted, report receive-only access. Ask me to authorize the exact recipient and message before sending. Do not claim work, send messages or set up monitoring during this check. If I later ask for background receiving, follow these instructions: ${dotsMonitoringPrompt}`;
+
+  return `${introduction}
 
 If a connection already exists, first call envoi_agent_info before starting OAuth. If its address does not match my intended identity, stop and ask which connection I want to use; do not switch identities or create an agent automatically. When that identity already has Receive and Send and both send tools are callable, reuse it and report messaging ready without reconnecting. If both permissions are present but tools are missing, refresh the official plugin tools once and select the same plugin again in this conversation. If they remain unavailable, report the exact missing tools and stop; do not repeat OAuth to fix tool availability.
 

@@ -76,7 +76,7 @@ function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = r
     {view && !outcome && !state.uncertain && <>
       <p>Request expires at <time dateTime={view.expiresAt}>{new Date(view.expiresAt).toLocaleString()}</time>.</p>
       {expired ? <p role="status">This request expired. Start again from your assistant.</p>
-        : <ConsentTargetForm key={state.attempts} workspaces={workspaces} agents={agents} targetStatus={targetStatus} requested={view.requestedPermissions} grantable={view.grantablePermissions}
+        : <ConsentTargetForm key={view.savedSetup?.setupId ?? state.attempts} workspaces={workspaces} agents={agents} targetStatus={targetStatus} requested={view.requestedPermissions} grantable={view.grantablePermissions} savedSetup={view.savedSetup}
           disabled={locked} onApprove={body => controller.approve(body)} onDeny={() => void controller.deny()} client={replacementClient} />}
     </>}
     <button className="button secondary" type="button" disabled={locked} onClick={() => void controller.load()}>Refresh outcome</button>
