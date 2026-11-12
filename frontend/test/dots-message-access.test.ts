@@ -4,7 +4,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {dotsMessageAccessPrompt,dotsSetupPrompt} from '../src/quick-connect';
 import {DotsSetupGuide} from '../src/onboarding/DotsSetupGuide';
 
-it('offers the existing identity a native message-access request before sending',()=>{
+it('makes the existing identity’s message-access request the sole primary action',()=>{
   const prompt=dotsMessageAccessPrompt('onion@envoi-agents.com');
   expect(prompt).toContain('my address is onion@envoi-agents.com');
   expect(prompt).toContain('envoi_request_message_access');
@@ -13,6 +13,7 @@ it('offers the existing identity a native message-access request before sending'
   expect(prompt).toContain('Do not send messages, claim work, create an agent or switch identities');
   expect(dotsSetupPrompt('https://envoi.example','Onion','onion@envoi-agents.com',true)).toContain('envoi_request_message_access');
   const html=renderToStaticMarkup(createElement(DotsSetupGuide,{origin:'https://envoi.example',address:'onion@envoi-agents.com',reconnect:true}));
-  expect(html).toContain('Copy message access prompt');
-  expect(html).not.toContain('Add custom MCP server');
+  const primary=html.match(/<button class="button primary"[^>]*>[^<]*<\/button>/g);
+  expect(primary).toEqual(['<button class="button primary" type="button">Copy message access prompt</button>']);
+  expect(html.match(/<button class="button secondary"[^>]*>Copy connection prompt<\/button>/g)).toHaveLength(1);
 });

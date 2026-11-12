@@ -12,8 +12,8 @@ describe('agent permission review', () => {
     expect(markup).toContain('Execute tasks');
     expect(markup).toContain('Share files');
     expect(markup.match(/checked=""/g)).toHaveLength(2);
-    expect(markup.match(/disabled=""/g)).toHaveLength(5);
-    expect(markup).toContain('Unavailable until supported by the server');
+    expect(markup.match(/type="checkbox"/g)).toHaveLength(4);
+    expect(markup.match(/disabled=""/g)).toHaveLength(1);
   });
 
   it('includes elevated access only when explicitly selected', () => {
@@ -23,7 +23,7 @@ describe('agent permission review', () => {
 });
 
 describe('external runtime enrollment handoff', () => {
-  it('offers all runtime choices and verified preparation before issuing the short-lived token', () => {
+  it('offers the runtime choices without exposing a setup code on the picker', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
       workspace: { id: 'inbox_1' } as Inbox,
       result: null,
@@ -31,22 +31,16 @@ describe('external runtime enrollment handoff', () => {
       onClose: vi.fn()
     }));
 
-    expect(markup).toContain('Check the runtime before enrolling');
-    expect(markup).toContain('Node.js 22');
-    expect(markup).toContain('normal model request');
-    expect(markup).toContain('envoi-connector.mjs prepare --runtime openclaw');
-    expect(markup).toContain('Hermes');
-    expect(markup).toContain('Grok');
-    expect(markup).toContain('Continue');
-    expect(markup).not.toContain('Create one-time token');
-    expect(markup).not.toContain('connect-windows.ps1');
+    for (const runtime of ['openclaw', 'hermes', 'grok', 'dots']) expect(markup).toContain(`value="${runtime}"`);
+    expect(markup.match(/<button class="button primary"/g)).toHaveLength(1);
+    expect(markup).not.toContain('<details');
     expect(markup).not.toContain('Raw enrollment token');
   });
 
   it('hands the unredeemed token to supported bridges without consuming it in the UI', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
       workspace: { id: 'inbox_1' } as Inbox,
-      result: { enrollmentToken: 'enroll_once_secret', enrollmentUrl: '/?enroll=enroll_once_secret', expiresAt: '2026-09-28T12:00:00.000Z', agentProfile: { localPart: 'milo' } },
+      result: { enrollmentToken: 'enroll_once_secret', enrollmentUrl: '/?enroll=enroll_once_secret', expiresAt: '2099-01-01T00:30:00.000Z', agentProfile: { localPart: 'milo' } },
       setResult: vi.fn(),
       onClose: vi.fn()
     }));
