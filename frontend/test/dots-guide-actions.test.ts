@@ -38,20 +38,23 @@ it.each([
   expect(elements(render(reconnect)).some(item => item.props.role === 'status')).toBe(true);
 });
 
-it.each([false, true])('places every alternative inside the single closed help entry (reconnect: %s)', async reconnect => {
+it.each([false, true])('shows the prompt actions directly and keeps one closed help entry (reconnect: %s)', async reconnect => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal('navigator', { clipboard: { writeText } });
   const tree = elements(render(reconnect));
   const help = tree.filter(item => item.type === 'details');
   expect(help).toHaveLength(1);
   expect(help[0].props.open).toBeFalsy();
-  const alternatives = elements(help[0].props.children).filter(item => item.type === 'button');
-  expect(tree.filter(item => item.type === 'button')).toHaveLength(alternatives.length + 1);
-  for (const button of alternatives) button.props.onClick();
+  const helpButtons = elements(help[0].props.children).filter(item => item.type === 'button');
+  expect(helpButtons).toHaveLength(1);
+  expect(tree.some(item => item.type === 'textarea')).toBe(false);
+  const secondary = tree.filter(item => item.type === 'button' && item.props.className === 'button secondary');
+  expect(secondary).toHaveLength(5);
+  for (const button of secondary) button.props.onClick();
   await Promise.resolve();
   expect(writeText.mock.calls.flat()).toEqual([
-    dotsVerificationPrompt(address),
     reconnect ? dotsSetupPrompt(origin, name, address, true) : dotsMessageAccessPrompt(address),
+    dotsVerificationPrompt(address),
     dotsMonitoringPrompt,
     dotsDiagnosticPrompt(address),
     `${origin}/mcp`
@@ -63,10 +66,10 @@ it('keeps the endpoint and prompt selectable when clipboard permission fails', a
   elements(render()).find(item => item.type === 'button' && item.props.className === 'button primary')!.props.onClick();
   await Promise.resolve(); await Promise.resolve();
   const tree = elements(render());
-  expect(tree.find(item => item.props.role === 'alert')?.props.children).toContain('Stuck? Other ways to connect');
+  expect(tree.find(item => item.props.role === 'alert')?.props.children).toContain('Select the text below');
   const help = elements(tree.find(item => item.type === 'details')?.props.children);
   expect(help.find(item => item.type === 'input')?.props).toMatchObject({ readOnly: true, value: `${origin}/mcp` });
-  expect(help.find(item => item.type === 'textarea')?.props).toMatchObject({ readOnly: true, value: dotsSetupPrompt(origin, name, address) });
+  expect(tree.find(item => item.type === 'textarea')?.props).toMatchObject({ readOnly: true, value: dotsSetupPrompt(origin, name, address) });
 });
 
 it('opens recovery for the selected existing agent and drops it when that identity is no longer offered', () => {
