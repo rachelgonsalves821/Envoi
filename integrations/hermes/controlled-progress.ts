@@ -11,7 +11,7 @@ import{readControlledStartupFrames,inspectControlledStartupFrames,type Controlle
 export type ControlledProgressRecovery=Readonly<{
   history:StoppedProgressRecovery;runtimePacket:ProgressPin;initialExecution:ProgressPin;execution:ProgressPin;operatorSeal:ProgressPin;
   state:ProgressPin;stop:ProgressPin;ledger:ProgressPin;checkpoint:ProgressPin;carry:ProgressPin;pollGap:ProgressPin;canonicalWork:ProgressPin;adoption:ProgressPin;targetPacket:ProgressPin;
-  startupStops?:readonly ControlledStartupStop[];distinctFollowup?:ProgressPin;acceptedCheckpoint?:ProgressPin;serverAdoption?:ProgressPin;preNativeAdmissionStop?:ProgressPin;operationAmendment?:Readonly<{operationCap:62;normalCeiling:54;cleanupReserve:8;allocation:ProgressPin}>;
+  startupStops?:readonly ControlledStartupStop[];distinctFollowup?:ProgressPin;acceptedCheckpoint?:ProgressPin;serverAdoption?:ProgressPin;preNativeAdmissionStop?:ProgressPin;nextServerAdoption?:ProgressPin;operationAmendment?:Readonly<{operationCap:62;normalCeiling:54;cleanupReserve:8;allocation:ProgressPin}>;
 }>;
 /** Separate from historical receipts. The later human decision binds this pin
  * and the target packet, so the descriptor must not contain that packet's hash. */
@@ -30,12 +30,21 @@ async function read(p:ProgressPin,parse=true){if(!p||!path.isAbsolute(p.path)||!
 async function inspectServerAdoption(r:ControlledProgressRecovery,target:any,priorServerSource:string,receipt:ActiveContinuationReceipt,accepted:AcceptedCheckpointCarry|undefined,retained?:ProgressPin){
  const changed=receipt.serverSource!==priorServerSource;
  if(retained){
-  if(changed||!accepted||!equal(r.serverAdoption,retained)||!equal(target.serverAdoption,retained))refuse('EXACT_RETAINED_SERVER_ADOPTION_REQUIRED');
-  return;
+  if(!accepted||!equal(r.serverAdoption,retained)||!equal(target.serverAdoption,retained))refuse('EXACT_RETAINED_SERVER_ADOPTION_REQUIRED');
+  if(changed){
+   const next=r.nextServerAdoption;
+   if(receipt.version!==2||!next||next.sha256===retained.sha256||!equal(next,target.nextServerAdoption))refuse('EXACT_NEXT_SERVER_ADOPTION_REQUIRED');
+   return inspectServerAdoptionProof(next,priorServerSource,receipt);
+  }
  }
+ if(Object.hasOwn(r,'nextServerAdoption')||Object.hasOwn(target,'nextServerAdoption'))refuse('UNEXPECTED_NEXT_SERVER_ADOPTION');
+ if(retained)return;
  if(!changed){if(r.serverAdoption!==undefined||Object.hasOwn(target,'serverAdoption'))refuse('UNEXPECTED_CONTROLLED_SERVER_ADOPTION');return;}
  if(!accepted||!r.serverAdoption||!equal(r.serverAdoption,target.serverAdoption))refuse('EXACT_CONTROLLED_SERVER_ADOPTION_REQUIRED');
- const d=(await read(r.serverAdoption)).value;
+ return inspectServerAdoptionProof(r.serverAdoption,priorServerSource,receipt);
+}
+async function inspectServerAdoptionProof(proof:ProgressPin,priorServerSource:string,receipt:ActiveContinuationReceipt){
+ const d=(await read(proof)).value;
  if(!object(d)||Object.keys(d).sort().join()!=='clientSource,environment,priorServerSource,purpose,serverSource,verification,version'
   ||d.purpose!=='phase-c-exact-staging-server-adoption'||d.version!==1||d.environment!=='staging'
   ||!/^[a-f0-9]{40}$/.test(priorServerSource)||!/^[a-f0-9]{40}$/.test(receipt.serverSource)
@@ -46,7 +55,7 @@ async function inspectServerAdoption(r:ControlledProgressRecovery,target:any,pri
   ||v.ciHead!==receipt.serverSource||v.ciPassed!==true||v.compatibilityPassed!==true||v.restorationPassed!==true
   ||!Array.isArray(v.evidence)||v.evidence.length<1||v.evidence.length>8)refuse('EXACT_TESTED_SERVER_ADOPTION_REQUIRED');
  for(const evidence of v.evidence)await read(evidence,false);
- return r.serverAdoption.sha256;
+ return proof.sha256;
 }
 function originalReceipt(e:any){const r=e?.receipt,start=Date.parse(r?.startUtc),end=Date.parse(r?.hardStopUtc);if(!object(r)||r.version!==1||r.ownerApproved!==true||r.modelCap!==64||r.ciPassed!==true||r.ciHead!==r.clientSource||!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>5400000||e.window!==hash(JSON.stringify(r)))refuse('GENUINE_CONTROLLED_EXECUTION_REQUIRED');return r as ContinuationReceipt;}
 type HistoryInput={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery};
@@ -78,7 +87,7 @@ async function inspectPreNativeAdmissionStop(input:HistoryInput,proof:ProgressPi
  const prior=r;
  const stoppedRecovery=p.controlledRecoveryBase;
  const historicalKeys=['runtimePacket','initialExecution','execution','operatorSeal','state','stop','ledger','checkpoint','carry','pollGap','distinctFollowup','acceptedCheckpoint','serverAdoption','operationAmendment','startupStops'] as const;
- if(!object(stoppedRecovery)||stoppedRecovery.preNativeAdmissionStop!==undefined||
+ if(!object(stoppedRecovery)||stoppedRecovery.preNativeAdmissionStop!==undefined||Object.hasOwn(stoppedRecovery,'nextServerAdoption')||
    historicalKeys.some(key=>!equal(stoppedRecovery[key],prior[key])))refuseAdmissionStop();
  const receipt=e.receipt as ActiveContinuationReceipt;
  if(!receipt||receipt.version!==2||receipt.ownerApproved!==true||receipt.modelCap!==64||receipt.ciPassed!==true||
