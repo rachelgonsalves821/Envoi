@@ -19,7 +19,10 @@ export async function nativeGatewayReselection(review: GatewayReselectionReview,
     return answer.trim().toLowerCase() === 'yes' && !signal.aborted;
   } catch { return false; } finally { prompt.close(); }
 }
-const refused = (code = 'GATEWAY_RESELECTION_REFUSED') => new ConnectorSetupError(code, 'Preserve the saved enrollment and journals. Review the selected profile before retrying gateway reselection.');
+const refused = () => new ConnectorSetupError('GATEWAY_RESELECTION_REFUSED',
+  'Preserve the saved enrollment and journals. Review the selected profile before retrying gateway reselection.');
+const recoveryRequired = () => new ConnectorSetupError('HERMES_TURN_RECOVERY_REQUIRED',
+  'Preserve the saved enrollment and journals. Verify the original Hermes turn’s terminal receipt before retrying gateway reselection.');
 async function privateRecord(filename: string) {
   const stat = await lstat(filename);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 128000) throw refused();
@@ -84,11 +87,11 @@ export async function reselectHermesGateway(directory: string, origin: string, s
       if (!entry.isFile() || entry.isSymbolicLink()) throw refused();
       const run = await runs.load(name.slice(0, -5));
       if (!run || run.pending.length || run.admission || !hermesJournalMatches(run, hermesHost(previous))
-        || run.input.length !== 1 || run.input[0]?.kind !== 'hermes-scoped-v1') throw refused('HERMES_TURN_RECOVERY_REQUIRED');
+        || run.input.length !== 1 || run.input[0]?.kind !== 'hermes-scoped-v1') throw recoveryRequired();
       if (!run.completed) {
-        if (!hermesJournalMatches(run, host)) throw refused('HERMES_TURN_RECOVERY_REQUIRED');
+        if (!hermesJournalMatches(run, host)) throw recoveryRequired();
         const outcome = await (options.inspectTerminalTurn ?? inspectHermesTerminalTurn)(host, run, signal);
-        if (!['completed', 'failed', 'interrupted', 'cancelled', 'rejected'].includes(outcome)) throw refused('HERMES_TURN_RECOVERY_REQUIRED');
+        if (!['completed', 'failed', 'interrupted', 'cancelled', 'rejected'].includes(outcome)) throw recoveryRequired();
         retained.push({ workId: run.workId, serialized: JSON.stringify(run), outcome });
       }
     }
@@ -104,7 +107,7 @@ export async function reselectHermesGateway(directory: string, origin: string, s
       const run = await runs.load(prior.workId);
       if (!run || JSON.stringify(run) !== prior.serialized
         || await (options.inspectTerminalTurn ?? inspectHermesTerminalTurn)(checked, run, signal) !== prior.outcome)
-        throw refused('HERMES_TURN_RECOVERY_REQUIRED');
+        throw recoveryRequired();
     }
     const before = await readHermesSelection(directory);
     if (JSON.stringify(before) !== JSON.stringify(selection)
