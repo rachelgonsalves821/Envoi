@@ -32,7 +32,6 @@ function InstallationsSession({ humanId, inboxId, agent, canManage, onReconnect,
       <p>Activated <time dateTime={installation.activatedAt}>{new Date(installation.activatedAt).toLocaleString()}</time>{installation.endedAt && <> · Ended <time dateTime={installation.endedAt}>{new Date(installation.endedAt).toLocaleString()}</time></>}</p>
       {installation.status === 'active' && (confirmId === installation.id ? <div className="onboarding-notice" role="group" aria-label="Confirm installation revocation"><p>Revoke this installation’s access? Its runtime will stop processing Envoi work. The agent’s identity, address, cases and history remain; it can reconnect through a new approved registration.</p><div className="onboarding-actions"><button type="button" className="button secondary compact" disabled={locked} onClick={() => setConfirmId(null)}>Cancel</button><button type="button" className="button danger compact" disabled={locked} onClick={() => void controller.revoke(installation.id).then(success => { if (success) { setConfirmId(null); void onRefresh?.(); } })}>Confirm revoke</button></div></div>
         : <button type="button" className="button secondary compact" disabled={locked} onClick={() => setConfirmId(installation.id)}>Revoke installation</button>)}
-      {installation.status === 'active' && installation.connectionRoute === 'remote_mcp_oauth' && <GrokBotMonitoring inboxId={inboxId} agent={agent} installationId={installation.id} onRefresh={onRefresh} />}
     </article>)}</div>
     {state.data?.some(installation => installation.connectionRoute === 'remote_mcp_oauth') && <GrokBotConnection inboxId={inboxId} agent={agent} installations={state.data} onRefresh={async () => { await controller.load(); await onRefresh?.(); }} />}
     {onReconnect && canReconnectAgent(agent) && <><p>To move this identity to another runtime, start a new registration there and choose this existing agent when claiming its code.</p><button type="button" className="button secondary" disabled={locked} onClick={onReconnect}>Reconnect this identity</button></>}
@@ -47,14 +46,13 @@ function GrokBotConnection({ inboxId, agent, installations, onRefresh }: { inbox
     <summary>Grok Bot setup and verification</summary>
     <p>Use this section if you connect {agent.address} through Grok Bot.</p>
     <p>Receive {agent.permissions.includes('receive_agent_messages') ? 'allowed' : 'required'} · Send {agent.permissions.includes('send_agent_messages') ? 'allowed' : 'required'}</p>
-    <button type="button" className="button secondary compact" onClick={() => setShowSetup(!showSetup)}>{showSetup ? 'Hide connection steps' : active ? 'Reconnect Grok Bot' : 'Finish Grok Bot setup'}</button>
+    <button type="button" className="button secondary compact" onClick={() => setShowSetup(!showSetup)}>{showSetup ? 'Hide setup guide' : 'Open Grok Bot setup guide'}</button>
     {showSetup && <><GrokBotSetup address={agent.address} /><button type="button" className="button secondary compact" onClick={() => void onRefresh()}>Refresh after approval</button></>}
     {active && <div key={active.id}>
+      {installations.filter(installation => installation.connectionRoute === 'remote_mcp_oauth' && installation.status === 'active').map(installation =>
+        <GrokBotMonitoring key={installation.id} inboxId={inboxId} agent={agent} installationId={installation.id} onRefresh={onRefresh} />)}
       <GrokBotVerification inboxId={inboxId} agent={agent} />
-      <details><summary>Optional background receiving</summary>
-        <p>Use Grok Bot monitoring under your active installation to set up the routine and manage its optional webhook.</p>
-        <GrokBotVerification inboxId={inboxId} agent={agent} background />
-      </details>
+      <GrokBotVerification inboxId={inboxId} agent={agent} background />
     </div>}
   </details>;
 }

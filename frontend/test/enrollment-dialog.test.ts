@@ -132,7 +132,7 @@ it.each([false, true])('uses the shared wizard for hosted Grok (hosted required:
   const picker = first.find(node => node.type === RuntimePicker)!;
   const options = elements(RuntimePicker(picker.props));
   expect(options.some(node => node.props.value === 'hosted-grok')).toBe(true);
-  expect(options.some(node => node.props.value === 'grok')).toBe(!hostedRequired);
+  expect(options.some(node => node.props.value === 'grok')).toBe(false);
   picker.props.onSelectHostedGrok();
 
   const second = await dialog.submit(dialog.draw());

@@ -1998,7 +1998,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   useEffect(() => {
     const stop = new AbortController();
     void readGrokBotSetup(stop.signal).then(setup => {
-      if (!stop.signal.aborted) setHostedGrokRequired(setup.hostedRequired);
+      if (!stop.signal.aborted) setHostedGrokRequired(setup.available || setup.hostedRequired);
     }).catch(() => {});
     return () => stop.abort();
   }, []);
@@ -2305,13 +2305,13 @@ export function RuntimePicker({ runtime, onChange, selectedId = runtime, onSelec
   dotsUnavailableReason?: string;
   hideLocalGrok?: boolean;
 }) {
-  const options = agentCatalog.flatMap(item => {
+  const options = agentCatalog.flatMap<{ id: string; name: string; logo: string; summary: string; select?: () => void }>(item => {
     const local = RUNTIME_OPTIONS.find(candidate => candidate.id === item.id);
     const select = item.id === 'dots' ? onSelectDots : local ? () => onChange(local.id) : undefined;
     const entry = { id: item.id as string, name: item.name, logo: item.logo, summary: item.summary, select };
     if (item.id !== 'grok' || !onSelectHostedGrok) return hideLocalGrok && item.id === 'grok' ? [] : [entry];
     const hosted = { ...entry, id: 'hosted-grok', name: 'Grok Bot', summary: 'Signed-in setup through Connect apps', select: onSelectHostedGrok };
-    return hideLocalGrok ? [hosted] : [entry, hosted];
+    return [hosted];
   });
   return <fieldset className="runtime-picker">
     <legend>What runs your agent?</legend>
