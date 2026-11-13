@@ -71,7 +71,7 @@ import { decryptActivation, displayName, encryptActivation, validActivationId, v
 import { registrationPath } from './agent-approval.js';
 import { installationPath } from './agent-installations.js';
 import { deliveryModeAvailable, remoteRouteAvailable, routeAvailable } from './onboarding-flags.js';
-import { authenticateClient, bootstrapGrantParameters, codeGrantParameters, grantTypes, insufficientScopeChallenge, mcpChallenge, oauthError, oauthFamilyLockKey, oauthRefreshRecoveryDir, oauthRefreshRecoveryPath, oauthSuccess, oauthTokenTypes, openRefreshRecovery, parseTokenForm, pkceMatches, refreshGrantParameters, refreshRecoverySeconds, sameScopes, sealRefreshRecovery, tokenRequestMaxBytes, tokenResponse } from './agent-remote-auth-token.js';
+import { authenticateClient, bootstrapGrantParameters, codeGrantParameters, grantTypes, insufficientScopeChallenge, knownScopes, mcpChallenge, oauthError, oauthFamilyLockKey, oauthRefreshRecoveryDir, oauthRefreshRecoveryPath, oauthSuccess, oauthTokenTypes, openRefreshRecovery, parseTokenForm, pkceMatches, refreshGrantParameters, refreshRecoverySeconds, sealRefreshRecovery, tokenRequestMaxBytes, tokenResponse } from './agent-remote-auth-token.js';
 import { createPollLimiter, createRegistrationLimits } from './agent-registration-limits.js';
 import { allowedCaseTools, isHumanDecision, caseSessionTokenPath, caseSessionTokenPrefix, caseSessionsHeartbeatMs, createCaseSessions, firstCondition, leaseStaleReason, publicSessionEnd, sessionConditions, validCaseSessionId, validLeaseToken, workKindOf } from './case-sessions.js';
 import { createCaseSessionMcp } from './case-session-mcp.js';
@@ -84,7 +84,7 @@ import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical
 import { commitment, createMonadPermissionLayer, permissionSnapshot } from './monad-permissions.js';
 import { createMonadAccess } from './monad-access.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
-import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
+import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, oauthScopedPermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
 import { sha256Hex } from './agent-registration.js';
 import { createWakeDestination } from './http-wake-destination.js';
@@ -1135,7 +1135,7 @@ async function handleConsentRoute(req, res, route) {
   const savedSetup = savedSetups.enabled && !decision && sealed.connectionRoute === 'remote_mcp_oauth' ? await savedSetups.forConsent(human, requestedPermissions) : null;
   return json(res, 200, {
     client: consentClient(client, sealed), connectionRoute: sealed.connectionRoute,
-    requestedPermissions, grantablePermissions: requestedPermissions.filter(permission => maximum.includes(permission)),
+    requestedPermissions, grantablePermissions: (ownerPermissionsEnabled ? oauthScopedPermissions : requestedPermissions).filter(permission => maximum.includes(permission)),
     expiresAt: new Date(sealed.exp * 1000).toISOString(), ...(decision ? { decision } : {}), ...(savedSetup ? { savedSetup } : {})
   });
 }
@@ -1196,8 +1196,10 @@ const providerEventWake = createProviderEventWake({ httpWake, store, key: connec
   }
 });
 const registrationLimits = createRegistrationLimits({ store });
+// agent-owner-permissions v1: the owner's choice wins on the approval and Permissions pages. Flag ENVOI_OWNER_PERMISSIONS, off by default.
+const ownerPermissionsEnabled = process.env.ENVOI_OWNER_PERMISSIONS === 'true';
 const registrations = createAgentRegistrations({
-  store, flags: onboardingFlags,
+  store, flags: onboardingFlags, ownerPermissions: ownerPermissionsEnabled,
   codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
   limits: registrationLimits, pollLimiter: createPollLimiter(), agentSlots, installations, withInboxMutation,
   canManageLive: (human, inbox) => canManageInbox(human, inbox, { maxAgeMs: 0 }),
@@ -3159,7 +3161,7 @@ async function refreshOAuthToken(client, p) {
     if (!agent || agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) return { error: 'invalid_grant' };
     const scope = scopeForPermissions(agent.permissions || []);
     // Rows 7 and 8 never consume a token: they are checked before anything is written.
-    const scopeOrTarget = () => (p.scope !== null && !sameScopes(p.scope, scope) ? 'invalid_scope' : p.resource !== null && p.resource !== family.audience ? 'invalid_target' : null);
+    const scopeOrTarget = () => (p.scope !== null && !knownScopes(p.scope) ? 'invalid_scope' : p.resource !== null && p.resource !== family.audience ? 'invalid_target' : null);
     const oauthFamilyRef = { familyId: family.id, oauthClientId: client.clientId };
     if (current.usedAt) {
       // Row 6: the previous token is recoverable only inside the 60 s window, by the same client, and only while neither
@@ -6156,7 +6158,8 @@ async function route(req, res) {
       if (!sameSet(current, input.expectedPermissions)) throw codedError(409, 'PERMISSIONS_CHANGED', 'These permissions changed. Refresh and try again.');
       if (sameSet(current, input.permissions)) return agent;
       const added = input.permissions.filter(permission => !current.includes(permission));
-      if (added.length) {
+      // agent-owner-permissions v1 §3: with the flag on, an OAuth agent can gain any OAuth-scoped permission without reconnecting.
+      if (added.length && !(ownerPermissionsEnabled && added.every(permission => oauthScopedPermissions.includes(permission)))) {
         const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
         if (families.some(family => family.audience && !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())) {
           throw codedError(409, 'OAUTH_RECONSENT_REQUIRED', 'Reconnect this OAuth agent to grant more permissions.');
