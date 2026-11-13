@@ -6,6 +6,7 @@ export type DeliveryState = 'pendingContactApproval' | 'queued' | 'retrying' | '
 export interface AgentRef { agentId: string; address: string }
 export interface GroupMessageInput {
   text: string;
+  attachmentIds?: string[];
   inReplyTo?: string;
   assigneeAgentIds?: string[];
 }
@@ -15,6 +16,7 @@ export interface GroupMessage extends Record<string, unknown> {
   senderAgentId: string;
   senderAddress: string;
   text: string;
+  attachments?: ChatAttachment[];
   inReplyTo: string | null;
   assigneeAgentIds: string[];
   createdAt: string;
@@ -42,6 +44,7 @@ export interface AgentMessage {
   proposal?: Record<string, unknown> | null;
   authority: Authority;
   artifactRefs: string[];
+  attachments?: ChatAttachment[];
   requiresAck: boolean;
   traceparent?: string | null;
   signature?: string | null;
@@ -64,6 +67,7 @@ export interface NativeMessageInput {
   content?: ContentPart[];
   payload?: Record<string, unknown> | null;
   artifactRefs?: string[];
+  attachmentIds?: string[];
   requiresAck?: boolean;
 }
 
@@ -85,6 +89,8 @@ export interface AssetRecord {
   /** Present when this asset is visible through a cross-owner case grant. */
   grant?: AssetGrant;
 }
+
+export type ChatAttachment = Pick<AssetRecord, 'id' | 'filename' | 'mimeType' | 'size' | 'checksumSha256'>;
 
 export interface AssetGrant {
   id: string;
@@ -315,6 +321,21 @@ export class EnvoiClient {
       return { ...result, download: { ...result.download, headers: { ...result.download.headers, authorization: `Bearer ${this.accessToken}` } } };
     }
     return result;
+  }
+
+  async downloadChatAttachment(inboxId: string, attachment: ChatAttachment): Promise<ArrayBuffer> {
+    const route = `/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(attachment.id)}/content`;
+    const response = await fetchWithTimeout(this.fetcher, `${this.baseUrl.replace(/\/$/, '')}${route}`, {
+      headers: { authorization: `Bearer ${this.accessToken}` },
+      redirect: 'error'
+    }, this.requestTimeoutMs);
+    if (!response.ok) return responsePayload<never>(response, 'Envoi attachment download failed');
+    const bytes = await response.arrayBuffer();
+    const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes));
+    if (bytes.byteLength !== attachment.size || btoa(String.fromCharCode(...digest)) !== attachment.checksumSha256) {
+      throw new Error('Downloaded attachment did not match the original file.');
+    }
+    return bytes;
   }
 
   /** Legacy route. Native processing must use the connector's fenced work claim. */

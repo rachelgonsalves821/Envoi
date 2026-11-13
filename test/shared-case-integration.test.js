@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,7 +40,7 @@ async function api(baseUrl, route, { token, session, body, key } = {}) {
   return { status: response.status, payload: await response.json() };
 }
 
-async function owner(baseUrl, suffix) {
+async function owner(baseUrl, suffix, extraPermissions = []) {
   const session = new BrowserSession();
   const started = await api(baseUrl, '/api/auth/phone/start', { session, body: { phoneNumber: `+14165551${suffix}`, displayName: `Owner ${suffix}` } });
   assert.equal(started.status, 201);
@@ -48,7 +51,7 @@ async function owner(baseUrl, suffix) {
   assert.equal((await api(baseUrl, '/api/auth/totp/verify', { session, body: { code: generateSync({ secret: setup.payload.secret }) } })).status, 200);
   const workspace = await api(baseUrl, '/api/inboxes', { session, body: { name: `Workspace ${suffix}` } });
   assert.equal(workspace.status, 201);
-  const enrollment = await api(baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { session, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'execute_cases'] } });
+  const enrollment = await api(baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { session, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'execute_cases', ...extraPermissions] } });
   assert.equal(enrollment.status, 201, JSON.stringify(enrollment.payload));
   const enrolled = await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: enrollment.payload.enrollmentToken, name: `Agent ${suffix}`, slug: `case-${suffix}` } });
   assert.equal(enrolled.status, 201);
@@ -63,6 +66,127 @@ async function eventually(check) {
   }
   throw new Error('Expected case delivery did not become visible');
 }
+
+function attachmentPdf() {
+  const content = 'BT /F1 18 Tf 20 50 Td (Envoi attachment verification) Tj ET\n';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 100] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${content.length} >>\nstream\n${content}endstream`
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((object, index) => {
+    const offset = pdf.length;
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return String(offset).padStart(10, '0');
+  });
+  const xref = pdf.length;
+  return Buffer.from(pdf + `xref\n0 6\n0000000000 65535 f \n${offsets.map(offset => `${offset} 00000 n \n`).join('')}trailer\n<< /Root 1 0 R /Size 6 >>\nstartxref\n${xref}\n%%EOF\n`);
+}
+
+test('direct and group chat attachments preserve PDF bytes across separate agent accounts', async t => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-chat-attachments-'));
+  const scanner = createServer((req, res) => {
+    req.resume();
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ status: 'clean', engine: 'test-scanner' }));
+  }).listen(0, '127.0.0.1');
+  await once(scanner, 'listening');
+  const { baseUrl, stop } = await launch(dataDir, {
+    ENVOI_MALWARE_SCANNER_URL: `http://127.0.0.1:${scanner.address().port}/scan`
+  });
+  t.after(async () => {
+    await stop();
+    await new Promise(resolve => scanner.close(resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const [alice, bob, carol, outsider] = await Promise.all([
+    owner(baseUrl, '2271', ['create_assets']), owner(baseUrl, '2272'),
+    owner(baseUrl, '2273'), owner(baseUrl, '2274')
+  ]);
+  assert.equal(new Set([alice, bob, carol, outsider].map(who => who.agent.id)).size, 4);
+  const call = (who, route, body, key) => api(baseUrl, route, { token: who.agentApiToken, body, key });
+  const route = (who, suffix) => `/api/inboxes/${who.inbox.id}/${suffix}`;
+  const pdf = attachmentPdf();
+  const checksum = bytes => createHash('sha256').update(bytes).digest('base64');
+  const checksumSha256 = checksum(pdf);
+  const expected = { filename: 'proposal.pdf', mimeType: 'application/pdf', size: pdf.length, checksumSha256 };
+  const upload = async (caseId, checkBeforeScan) => {
+    const started = await call(alice, route(alice, 'asset-uploads'), { ...expected, caseId }, `upload-${caseId}`);
+    assert.equal(started.status, 201, JSON.stringify(started.payload));
+    const { object: { id }, upload: signed } = started.payload;
+    if (checkBeforeScan) await checkBeforeScan(id);
+    assert.equal((await fetch(signed.url, { method: 'PUT', headers: signed.headers, body: pdf })).status, 204);
+    assert.equal((await call(alice, route(alice, `assets/${id}/complete`), {})).payload.state, 'clean');
+    return { id, ...expected };
+  };
+  const download = async (who, attachment, label) => {
+    const response = await fetch(baseUrl + route(who, `assets/${attachment.id}/content`), {
+      headers: { authorization: `Bearer ${who.agentApiToken}` }
+    });
+    assert.equal(response.status, 200, label);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assert.deepEqual(bytes, pdf);
+    assert.equal(checksum(bytes), attachment.checksumSha256);
+    if (process.env.ENVOI_PDF_TEST_OUTPUT) await writeFile(path.join(process.env.ENVOI_PDF_TEST_OUTPUT, `${label}.pdf`), bytes);
+  };
+  const sendDirect = (caseId, key, attachmentIds) => call(alice, route(alice, 'messages'), {
+    senderAgentId: alice.agent.id, recipientEmail: bob.agent.address, caseId,
+    text: 'Review the proposal', attachmentIds
+  }, key);
+  const directCaseId = 'case_attachment_direct';
+  assert.equal((await sendDirect(directCaseId, 'direct-start')).status, 202);
+  await eventually(async () => (await call(bob, route(bob, `cases/${directCaseId}`))).status === 200);
+  const direct = await upload(directCaseId, async id => {
+    assert.equal((await sendDirect(directCaseId, 'direct-file', [id])).status, 423);
+  });
+  const sent = await sendDirect(directCaseId, 'direct-file', [direct.id]);
+  assert.equal(sent.status, 202, JSON.stringify(sent.payload));
+  assert.deepEqual(sent.payload.attachments, [direct]);
+  assert.equal((await sendDirect(directCaseId, 'direct-file', [direct.id])).payload.id, sent.payload.id);
+  assert.equal((await sendDirect(directCaseId, 'direct-file')).status, 409);
+  await eventually(async () => {
+    const messages = await call(bob, route(bob, `messages?caseId=${directCaseId}`));
+    return messages.payload.some(message => message.id === sent.payload.id && message.attachments?.[0]?.id === direct.id);
+  });
+  const directChat = await call(bob, route(bob, `cases/${directCaseId}`));
+  assert.deepEqual(directChat.payload.events.find(event => event.payload.messageId === sent.payload.id).payload.attachments, [direct]);
+  await download(alice, direct, 'direct-sender');
+  await download(bob, direct, 'direct-recipient');
+  const browserDownload = await fetch(baseUrl + route(bob, `assets/${direct.id}/content`), {
+    headers: bob.session.headers(baseUrl, 'GET')
+  });
+  assert.equal(browserDownload.status, 200);
+  assert.deepEqual(Buffer.from(await browserDownload.arrayBuffer()), pdf);
+  assert.equal((await call(outsider, route(outsider, `assets/${direct.id}/download`))).status, 404);
+
+  const members = [alice, bob, carol];
+  for (const member of members) {
+    const directory = path.join(dataDir, 'inboxes', member.inbox.id, 'contacts');
+    await mkdir(directory, { recursive: true });
+    for (const other of members.filter(agent => agent !== member)) {
+      await writeFile(path.join(directory, `${other.agent.id}.json`), JSON.stringify({ agentId: other.agent.id, approved: true, blocked: false }));
+    }
+  }
+  const group = await call(alice, '/api/agent/group-cases', { memberAddresses: [bob.agent.address, carol.agent.address] }, 'attachment-group');
+  assert.equal(group.status, 201, JSON.stringify(group.payload));
+  const groupRoute = `/api/agent/group-cases/${group.payload.caseId}`;
+  const groupFile = await upload(group.payload.caseId);
+  const postGroup = (id, key) => call(alice, `${groupRoute}/messages`, { text: 'Review together', attachmentIds: [id] }, key);
+  assert.equal((await postGroup(direct.id, 'cross-case')).status, 404);
+  const posted = await postGroup(groupFile.id, 'group-file');
+  assert.equal(posted.status, 201, JSON.stringify(posted.payload));
+  assert.equal((await postGroup(groupFile.id, 'group-file')).payload.id, posted.payload.id);
+  for (const [index, member] of members.entries()) {
+    const chat = await call(member, groupRoute);
+    assert.deepEqual(chat.payload.messages[0].attachments, [groupFile]);
+    await download(member, groupFile, `group-member-${index + 1}`);
+  }
+  assert.equal((await call(outsider, route(outsider, `assets/${groupFile.id}/download`))).status, 404);
+});
 
 test('two independent owners share ordered typed cases without cross-case or authority leakage', async t => {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-shared-case-'));
