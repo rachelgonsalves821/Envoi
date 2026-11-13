@@ -22,7 +22,7 @@ Anything else (skill file, terminal setup, manual setup, extra prompts) sits beh
 | Permissions | Receive (required) and Send pre-ticked. Share files and Execute tasks are off, and the user can turn them on |
 | Progress | The compact status row from the review mockup, inside step 3. No big panel |
 | Dots | The same three steps. One prompt; the Dot walks the user through the plugin and approval |
-| Owner's choice wins (Dots) | Approved **only if** the live ChatGPT test in §7 passes |
+| Owner's choice wins (Dots) | Approved **only if** the live ChatGPT test in §7 passes. 2026-11-12: the test can't run as first written (the staging plugin grants Receive only), so the owner chose to build it behind a flag and test it on staging first (§7) |
 | Docs | Public `envoi-agents.com/docs`: OpenClaw, Hermes, Dots, Problems and fixes. No secrets, no internals |
 | Prompt texts | **Unchanged in Phase 1.** Prompt edits need real-runtime testing |
 
@@ -150,12 +150,14 @@ If either lane needs a file in the other column, post `REQUEST lane-a` or `REQUE
 
 **Checks:** each PR is green. Lane A then adds served-page checks (`/docs/fix/` returns 200, indexable, CSP nonce on every script and style, `/llms.txt` is text) in the base-check PR after both land. **Done when** all five addresses work, every error code has a fix, and the setup prompts point to `/docs/fix/`.
 
-## 5. Phase 2b: Dots works like everyone else (contracts first, waits for §7)
+## 5. Phase 2b: Dots works like everyone else (contracts first)
 
 | Lane A (Claude) | Lane B (Codex) |
 |---|---|
 | Saved setup: the wizard stores name, address and permissions for about 30 minutes, for the signed-in owner only and for one use. A contract is needed. | The wizard saves the setup; the approval page opens pre-filled; Dots status row |
-| Owner's choice wins: the approval page grants the owner's pick within workspace limits, even when the plugin asked for less, and the Permissions page can add Send. Contract revision of agent-remote-auth, behind a flag. | Permissions page "Add send access" without the long guide |
+| Owner's choice wins: contract `agent-owner-permissions v1` (handoffs.md). The approval page grants the owner's pick within workspace limits, even when the plugin asked for less; the Permissions page can add Send; renewals accept the scope the plugin first asked for. Flag `ENVOI_OWNER_PERMISSIONS`, staging only. Branch `lane-a/onb-p2b2-owner-permissions-server` after approval. | `lane-b/onb-p2b2-owner-permissions-ui`: approval page offers every grantable permission and says which the assistant didn't ask for; Permissions page sends the change and shows the reconnect guide only on `OAUTH_RECONSENT_REQUIRED` |
+
+Part 1 (saved setup, `agent-saved-setup v1`) is done and verified on staging @a216107.
 
 Docs are now Phase 2a (§5a). **Future platforms** (Grok, Muse, Instinct) follow the same template: a guide page plus their error codes in `setup-fixes.json`. The coverage test keeps every agent's fixes complete.
 
@@ -168,14 +170,16 @@ Docs are now Phase 2a (§5a). **Future platforms** (Grok, Muse, Instinct) follow
 
 Old connectors that don't check in must keep working.
 
-## 7. Before Phase 2: owner's live ChatGPT test (no code needed)
+## 7. Owner's live ChatGPT test (after the flagged build is on staging)
 
-On staging, with a test Dot (it may disconnect; that is the answer we need):
+The first version of this test needed a Dot with Receive and Send. The staging plugin grants Receive only (Rachel's run, 2026-11-12), so it couldn't run. The renewal risk is now handled in the contract instead: renewals accept the scope the plugin first asked for (agent-owner-permissions §4).
 
-1. Connect normally. On Envoi's approval page, note the **Requested permissions** line.
-2. Ask the Dot to call `envoi_agent_info` and confirm it lists Receive and Send.
-3. On Envoi's Permissions page, **remove** Send from that Dot.
-4. Wait 20 minutes (access renews every 15), then ask the Dot to call `envoi_agent_info` again.
-5. Report three things: what step 1 showed, whether step 4 still worked, and whether it now shows Receive only.
+On staging, with `ENVOI_OWNER_PERMISSIONS` on and the existing Receive-only test Dot:
 
-If step 4 works, ChatGPT accepts changed permissions on renewal, and "owner's choice wins" is safe to build. If it fails, Lane A fixes renewal first.
+1. On Envoi's Permissions page, **add** Send to that Dot.
+2. Ask the Dot to call `envoi_agent_info`, then to send one short message to a test address.
+3. Wait 20 minutes (access renews every 15), then ask it to call `envoi_agent_info` again.
+4. Remove Send, wait 20 minutes, then ask it to call `envoi_agent_info` again.
+5. Connect a new Dot through the wizard with Send ticked, and check it gets Send.
+
+Report: whether step 2's message arrived, whether steps 3 and 4 still worked, and what step 4 and step 5 show. If ChatGPT doesn't offer the send tool in step 2, Lane A adds a "tools changed" notice as a follow-up. If any renewal fails, the flag stays off.
