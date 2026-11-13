@@ -322,6 +322,8 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     async ownerRevoke(inboxId,agentId,id){available();return {subscription:publicSub(await endRecord(await owned({inboxId,agentId},id),'revoked_by_owner'))};},
     async list(identity){available();return {installationId:identity.installationId,subscriptions:(await listFor(identity)).map(publicSub)};},
     async ownerList(inboxId,agentId){available();return {agentId,subscriptions:(await listFor({inboxId,agentId})).map(publicSub)};},
+    // agent-listening-status v1 §1: every installation and every profile; null when wake subscriptions are off here.
+    async listening(inboxId,agentId){if(!enabled)return null;return (await listFor({inboxId,agentId},true)).map(publicSub);},
     async status(identity){if(!enabled)return {available:false,version:1,subscription:null};const records=await listFor(identity);const sub=records.find(s=>s.status==='active') || records.find(s=>s.status==='pending') || records[0];return {available:true,version:1,subscription:sub?{id:sub.id,status:sub.status,endedReason:sub.endedReason,expiresAt:sub.expiresAt}:null};},
     async endForFamily(inboxId,agentId,familyId){for(const sub of await agentSubs(agentId))if(sub.inboxId===inboxId&&sub.agentId===agentId&&sub.familyId===familyId)await endRecord(sub,'credential_ended');},
     cleanup,

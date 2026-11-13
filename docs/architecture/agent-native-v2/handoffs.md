@@ -5697,6 +5697,8 @@ This part is **not** behind the flag, so turning the flag off never strands an a
 | `since` | When the current state's subscription was activated (`on`, `failing`), created (`starting`) or ended (`off`). `null` when there is none. |
 | `lastAlertAt` | That subscription's `delivery.lastSuccessAt`: when an alert last reached the host. `null` until the first alert succeeds. |
 | `endedReason` | For `off` only: the most recently ended subscription's `endedReason` (http-wake's values). `null` when the agent never had one. |
+
+*Clarification during implementation, 2026-11-13, after `CONTRACT-APPROVED` (no fixture changes).* The published enum listed 7 of http-wake's 11 end reasons. `schemas.json` now lists all 11. The four added are `ended_by_owner` (MCP Events), `feature_disabled`, `challenge_expired` and `expired`. Consumers are unaffected: the banner's `off` + `*` row already covers any reason other than `credential_ended`.
 | `waiting` | §3.1. |
 
 ### 3. Derivation

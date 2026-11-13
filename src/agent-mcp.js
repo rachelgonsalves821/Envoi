@@ -254,7 +254,7 @@ function wakeHttpError(error, res) {
   return error;
 }
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false, workReplyEnabled = false }) {
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false, workReplyEnabled = false, listening = null }) {
   const eventAvailable = Boolean(providerEvents && await providerEvents.available(identity, '2026-07-28'));
   const read = await readMcpRequest(req, res, { maxRequestBytes, allowEventsVersion: eventsEnabled, eventsAvailable: eventAvailable, recognizeEventMethods: true });
   if (!read?.request) return;
@@ -302,7 +302,9 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   try {
     if (name === messageAccessTool.name) return sendJson(res, 200, rpcResult(id, await requestMessageAccess()));
     if (wakeTool) return sendJson(res, 200, rpcResult(id, await wakeTools.call(name, args, identity)));
-    const response = await invokeTool(name, args, identity, callRest);
+    let response = await invokeTool(name, args, identity, callRest);
+    // agent-listening-status v1 §4: full credentials only; a failed read (null) omits the field.
+    if (name === 'envoi_agent_info' && listening && !identity.mcpScope) { const backgroundReceiving = await listening(); if (backgroundReceiving) response = { ...response, backgroundReceiving }; }
     if (response?.status && response.status >= 400) return sendJson(res, 200, rpcResult(id, toolResult({ status: response.status, ...response.payload }, true)));
     return sendJson(res, 200, rpcResult(id, toolResult(response)));
   } catch (error) {
