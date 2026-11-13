@@ -5780,3 +5780,49 @@ Paused agents, revoked credentials and every error are unchanged: `/mcp` still a
 - Lane B: consuming tests for the badge, the banner and the prompt text.
 - Hosted: owner-run evidence with a real Dot (plan §5), kept separate from local and CI results.
 - **Rollback:** revert the server change. Consumers already treat a missing field as unknown.
+
+## provider-event-wake-activation v1
+
+**Contract:** `provider-event-wake-activation`, version 1. It amends `provider-event-wake v1` (proactive agents plan, owner decision Option 1, 2026-11-13). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human). provider-event-wake v1 stays approved and unchanged; once this is approved, MCP Events subscribe follows v1 plus this amendment.
+
+**Fixtures:** [`test/contract-fixtures/provider-event-wake-activation/`](../../../test/contract-fixtures/provider-event-wake-activation/): `schemas.json` (`x-rule` and the fixture shape) and 5 cases. `test/contract-provider-event-wake-activation.test.js` checks every case against the rule.
+
+**Owner:** Lane A. **Consumers:** Lane B: the Dots setup prompt's Ready check (proactive-agents plan B1). The host simply sees one ordinary `envoi.work_available` event.
+
+**Why.** `agent-listening-status v1` lets setup say Ready only when `lastAlertAt` is set: a real alert reached the Dot. For plain http-wake, activation already queues one `subscription_activated` hint (http-wake §3.3 row 9). MCP Events does not. Its verification is synchronous and does not touch `delivery`, and catch-up replays only earlier hints. So a healthy new Dot monitor stayed `on` with `lastAlertAt: null` until real work arrived.
+
+### 1. Rule
+
+On `events/subscribe` for `envoi.work_available`, in the same transaction that creates or renews the subscription (provider-event-wake §4 and §9):
+
+| # | Subscription before the call | Catch-up queued a hint? | Effect |
+| --- | --- | --- | --- |
+| 1 | none, or `ended` (new) | no | Queue exactly one `envoi.work_available` with `reason: "subscription_activated"` |
+| 2 | none, or `ended` (new) | yes | Nothing more: the catch-up hint already wakes the host |
+| 3 | `active` (renewal, same identity, with or without a rotated secret) | any | Nothing new |
+
+- `subscription_activated` is already in provider-event-wake's `x-events` payload enum. No schema, code, route or flag changes.
+- The hint is an ordinary event. It is delivered, signed, retried, coalesced and acknowledged exactly as provider-event-wake §5–§8 says, with the subscription's current cursor.
+- A paused agent cannot subscribe (provider-event-wake §10, `409 AGENT_PAUSED`), so no hint is queued for one.
+- `envoi.control_changed` subscriptions are unchanged.
+
+### 2. Effect on agent-listening-status
+
+When the host acknowledges the hint (2xx), http-wake records `delivery.lastSuccessAt`. agent-listening-status then reports `state: "on"` with `lastAlertAt` set (`delivery-activation-proves-listening`). The host's run for this hint claims once, normally getting no work, and then calls `envoi_agent_info`: that run is the proof.
+
+### 3. Cases
+
+| Fixture | What it shows |
+| --- | --- |
+| `subscribe-new-queues-activation.json` | First subscribe, nothing waiting: one `subscription_activated` |
+| `subscribe-new-with-catch-up.json` | New, cursor replays a missed hint: the catch-up hint only |
+| `subscribe-renewal-queues-nothing.json` | Renewal of an active subscription: nothing new |
+| `subscribe-after-ended-queues-activation.json` | After a reconnect ended the old one: one `subscription_activated` |
+| `delivery-activation-proves-listening.json` | The hint is acknowledged; `lastAlertAt` is set |
+
+### 4. Validation and rollback
+
+- Lane A: the rule test above, plus a server test on FileStore covering rows 1–3 and the resulting `envoi_agent_info`.
+- Lane B: the B1 Ready wording relies on it.
+- Hosted: plan §7 step 1 with a real Dot.
+- **Rollback:** revert the server change. Hosts then fall back to "on, not yet proven" until real work arrives (agent-listening-status `agent-info-not-proven`).

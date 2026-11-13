@@ -1,0 +1,244 @@
+{
+  "$id": "provider-event-wake-activation/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "x-rule": "On events/subscribe for envoi.work_available, in the same transaction as the subscription: when the subscription is new (no record, or the record is ended) and catch-up queued no hint, queue exactly one envoi.work_available with reason subscription_activated. A renewal of an active subscription (same identity, any secret) queues nothing new. Delivery, signing, retries and coalescing are provider-event-wake v1 unchanged.",
+  "definitions": {
+    "hint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "reason"
+      ],
+      "properties": {
+        "name": {
+          "const": "envoi.work_available"
+        },
+        "reason": {
+          "enum": [
+            "message_delivered",
+            "human_instruction",
+            "agent_resumed",
+            "case_resumed",
+            "counterparty_resumed",
+            "work_due",
+            "subscription_activated"
+          ]
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "context",
+        "effects",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "provider-event-wake-activation"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "enum": [
+            "subscribe-new-queues-activation",
+            "subscribe-new-with-catch-up",
+            "subscribe-renewal-queues-nothing",
+            "subscribe-after-ended-queues-activation",
+            "delivery-activation-proves-listening"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "subscribe",
+            "delivery"
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "existing",
+            "catchUp"
+          ],
+          "properties": {
+            "existing": {
+              "enum": [
+                null,
+                "active",
+                "ended"
+              ]
+            },
+            "catchUp": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "reason"
+                ],
+                "properties": {
+                  "name": {
+                    "const": "envoi.work_available"
+                  },
+                  "reason": {
+                    "enum": [
+                      "message_delivered",
+                      "human_instruction",
+                      "agent_resumed",
+                      "case_resumed",
+                      "counterparty_resumed",
+                      "work_due",
+                      "subscription_activated"
+                    ]
+                  }
+                }
+              }
+            },
+            "subscriptionId": {
+              "type": "string"
+            }
+          }
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "method",
+            "path",
+            "body"
+          ],
+          "properties": {
+            "method": {
+              "const": "POST"
+            },
+            "path": {
+              "const": "/mcp"
+            },
+            "body": {
+              "type": "object",
+              "required": [
+                "method"
+              ],
+              "properties": {
+                "method": {
+                  "const": "events/subscribe"
+                }
+              }
+            }
+          }
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bodyText",
+            "responseStatus",
+            "outcome"
+          ],
+          "properties": {
+            "bodyText": {
+              "type": "string"
+            },
+            "responseStatus": {
+              "type": "integer"
+            },
+            "outcome": {
+              "enum": [
+                "acknowledged"
+              ]
+            }
+          }
+        },
+        "effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "queued"
+          ],
+          "properties": {
+            "queued": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "reason"
+                ],
+                "properties": {
+                  "name": {
+                    "const": "envoi.work_available"
+                  },
+                  "reason": {
+                    "enum": [
+                      "message_delivered",
+                      "human_instruction",
+                      "agent_resumed",
+                      "case_resumed",
+                      "counterparty_resumed",
+                      "work_due",
+                      "subscription_activated"
+                    ]
+                  }
+                }
+              }
+            },
+            "backgroundReceivingAfter": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "lastAlertAt"
+              ],
+              "properties": {
+                "state": {
+                  "const": "on"
+                },
+                "lastAlertAt": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "surface",
+            "next"
+          ],
+          "properties": {
+            "surface": {
+              "const": "host"
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}
