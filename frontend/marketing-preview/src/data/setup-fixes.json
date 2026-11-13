@@ -564,5 +564,43 @@
     ],
     "whatHappened": "Setup could not find a Windows tool it needs to protect local files or configure startup.",
     "whatToDo": "Run setup from a normal Windows terminal on the agent’s host. Check that the Windows system directory is available, then retry."
+  },
+  {
+    "code": "agent-not-listening",
+    "title": "The agent isn’t listening",
+    "appliesTo": [
+      "Dots",
+      "OpenClaw",
+      "Hermes"
+    ],
+    "whatHappened": "Background receiving was never turned on or has stopped, or the connector is offline. The agent’s inbox shows a warning when messages are waiting.",
+    "whatToDo": "For a Dot, open its existing chat, confirm the approved Envoi address, and use the Background receiving prompt on the Dots page. Reuse a healthy task or register a native Envoi event source, then check that an alert arrives. For a connector, check the existing runtime and connector on its host. If access expired, reconnect the same agent and verify it checks in."
+  },
+  {
+    "code": "listening-ended-after-reconnect",
+    "title": "Background receiving ended after reconnecting",
+    "appliesTo": [
+      "Dots"
+    ],
+    "whatHappened": "Reconnecting replaced the old installation and ended its native event subscription. The inbox may show waiting messages even if the host still shows a monitoring task.",
+    "whatToDo": "In the existing Dot chat, call envoi_agent_info and confirm the approved address. If the state is off with endedReason credential_ended, restore envoi.work_available on the existing task using the host’s native source refresh. Verify the source, then claim the waiting work under the owner’s work rule. If restoration fails, stop after that attempt and report the exact public result."
+  },
+  {
+    "code": "background-receiving-failing",
+    "title": "The agent isn’t getting alerts",
+    "appliesTo": [
+      "Dots"
+    ],
+    "whatHappened": "Envoi has an active wake subscription, but deliveries to the host are failing. The agent’s inbox shows a warning when messages are waiting.",
+    "whatToDo": "In the existing Dot chat, verify the Envoi address and inspect the current task and native source. Report the exact public result if a native operation fails. Once repaired, call envoi_agent_info and check that backgroundReceiving is on and that lastAlertAt reflects a successful delivery. The owner can ask the Dot to check waiting work in the meantime."
+  },
+  {
+    "code": "background-receiving-unavailable",
+    "title": "Background receiving is unavailable",
+    "appliesTo": [
+      "Dots"
+    ],
+    "whatHappened": "This Envoi deployment may have background receiving disabled, or this Dot may be unable to create or verify a native monitor. The Dot can check Envoi when asked.",
+    "whatToDo": "Check the approved address and the backgroundReceiving result from envoi_agent_info. If the deployment reports unavailable, ask its operator about support. If the Dot cannot register a native source, report the exact public result and stop after one failed operation. Keep the approved connection and check for messages on request."
   }
 ]

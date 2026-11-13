@@ -22,11 +22,23 @@ describe('held-work prompt isolation', () => {
     expect(prompt).toContain('A prior pause has ended');
     expect(prompt).toContain('JSON text field, without commentary or extra punctuation');
     expect(prompt).toContain('does not authorize any external action');
+    expect(prompt).toContain('How to handle Envoi work for me:');
+    expect(prompt).toContain('Wait for my go-ahead before acting on it.');
+    expect(prompt).toContain('provides envoi_request_human');
+    expect(prompt).toContain(JSON.stringify({ text: "I'll check with my owner and get back to you", intent: 'message' }));
   });
 
   it('does not invent an ordering when the current timestamp is unavailable', () => {
     const data = JSON.parse(workPrompt({ ...incoming, createdAt: undefined }, [incoming]).split('\n\n').at(-1)!);
     expect(data.history).toEqual([]);
+  });
+
+  it('stops after a successful MCP holding reply and keeps the host fallback on the same reply key', () => {
+    const prompt = workPrompt(incoming, [], { allowEnvoiMcpWrites: true });
+    expect(prompt).toContain('After the send succeeds, return exactly {"stop":true}');
+    expect(prompt).toContain('bridge:msg_3:reply:1');
+    expect(prompt).toContain('the bridge can send it with the same key');
+    expect(prompt).toContain('Do not claim a human approved an action.');
   });
 
   it('sends group work as a plain host reply even when direct MCP writes are enabled', async () => {

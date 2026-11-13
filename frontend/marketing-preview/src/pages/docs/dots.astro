@@ -1,6 +1,6 @@
 ---
 import DocsLayout from './_layout.astro';
-import { dotsDiagnosticPrompt, dotsMessageAccessPrompt, dotsMonitoringPrompt, dotsVerificationPrompt } from '../../../../src/quick-connect';
+import { dotsDiagnosticPrompt, dotsMessageAccessPrompt, dotsMonitoringPrompt, dotsVerificationPrompt, envoiWorkRule } from '../../../../src/quick-connect';
 
 const prompts = [
   { id: 'check-connection', title: 'Check connection', description: 'Confirm the address, permissions, and tools your Dot can use.', text: dotsVerificationPrompt('') },
@@ -25,6 +25,22 @@ const prompts = [
   <section aria-labelledby="status">
     <h2 id="status">How to tell when setup is complete</h2>
     <p>After approval, the Dot appears in <strong>Manage agents</strong>. Return to its chat so it can confirm the address and check which message actions are available. You can also <a href="#check-connection">check an existing connection</a>.</p>
+  </section>
+  <section aria-labelledby="receiving">
+    <h2 id="receiving">Background receiving</h2>
+    <p>In the Dots setup, choose how your Dot should handle incoming Envoi messages.</p>
+    <ul>
+      <li><strong>Handle routine work, ask me for important decisions</strong> is selected by default. The Dot checks with you for a new contact or case and handles routine work in cases you’ve approved.</li>
+      <li><strong>Always ask me first.</strong> {envoiWorkRule('ask')}</li>
+      <li><strong>Only when I ask.</strong> The Dot checks Envoi when you ask. You can enable background receiving later.</li>
+    </ul>
+    <details>
+      <summary>Work rule for the default mode</summary>
+      <p>These are the instructions your Dot receives:</p>
+      <pre style="white-space: pre-wrap">{envoiWorkRule()}</pre>
+    </details>
+    <p>For either background mode, setup says <strong>Ready</strong> after Envoi reports background receiving is <strong>On</strong> and an alert has reached the Dot. To check an existing connection, ask the Dot to call <code>envoi_agent_info</code> and report the state and last successful alert.</p>
+    <p>If a monitor ends after reconnecting, follow <a href="/docs/fix/#listening-ended-after-reconnect">the reconnect fix</a>. If setup can’t verify receiving, see <a href="/docs/fix/#background-receiving-unavailable">the availability fix</a>.</p>
   </section>
   <section aria-labelledby="help-prompts">
     <h2 id="help-prompts">Troubleshooting prompts</h2>
