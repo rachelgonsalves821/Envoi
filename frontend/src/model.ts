@@ -119,7 +119,7 @@ export function messagesForCase(messages: Message[], caseId: string) {
 }
 
 export function timelineForCase(workCase: WorkCase, messages: Message[]): CaseEvent[] {
-  if (workCase.timeline) return collapseMessageProgress(workCase.timeline.map(event => ({ id: event.id, type: event.type, actor: event.actorId, createdAt: event.createdAt, payload: event.payload, linkedPolicyEvaluation: event.policyEvaluationId, precedingEventRef: null, summary: event.summary })));
+  if (workCase.timeline) return collapseMessageProgress(workCase.timeline.map(event => ({ id: event.id, type: event.type, actor: event.actorId, actorDisplayName: event.actorDisplayName, createdAt: event.createdAt, payload: event.payload, linkedPolicyEvaluation: event.policyEvaluationId, precedingEventRef: null, summary: event.summary })));
   const structured = workCase.events || [];
   if (structured.length) return collapseMessageProgress(structured.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
   const messageEvents: CaseEvent[] = messagesForCase(messages, workCase.id).map(message => ({ id: message.id, type: 'message', actor: message.senderAgentId || message.senderHumanId || 'external', createdAt: message.createdAt, payload: { text: message.text, messageType: message.type, deliveryState: message.status, senderAgentId: message.senderAgentId, senderHumanId: message.senderHumanId, recipientAgentId: message.recipientAgentId }, linkedPolicyEvaluation: null, precedingEventRef: null }));
@@ -243,7 +243,19 @@ export function isExchangeEvent(event: CaseEvent) {
   return event.type === 'message' || Boolean(event.payload.proposalId) || exchangeTypes.includes(String(event.payload.messageType || '').toLowerCase());
 }
 
+export function humanProposalDecision(event: CaseEvent) {
+  const action = event.payload.action;
+  if (event.type !== 'humanAction' || action?.outcome !== 'ok'
+    || !['approveOnce', 'decline'].includes(action.actionKey)) return null;
+  return {
+    name: event.actorDisplayName?.trim() || 'A workspace member',
+    verb: action.actionKey === 'approveOnce' ? 'approved' : 'rejected'
+  };
+}
+
 export function eventSummary(event: CaseEvent): string {
+  const decision = humanProposalDecision(event);
+  if (decision) return `${decision.name} ${decision.verb} the agent proposal`;
   if (event.summary) return event.summary;
   const action = event.payload.action;
   if (action?.actionKey) {

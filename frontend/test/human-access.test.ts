@@ -86,7 +86,7 @@ describe('human action visibility', () => {
   it('shows decision actions to authorized workspace managers', () => {
     const markup = renderDecision(true);
     expect(markup).toContain('class="decision-actions"');
-    expect(markup).toContain('Approve Once');
+    expect(markup).toContain('Approve once');
     expect(markup).not.toContain('Pause conversation');
     expect(markup).not.toContain('Take Over');
   });

@@ -10,14 +10,7 @@
   --lx-line-2: #d4d9df;        /* stronger borders, inputs */
   --lx-accent: #1d5f99;        /* the one blue: links, focus, selected */
   --lx-accent-soft: #eaf2f9;
-  --lx-gold: #b8860b;          /* same as the blocking underline */
-  --lx-gold-ink: #7d5a06;      /* gold text, 5.6:1 on gold-soft */
-  --lx-gold-soft: #fbf6e8;
-  --lx-gold-line: #e8d6a6;
-  --lx-green-bubble: #dff5d8;  /* unchanged own-agent bubble */
-  --lx-green-line: #b7ddb0;
-  --lx-green-ink: #2d6a26;     /* text on green chips */
-  --lx-green-soft: #edf8ea;
+  --lx-gold: #b8860b;          /* pending decisions */
   --lx-instruction: #f0f5fa;   /* owner instruction card */
   --lx-instruction-line: #cddcea;
   --lx-red: #b23a48;
@@ -55,7 +48,7 @@
 .app-shell .conversation-message.continued { padding-top: 2px; }
 .app-shell .conversation-message.continued .counterparty-avatar { visibility: hidden; height: 0; }
 .app-shell .conversation-message.continued .message-meta { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.app-shell .conversation-message .counterparty-avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+.app-shell .conversation-message .counterparty-avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; background: var(--lx-accent-soft); color: var(--lx-ink-2); font-size: 13px; font-weight: 600; }
 .app-shell .message-content { max-width: min(100%, var(--lx-measure)); flex: 1 1 auto; min-width: 0; }
 
 /* Meta: Name · role · kind · time */
@@ -64,11 +57,10 @@
 .app-shell .message-meta > span:not(.meta-role)::before,
 .app-shell .message-meta > time::before { content: "·"; margin-right: 6px; color: var(--lx-ink-3); }
 .app-shell .message-meta .meta-role { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--lx-radius-pill); background: var(--lx-paper-2); border: 1px solid var(--lx-line); font-size: 11.5px; font-weight: 500; color: var(--lx-ink-2); }
-.app-shell .mine .message-meta .meta-role { background: var(--lx-green-soft); border-color: var(--lx-green-line); color: var(--lx-green-ink); }
 
 /* Bodies */
 .app-shell .message-bubble { padding: 12px 16px; border-radius: 4px var(--lx-radius-card) var(--lx-radius-card) var(--lx-radius-card); font-size: 15px; line-height: 1.6; color: var(--lx-ink); background: var(--lx-paper); border: 1px solid var(--lx-line); box-shadow: var(--lx-shadow-1); }
-.app-shell .mine .message-bubble { background: var(--lx-green-bubble); border-color: var(--lx-green-line); border-radius: 4px var(--lx-radius-card) var(--lx-radius-card) var(--lx-radius-card); }
+.app-shell .mine .message-bubble { background: var(--lx-paper); border-color: var(--lx-line); border-radius: 4px var(--lx-radius-card) var(--lx-radius-card) var(--lx-radius-card); }
 .app-shell .conversation-message.continued .message-bubble { border-radius: var(--lx-radius-card); }
 
 /* Owner instruction: quiet, not the loudest thing on the page */
@@ -89,9 +81,9 @@
 
 .app-shell .conversation-event { display: flex; align-items: center; gap: 10px; max-width: none; margin: 10px 0; padding: 8px 12px 8px 60px; font-size: 13px; color: var(--lx-ink-2); text-align: left; }
 .app-shell .conversation-event svg { width: 24px; height: 24px; padding: 5px; border-radius: 8px; background: var(--lx-paper); border: 1px solid var(--lx-line); color: var(--lx-ink-3); flex: none; }
-.app-shell .conversation-event time { margin-left: auto; font-size: 12px; color: var(--lx-ink-3); }
-.app-shell .conversation-event.needs-you { margin-left: 48px; padding-left: 12px; border: 1px solid var(--lx-gold-line); background: var(--lx-gold-soft); border-radius: var(--lx-radius-card); color: var(--lx-gold-ink); font-weight: 500; }
-.app-shell .conversation-event.needs-you svg { color: var(--lx-gold); border-color: var(--lx-gold-line); }
+.app-shell .conversation-event time { margin-left: auto; font-size: 12px; color: var(--lx-ink-3); white-space: nowrap; }
+.app-shell .proposal-decision svg { border-color: transparent; background: transparent; color: var(--lx-ink-2); }
+.app-shell .proposal-decision strong { color: var(--lx-ink); font-weight: 650; }
 
 /* Header */
 .app-shell .thread-subject { font-family: var(--lx-sans); font-weight: 400; font-size: clamp(30px, 3vw, 40px); line-height: 1.12; letter-spacing: -.01em; color: var(--lx-ink); }
@@ -100,28 +92,29 @@
 /* Participants: from two big cards to one quiet line */
 .app-shell .participant-duo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 24px; padding: 10px 0 18px; border-bottom: 1px solid var(--lx-line); }
 .app-shell .participant-duo .participant-card, .app-shell .participant-duo .participant-card.mine { padding: 4px 12px 4px 4px; gap: 8px; border-radius: var(--lx-radius-pill); background: var(--lx-paper); border: 1px solid var(--lx-line); box-shadow: none; }
-.app-shell .participant-duo .participant-card.mine { background: var(--lx-green-soft); border-color: var(--lx-green-line); }
 .app-shell .participant-duo .participant-card .counterparty-avatar { width: 28px; height: 28px; font-size: 11px; border-radius: 50%; }
 .app-shell .participant-duo .participant-copy { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .app-shell .participant-duo .participant-copy small { display: inline; font-size: 11.5px; font-weight: 500; color: var(--lx-ink-3); }
-.app-shell .participant-duo .participant-card.mine .participant-copy small { color: var(--lx-green-ink); }
 .app-shell .participant-duo .participant-copy strong { display: inline; font-size: 13.5px; font-weight: 600; color: var(--lx-ink); }
 .app-shell .participant-duo .participant-address { display: none; }
 .app-shell .participant-duo .participant-swap { color: var(--lx-line-2); width: 16px; height: 16px; }
 
 /* Decision card: the gold signature */
-.app-shell .decision-card { position: relative; margin: 0 0 24px; padding: 18px 20px 18px 24px; border-radius: var(--lx-radius-card); background: var(--lx-paper); border: 1px solid var(--lx-gold-line); box-shadow: var(--lx-shadow-2); }
-.app-shell .decision-card::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--lx-gold); }
-.app-shell .decision-label { color: var(--lx-gold-ink); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.app-shell .decision-card { margin: 0 0 24px; padding: 18px 20px; border-radius: var(--lx-radius-card); background: var(--lx-paper); border: 1px solid var(--lx-line-2); box-shadow: var(--lx-shadow-1); }
+.app-shell .decision-label { color: var(--lx-ink-2); font-size: 13px; font-weight: 600; }
+.app-shell .decision-label.pending::before,
+.app-shell .decision-bar-label::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--lx-gold); }
 .app-shell .decision-card h2 { font-size: 17px; font-weight: 600; line-height: 1.4; color: var(--lx-ink); margin: 6px 0 12px; }
 .app-shell .decision-card .proposal-option { border: 1px solid var(--lx-line); border-style: solid; background: var(--lx-paper-2); border-radius: 10px; color: var(--lx-ink-2); }
 .app-shell .decision-actions { gap: 8px; margin-top: 14px; }
 .app-shell .decision-actions .button { min-height: 38px; padding: 0 16px; font-size: 14px; transition: transform var(--lx-fast) var(--lx-ease), background-color var(--lx-fast) var(--lx-ease); }
+.app-shell .decision-actions .button.primary { background: var(--lx-accent); }
+.app-shell .decision-actions .button.primary:not(:disabled):hover { background: #1c4d73; }
 .app-shell .decision-actions .button:active { transform: scale(.97); }
 
-/* Status badge: gold when it is waiting for the person */
+/* Status badge */
 .app-shell .status-badge { height: 24px; padding: 0 10px; border-radius: var(--lx-radius-pill); font-size: 12px; font-weight: 500; }
-.app-shell .status-badge.tone-attention { background: var(--lx-gold-soft); color: var(--lx-gold-ink); border: 1px solid var(--lx-gold-line); }
+.app-shell .status-badge.tone-attention { background: var(--lx-paper); color: var(--lx-ink-2); border: 1px solid var(--lx-line); }
 
 /* Legend sits quietly under the participants line */
 .app-shell .hl-legend { margin: -8px 0 16px; }
@@ -144,7 +137,7 @@
 .app-shell .decision-card .proposal-option strong { color: var(--lx-ink); }
 .app-shell .decision-card .proposal-option span, .app-shell .decision-card .proposal-option small { color: var(--lx-ink-2); }
 .app-shell .decision-card .proposal-option .proposal-party { color: var(--lx-ink-3); }
-.app-shell .decision-card .proposal-option .risk-label { color: var(--lx-gold-ink) !important; background: var(--lx-gold-soft); border: 1px solid var(--lx-gold-line); }
+.app-shell .decision-card .proposal-option .risk-label { color: var(--lx-ink-2); background: var(--lx-paper); border: 1px solid var(--lx-line-2); }
 .app-shell .composer-foot .composer-hint { margin: 0 auto 0 0; text-align: left; order: 0; }
 .app-shell .composer-foot button { margin-left: auto; order: 1; }
 .app-shell .composer-box { align-items: stretch; }
@@ -164,7 +157,7 @@
 .app-shell .case-row.inbox-message-row:hover { background: var(--lx-paper-2); }
 .app-shell .case-row.inbox-message-row.selected { background: var(--lx-accent-soft); }
 .app-shell .case-row.inbox-message-row.is-unread { box-shadow: inset 3px 0 0 var(--lx-accent); }
-.app-shell .case-chip { background: var(--lx-gold-soft); color: var(--lx-gold-ink); border: 1px solid var(--lx-gold-line); border-radius: var(--lx-radius-pill); }
+.app-shell .case-chip { background: var(--lx-paper); color: var(--lx-ink-2); border: 1px solid var(--lx-line-2); border-radius: var(--lx-radius-pill); }
 .app-shell .inbox-list-view .queue-search, .app-shell .queue-search { border-color: var(--lx-line-2); border-radius: 12px; }
 
 /* Wide screens: list beside the open case */
@@ -183,13 +176,16 @@
 .app-shell .split-view .case-main { min-width: 0; min-height: 0; }
 
 /* Sticky decision bar */
-.app-shell .decision-bar { display: flex; align-items: center; gap: 10px; max-width: var(--lx-column); margin: 0 auto 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--lx-gold-line); border-left: 3px solid var(--lx-gold); border-radius: 12px; background: var(--lx-gold-soft); box-shadow: var(--lx-shadow-1); font-size: 13.5px; color: var(--lx-ink); animation: lx-rise var(--lx-fast) var(--lx-ease); }
-.app-shell .decision-bar-label { flex: none; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--lx-gold-ink); }
+.app-shell .decision-bar { display: flex; align-items: center; gap: 10px; max-width: var(--lx-column); margin: 0 auto 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--lx-line-2); border-radius: 12px; background: var(--lx-paper); box-shadow: var(--lx-shadow-1); font-size: 13.5px; color: var(--lx-ink); animation: lx-rise var(--lx-fast) var(--lx-ease); }
+.app-shell .decision-bar-label { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; font-weight: 600; color: var(--lx-ink-2); }
 .app-shell .decision-bar-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-shell .decision-bar button { flex: none; height: 30px; padding: 0 14px; border: 0; border-radius: var(--lx-radius-pill); background: var(--lx-ink); color: #fff; font: 600 13px/1 var(--lx-sans); cursor: pointer; transition: transform var(--lx-fast) var(--lx-ease); }
+.app-shell .decision-bar button { flex: none; height: 30px; padding: 0 14px; border: 0; border-radius: var(--lx-radius-pill); background: var(--lx-accent); color: #fff; font: 600 13px/1 var(--lx-sans); cursor: pointer; transition: transform var(--lx-fast) var(--lx-ease); }
 .app-shell .decision-bar button:active { transform: scale(.97); }
 @keyframes lx-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@media (max-width: 700px) { .app-shell .decision-bar-label { display: none; } }
+@media (max-width: 700px) {
+  .app-shell .decision-bar-text { display: none; }
+  .app-shell .decision-bar button { margin-left: auto; }
+}
 
 
 /* One scroll area. Absolutely positioned screen-reader text inside the thread used to stretch the outer
@@ -197,16 +193,4 @@
 .app-shell .thread-scroll { position: relative; }
 .app-shell .case-main { overflow: hidden; }
 .app-shell .decision-card .proposal-option .risk-label { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
-.app-shell .decision-card .proposal-option button.risk-label:hover { background: #f6ecc9; }
-
-/* TRIAL: blue highlight palette (swatch supplied 11 Nov: #3a5e95 bar, #ecf2f8 fill).
-   Delete this whole block to go back to the green highlights in product-brand.css. The golden underline
-   on "needs your decision" marks is unchanged. */
-.app-shell {
-  --lx-hl: #c9daf0;
-  --lx-hl-dot: #7f9fcf;
-  --lx-hl-soft: #ecf2f8;
-  --lx-hl-line: #c5d3e8;
-  --lx-hl-ink: #2f5088;
-}
-.app-shell .hl { background: var(--lx-hl); }
+.app-shell .decision-card .proposal-option button.risk-label:hover { background: var(--lx-accent-soft); }
