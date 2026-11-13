@@ -28,12 +28,16 @@
       ]
     },
     "permissions": {
+      "description": "The route existing rule: known permissions, each once, always including Receive.",
       "type": "array",
       "uniqueItems": true,
       "minItems": 1,
       "maxItems": 5,
       "items": {
         "$ref": "#/definitions/permission"
+      },
+      "contains": {
+        "const": "receive_agent_messages"
       }
     },
     "permissionsUpdateRequest": {
@@ -119,10 +123,21 @@
         "id",
         "description",
         "kind",
-        "flags",
-        "request",
-        "response",
-        "client"
+        "flags"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "request",
+            "response",
+            "client"
+          ]
+        },
+        {
+          "required": [
+            "steps"
+          ]
+        }
       ],
       "properties": {
         "contract": {
@@ -140,7 +155,8 @@
             "permissions-add-send-flag-off",
             "permissions-add-unscoped",
             "token-refresh-original-scope",
-            "token-refresh-removed-scope"
+            "token-refresh-removed-scope",
+            "token-refresh-recovered-after-removal"
           ]
         },
         "description": {
@@ -168,6 +184,33 @@
         },
         "context": {
           "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "properties": {
+              "note": {
+                "type": "string"
+              },
+              "request": {
+                "type": "object"
+              },
+              "response": {
+                "type": "object"
+              },
+              "client": {
+                "type": "object"
+              }
+            }
+          }
         },
         "request": {
           "type": "object",

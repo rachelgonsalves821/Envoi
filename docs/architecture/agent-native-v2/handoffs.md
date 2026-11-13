@@ -5593,9 +5593,9 @@ The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:
 
 ## agent-owner-permissions v1
 
-**Contract:** `agent-owner-permissions`, version 1 (simple-setup plan Phase 2b, part 2: `docs/architecture/agent-native-v2/onboarding-simple-setup.md` §5). It revises agent-remote-auth v1 §5.1, §5.2 and §6.2 row 7, and the owner Permissions route. **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+**Contract:** `agent-owner-permissions`, version 1 (simple-setup plan Phase 2b, part 2: `docs/architecture/agent-native-v2/onboarding-simple-setup.md` §5). It revises agent-remote-auth v1 §5.1, §5.2 and §6.2 row 7, and the owner Permissions route. **Status:** published, revision 2 (§7), awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
 
-**Fixtures:** [`test/contract-fixtures/agent-owner-permissions/`](../../../test/contract-fixtures/agent-owner-permissions/): `schemas.json` (`x-flags`, `x-codes` and the Permissions route's shapes; other shapes are agent-remote-auth's) and 8 cases: `consent-view-owner-choice`, `consent-approve-owner-choice`, `token-code-owner-choice`, `permissions-add-send`, `permissions-add-send-flag-off`, `permissions-add-unscoped`, `token-refresh-original-scope`, `token-refresh-removed-scope`. agent-remote-auth's `token-refresh-scope-changed` is rewritten for §4. Every session, CSRF value, handle, code and token in them is a placeholder.
+**Fixtures:** [`test/contract-fixtures/agent-owner-permissions/`](../../../test/contract-fixtures/agent-owner-permissions/): `schemas.json` (`x-flags`, `x-codes` and the Permissions route's shapes; other shapes are agent-remote-auth's) and 9 cases: `consent-view-owner-choice`, `consent-approve-owner-choice`, `token-code-owner-choice`, `permissions-add-send`, `permissions-add-send-flag-off`, `permissions-add-unscoped`, `token-refresh-original-scope`, `token-refresh-removed-scope`, `token-refresh-recovered-after-removal`. agent-remote-auth's `token-refresh-scope-changed` is rewritten for §4. Every session, CSRF value, handle, code and token in them is a placeholder.
 
 **Owner:** Lane A. **Consumers:** Lane B: the owner approval page (`/authorize-agent`) and the agent Permissions page.
 
@@ -5624,7 +5624,7 @@ The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:
 
 ### 3. Permissions page (flag on)
 
-`POST /api/inboxes/{agentInboxId}/agents/{agentId}/permissions` keeps its body (`{ permissions, expectedPermissions }`), checks and `200 { agent }` response. One rule changes. Adding a permission to an agent with a live OAuth family no longer gets `409 OAUTH_RECONSENT_REQUIRED` when **every added permission has an OAuth scope** (`permissions-add-send`). Adding `use_email_transport` still gets it (`permissions-add-unscoped`). With the flag off, nothing changes (`permissions-add-send-flag-off`).
+`POST /api/inboxes/{agentInboxId}/agents/{agentId}/permissions` keeps its body (`{ permissions, expectedPermissions }`), checks and `200 { agent }` response. Both arrays must still name known permissions, each once, **always including Receive**; otherwise the route answers `400` as today (`permissionsUpdateRequest`). One rule changes. Adding a permission to an agent with a live OAuth family no longer gets `409 OAUTH_RECONSENT_REQUIRED` when **every added permission has an OAuth scope** (`permissions-add-send`). Adding `use_email_transport` still gets it (`permissions-add-unscoped`). With the flag off, nothing changes (`permissions-add-send-flag-off`).
 
 The page sends the change. It shows its existing reconnect guide only when the answer is `OAUTH_RECONSENT_REQUIRED`, so it needs no flag of its own. Removing a permission is unchanged.
 
@@ -5636,7 +5636,9 @@ agent-remote-auth §6.2 row 7 becomes: **`scope`, if present, names only known s
 
 A refresh never yields more than the agent holds. RFC 6749 §6 asks a client not to request more than it was granted. The server tolerates that request, rather than refusing it, and reports the scope it actually issued.
 
-This part is **not** behind the flag, so turning the flag off never strands an agent that was granted more than it asked for. It also fixes today's case where an owner unticks Send at approval and a client that re-sends its original scope fails every renewal. Row 8 (`resource`) and the recovery window are unchanged; a recovered response is re-checked with the new row 7.
+This part is **not** behind the flag, so turning the flag off never strands an agent that was granted more than it asked for. It also fixes today's case where an owner unticks Send at approval and a client that re-sends its original scope fails every renewal. Row 8 (`resource`) is unchanged.
+
+**Recovery re-delivers; it does not issue.** Inside agent-remote-auth's 60-second recovery window, before either successor token is used, the identical retry still gets the **identical** earlier response: the same successor tokens and the same `scope`, even when the owner changed permissions in between. Its `scope` parameter is checked with the new row 7 only. A recovered response can therefore report a scope the agent no longer holds. That grants nothing: `/mcp` checks the stored permissions on every call (§1), so a send tool gets `403 INSUFFICIENT_SCOPE`, and the next refresh with the successor token reports the current scopes (`token-refresh-recovered-after-removal`). "Never more than the agent holds" applies when tokens are issued; re-delivery issues nothing.
 
 ### 5. Flag and rollout
 
@@ -5655,3 +5657,10 @@ This part is **not** behind the flag, so turning the flag off never strands an a
   4. Remove Send, wait 20 minutes, then ask it to call `envoi_agent_info` again.
 
   Pass: every step works, step 2's message arrives, and step 4 shows Receive only. If ChatGPT doesn't offer the send tool in step 2, `notifications/tools/list_changed` becomes a follow-up. A new Dot connected through the wizard with Send ticked must also come out with Send.
+- **Fixture checks:** `contract-fixtures.test.js` ("agent-owner-permissions fixtures agree across cases") validates every request and step, refuses a Permissions body or agent without Receive, and checks the recovery sequence.
+
+### 7. Revisions before approval
+
+**Revision 2 (2026-11-13), from Lane B's `MISMATCH` review:**
+1. The Permissions schemas require Receive in `permissions`, `expectedPermissions` and the returned agent, as the route already does. Negative checks are in the fixture test.
+2. Recovery after a permission change has one outcome: the identical earlier response (§4). The new sequence fixture `token-refresh-recovered-after-removal` covers a lost 200, removing Send, the retry, and the successor's refresh.

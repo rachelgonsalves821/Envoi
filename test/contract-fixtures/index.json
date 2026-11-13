@@ -1039,6 +1039,7 @@
         "permissions-add-unscoped.json",
         "token-code-owner-choice.json",
         "token-refresh-original-scope.json",
+        "token-refresh-recovered-after-removal.json",
         "token-refresh-removed-scope.json"
       ]
     }
