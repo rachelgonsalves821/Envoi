@@ -137,3 +137,19 @@ Record each result with screenshots. A failure in step 1 or 5 caused by ChatGPT'
 - Changing how reconnecting ends subscriptions. Restoring stays a host action.
 - A wizard question for runtime agents, or storing the mode on the server.
 - Owner notifications outside Envoi and the Dot (email, push).
+
+## 9. Status (2026-11-13)
+
+| Task | PR | State |
+| --- | --- | --- |
+| A1 contract `agent-listening-status v1` | #385 | Approved @ea816ea, merged |
+| A2 server: `backgroundReceiving` | #389 | Merged |
+| A2b contract `provider-event-wake-activation v1` | #390 | Approved @b973227, merged |
+| A2b server: first alert for new Dots subscriptions | #393 | Merged |
+| B1–B4 (rule text, bridge, docs, Dots setup and skill, badge and banner) | #388, #392 | Merged |
+| A3: full CI on the combined base | this check PR | Running |
+
+Owner steps still open:
+1. Merge base → `main` and deploy to staging.
+2. Upload `envoi-dots-setup` to the ChatGPT plugin (1.0.7 → 1.0.8).
+3. Run the §7 hosted check.
