@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentPermissionPicker, EnrollmentDialog, RuntimePicker } from '../src/App';
 import { api, ApiError } from '../src/api';
 import { EnrollmentSteps } from '../src/onboarding/EnrollmentSteps';
-import { GrokBotDetails, GrokBotSetup } from '../src/onboarding/GrokBotSetup';
+import { GrokBotSetup } from '../src/onboarding/GrokBotSetup';
 import { DotsSetupGuide } from '../src/onboarding/DotsSetupGuide';
 import { SavedSetupProgress } from '../src/onboarding/SavedSetupProgress';
 import { ConnectionMilestones } from '../src/onboarding/ConnectionMilestones';
@@ -137,12 +137,15 @@ it.each([false, true])('uses the shared wizard for hosted Grok (hosted required:
 
   const second = await dialog.submit(dialog.draw());
   expectStep(second, 2);
-  const details = second.find(node => node.type === GrokBotDetails)!;
-  expect(renderToStaticMarkup(GrokBotDetails(details.props))).toContain('Choose during Envoi approval');
-  const third = await dialog.submit(second);
+  expect(second.find(node => node.props.name === 'localPart')).toBeDefined();
+  expect(second.some(node => node.type === AgentPermissionPicker)).toBe(false);
+  second.find(node => node.props.name === 'name')!.props.onChange({ target: { value: 'Milo' } });
+  dialog.draw();
+  await vi.advanceTimersByTimeAsync(300);
+  const third = await dialog.submit(dialog.draw());
   expectStepBar(third, 3);
   expect(third[0].props.title).toBe('Connect Grok Bot');
-  expect(third.some(node => node.type === GrokBotSetup)).toBe(true);
+  expect(third.find(node => node.type === GrokBotSetup)?.props.newIdentity).toMatchObject({ name: 'Milo', localPart: 'milo' });
   expect(create).not.toHaveBeenCalled();
   third.find(node => node.type === 'button' && node.props.children === 'Back')!.props.onClick();
   expectStep(dialog.draw(), 2);

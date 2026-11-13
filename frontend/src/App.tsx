@@ -16,7 +16,7 @@ import { fileFolderFor, fileSourceView } from './file-folders';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
-import { GrokBotDetails, GrokBotSetup, readGrokBotSetup } from './onboarding/GrokBotSetup';
+import { GrokBotSetup, readGrokBotSetup } from './onboarding/GrokBotSetup';
 import { canReconnectAgent } from './onboarding/types';
 import { ClaimPage } from './onboarding/ClaimPage';
 import { AuthorizationEntry, AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
@@ -2028,7 +2028,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   const localPart = localPartInput.trim().toLowerCase();
   const handoff = result?.quickConnect;
   const hostedGrok = !dotsSelected && (hostedGrokSelected || hostedGrokRequired && (handoff?.runtime === 'grok' || runtime === 'grok'));
-  const checkAddress = step === 1 && !hostedGrok && !result && !dotsGuideOpen && !reconnectAgent && validAgentLocalPart(localPart);
+  const checkAddress = step === 1 && !result && !dotsGuideOpen && !reconnectAgent && validAgentLocalPart(localPart);
   const availability = !checkAddress ? 'idle'
     : workspace.id === previewWorkspace.id ? 'available'
     : addressCheck?.inboxId === workspace.id && addressCheck.localPart === localPart ? addressCheck.state : 'checking';
@@ -2122,7 +2122,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   return <Modal className="enrollment-dialog" title={title} onClose={onClose}>
     <EnrollmentSteps currentStep={currentStep} />
     {hostedGrok && currentStep === 2 ? <section className="quick-connect">
-      <GrokBotSetup address={reconnectAgent?.address} />
+      <GrokBotSetup address={reconnectAgent?.address} newIdentity={reconnectAgent ? undefined : { workspaceName: workspace.name, name: name.trim(), localPart, address: requestedAddress }} />
       <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => {
         setHostedGrokSelected(true);
         setResult(null);
@@ -2210,7 +2210,11 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       event.preventDefault();
       if (busy || saveRequest.current) return;
       if (step === 0) { setStep(1); return; }
-      if (hostedGrok) { setStep(2); return; }
+      if (hostedGrok) {
+        if (!reconnectAgent && (!name.trim() || availability !== 'available')) return;
+        setStep(2);
+        return;
+      }
       if (dotsSelected) {
         if (reconnectAgent || workspace.id === previewWorkspace.id) { setDotsGuideOpen(true); return; }
         if (!name.trim() || !validAgentLocalPart(localPart) || availability !== 'available') return;
@@ -2264,7 +2268,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
         {dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}
         <p className="enroll-note">{dotsSelected ? "You'll need ChatGPT. Your Dot walks you through the Envoi plugin." : hostedGrok ? "You’ll need Grok Bot and access to Connect apps." : `You'll need ${label} running and an agent that can use a terminal on that computer.`}</p>
       </div>}
-      {step === 1 && (hostedGrok ? <GrokBotDetails address={reconnectAgent?.address} /> : <div className="enroll-step">
+      {step === 1 && <div className="enroll-step">
         {reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <>
           <Field label="Agent name" name="name" value={name} onChange={event => {
             setName(event.target.value);
@@ -2273,7 +2277,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
               if (suggestion !== localPart) setAddressCheck(null);
               setLocalPartInput(suggestion);
             }
-          }} placeholder="Milo" maxLength={dotsSelected ? 80 : undefined} required />
+          }} placeholder="Milo" maxLength={dotsSelected || hostedGrok ? 80 : undefined} required />
           <label className="field"><span>Agent email address</span><span className="enroll-address">
             <input name="localPart" value={localPartInput} onChange={event => {
               addressEdited.current = true;
@@ -2286,16 +2290,16 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
             {!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking…' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}
           </p>}
         </>}
-        {dotsSelected ?
+        {hostedGrok ? <p className="enroll-note">Confirm the agent address and review the permissions Grok Bot requests on Envoi’s approval page.</p> : dotsSelected ?
           <AgentPermissionPicker selected={reconnectAgent ? DEFAULT_AGENT_PERMISSIONS : selectedPermissions}
             onChange={reconnectAgent ? undefined : setSelectedPermissions} />
         : reconnectAgent && !reenroll ? <>
           <AgentPermissionPicker selected={reconnectAgent.permissions ?? []} />
           <p className="enroll-note">Reconnecting keeps this agent’s current permissions.</p>
         </> : <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />}
-      </div>)}
+      </div>}
       <FormError message={error} />
-      <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep(0)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !hostedGrok && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup' : step === 1 ? hostedGrok ? 'Show Grok Bot setup' : dotsSelected ? 'Show Dots setup' : 'Generate agent setup' : 'Continue'}</button></div>
+      <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep(0)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup' : step === 1 ? hostedGrok ? 'Show Grok Bot setup' : dotsSelected ? 'Show Dots setup' : 'Generate agent setup' : 'Continue'}</button></div>
     </form>}
   </Modal>;
 }
