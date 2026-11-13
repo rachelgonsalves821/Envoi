@@ -45,11 +45,11 @@ describe('Quick Connect handoff', () => {
     expect(skill).toContain('node envoi-connector.mjs setup --handoff envoi-setup.json --prepare-runtime');
   });
 
-  it('offers Dots on-demand setup without inventing a connector token or active address', () => {
+  it('offers native Dots setup without inventing a connector token or active address', () => {
     const prompt = dotsSetupPrompt('https://envoi.example', 'Milo', 'milo@agents.envoi.example');
     expect(prompt).toContain('https://envoi.example/mcp');
     expect(prompt).toContain('assigned only after approval');
-    expect(prompt).toContain('on-demand work');
+    expect(prompt).toContain('turn on one native MCP Events monitor in this same run');
     expect(prompt).not.toContain(handoff.enrollmentToken);
     expect(dotsSetupSkillFile('https://envoi.example', 'Milo', 'milo@agents.envoi.example')).toContain(prompt);
     expect(() => dotsSetupPrompt('javascript:alert(1)', 'Milo', 'milo@agents.envoi.example')).toThrow();

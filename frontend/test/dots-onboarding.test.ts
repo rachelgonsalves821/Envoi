@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { contractRegistry, loadContractFixture } from '../../integrations/contract-fixtures/setup';
-import { dotsSetupPrompt, dotsSetupSteps, dotsVerificationPrompt } from '../src/quick-connect';
+import { dotsSetupPrompt, dotsSetupSteps, dotsVerificationPrompt, envoiWorkRule } from '../src/quick-connect';
 import { ConnectPage } from '../src/onboarding/ConnectPage';
 import { DotsPermissionRecovery, DotsSetupGuide } from '../src/onboarding/DotsSetupGuide';
 import { connectionOffer } from '../src/onboarding/connect-state';
@@ -54,13 +54,33 @@ describe('Dots onboarding route and grant recovery', () => {
     expect(prompt).toContain('envoi_send_message');
     expect(prompt).toContain('native monitoring task');
     expect(prompt).toContain('canonical reply and settlement');
-    expect(prompt).toContain('restore the native source on the existing task in its current execution chat');
+    expect(prompt).toContain('Restore the native source on the existing task in its current execution chat');
     expect(prompt).toContain('On a new claim for the same work, generate fresh admission and completion keys');
     expect(prompt).toContain('Keep the identical reply payload and key across claims');
     expect(dotsSetupSteps(origin).join(' ')).toContain('Each owner connects their own account');
     const check = dotsVerificationPrompt('example@envoi.example');
     expect(check).toContain('example@envoi.example');
     expect(check).toContain('Do not claim work, send a message');
+  });
+
+  it.each(['routine', 'ask'] as const)('includes the selected rule and alert proof for saved and direct setup (%s)', mode => {
+    for (const saved of [false, true]) {
+      const prompt = dotsSetupPrompt(origin, 'Mark', 'mark@envoi.example', false, saved, mode);
+      expect(prompt).toContain(envoiWorkRule(mode));
+      expect(prompt).toContain('Say Ready only when backgroundReceiving.state is on and lastAlertAt is present and not null.');
+      expect(prompt).toContain('wait for the first alert run, then call envoi_agent_info once more');
+      expect(prompt).toContain('At the start of every monitoring run, call envoi_agent_info');
+      expect(prompt).toContain('endedReason: "credential_ended"');
+      expect(prompt).toContain('envoi_claim_work for the waiting work');
+      expect(prompt).toContain('Background receiving isn\'t available in this Dot yet, so Mark will only check Envoi when you ask.');
+      expect(prompt).toContain('/docs/fix/#background-receiving-unavailable');
+    }
+  });
+
+  it('keeps setup on demand when selected', () => {
+    const prompt = dotsSetupPrompt(origin, 'Mark', 'mark@envoi.example', true, false, 'on_demand');
+    expect(prompt).not.toContain('envoi.work_available');
+    expect(prompt.endsWith('Mark will only check Envoi when you ask. You can turn on background receiving any time.')).toBe(true);
   });
 
   it('does not offer OAuth permission recovery for frozen identities', () => {

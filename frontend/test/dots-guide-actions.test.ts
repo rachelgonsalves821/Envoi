@@ -43,7 +43,19 @@ it.each([
 it.each([false, true])('links troubleshooting to the guide (reconnect: %s)', reconnect => {
   const tree = elements(render(reconnect));
   expect(tree.find(item => item.type === 'a')?.props).toMatchObject({ href: '/docs/dots/', children: 'Stuck? Dots setup guide' });
-  expect(tree.filter(item => ['details', 'textarea', 'input'].includes(item.type as string))).toHaveLength(0);
+  expect(tree.filter(item => ['details', 'textarea'].includes(item.type as string))).toHaveLength(0);
+});
+
+it.each(['routine', 'ask', 'on_demand'] as const)('copies the selected receiving mode (%s)', async mode => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  const radios = elements(render()).filter(item => item.type === 'input');
+  expect(radios.map(item => [item.props.value, item.props.checked])).toEqual([['routine', true], ['ask', false], ['on_demand', false]]);
+  expect(elements(render(false, true)).filter(item => item.type === 'input')).toHaveLength(0);
+  radios.find(item => item.props.value === mode)!.props.onChange();
+  elements(render()).find(item => item.type === 'button')!.props.onClick();
+  await Promise.resolve();
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(dotsSetupPrompt(origin, name, address, false, false, mode));
 });
 
 it('makes the primary prompt selectable when clipboard permission fails', async () => {
