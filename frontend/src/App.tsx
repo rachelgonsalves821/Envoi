@@ -1399,9 +1399,15 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
   const ownHuman = Boolean(event.payload.senderHumanId && event.payload.senderHumanId === view.requester?.id);
   const ownerInstruction = String(event.payload.messageType || '').toLowerCase() === 'instruction' && Boolean(event.payload.senderHumanId || event.payload.senderType === 'human');
   const senderId = event.payload.senderAgentId || event.payload.senderHumanId || event.actor;
-  const mine = Boolean(localAgentId(workCase, view) && senderId === localAgentId(workCase, view)) || ownHuman;
+  const localId = localAgentId(workCase, view);
   const isGroup = workCase.caseMode === 'group';
-  const participant = isGroup ? groupParticipant(workCase, view, senderId) : resolveParticipant(workCase, senderId, view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const participant = isGroup ? groupParticipant(workCase, view, senderId) : resolveParticipant(workCase, senderId, view.agents, view.participantDirectory, localId);
+  const humanSender = Boolean(event.payload.senderHumanId) || ['human', 'externalHuman'].includes(event.payload.senderType) || participant.type === 'human';
+  const agentSender = !humanSender && event.payload.senderType !== 'system'
+    && (participant.type === 'internalAgent' || participant.type === 'externalAgent');
+  const ownAgent = agentSender && senderId === localId;
+  const mine = ownAgent || ownHuman;
+  const senderRole = humanSender ? 'Human' : ownAgent ? 'Your agent' : agentSender ? (isGroup ? 'Agent' : 'External agent') : null;
   const date = new Date(event.createdAt);
   const priorDate = previous ? new Date(previous.createdAt) : null;
   const showDay = !priorDate || date.toDateString() !== priorDate.toDateString();
@@ -1409,7 +1415,6 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
   const continued = Boolean(previous && priorDate && isExchangeEvent(previous) && isExchangeEvent(event) && priorSender === senderId && !showDay && Math.abs(date.getTime() - priorDate.getTime()) < 10 * 60 * 1000);
   const delivery = String(event.payload.deliveryState || 'unknown');
   const deliveryLabel = delivery === 'delivered' ? 'Delivered' : ['acknowledged', 'processed'].includes(delivery) ? 'Read' : ['queued', 'retrying', 'deadLettered'].includes(delivery) ? 'Not sent' : 'Unknown';
-  const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const assigneeIds: string[] = isGroup && Array.isArray(event.payload.assigneeAgentIds) ? event.payload.assigneeAgentIds : [];
   const replyAuthor = replyTarget ? groupParticipant(workCase, view, replyTarget.payload.senderAgentId || replyTarget.actor) : null;
   const decision = humanProposalDecision(event);
@@ -1417,10 +1422,16 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
   const attachments = Array.isArray(event.payload.attachments) ? event.payload.attachments as Asset[] : [];
   return <>
     {showDay && <div className="conversation-day"><span>{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</span></div>}
-    {isExchangeEvent(event) ? <div id={isGroup && typeof event.payload.messageId === 'string' ? `message-${event.payload.messageId}` : undefined} className={`conversation-message ${mine ? 'mine' : 'theirs'}${ownerInstruction ? ' owner-instruction' : ''}${continued ? ' continued' : ''}`}>
-      <span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{ownerInstruction ? <UserRound size={15} aria-hidden="true" /> : initials(participant.displayName)}</span>
+    {decision ? <div className="proposal-decision">
+      <span className="counterparty-avatar human-avatar" aria-hidden="true"><UserRound size={17} /></span>
+      <div className="proposal-decision-content">
+        <div className="message-meta"><strong>{decision.name}</strong><span className="meta-role">Human</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div>
+        <p>{decision.verb === 'approved' ? <Check size={15} aria-hidden="true" /> : <X size={15} aria-hidden="true" />}{humanize(decision.verb)} the agent proposal</p>
+      </div>
+    </div> : isExchangeEvent(event) ? <div id={isGroup && typeof event.payload.messageId === 'string' ? `message-${event.payload.messageId}` : undefined} className={`conversation-message ${mine ? 'mine' : 'theirs'}${continued ? ' continued' : ''}${ownAgent ? ' own-agent' : ''}${ownerInstruction ? ' owner-instruction' : ''}`}>
+      <span className={`counterparty-avatar${humanSender ? ' human-avatar' : ''}`} aria-hidden="true">{humanSender ? <UserRound size={17} /> : agentSender ? <Bot size={17} /> : initials(participant.displayName)}</span>
       <div className="message-content">
-        <div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong>{!ownerInstruction && !isGroup && <span className="meta-role">{mine ? 'Your agent' : participant.orgRef || 'External agent'}</span>}<span>{ownerInstruction ? 'Owner instruction' : exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div>
+        <div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong>{senderRole && <span className="meta-role">{senderRole}</span>}<span>{ownerInstruction ? 'Owner instruction' : exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div>
         {isGroup && typeof event.payload.inReplyTo === 'string' && <div className="group-reply">{replyAuthor ? <a href={`#message-${encodeURIComponent(event.payload.inReplyTo)}`}>Reply to {replyAuthor.displayName}</a> : 'Reply to an earlier message'}</div>}
         <div className="message-bubble">{ownerInstruction && event.payload.text ? String(event.payload.text) : <HighlightedText text={eventSummary(event)} />}</div>
         {attachments.length > 0 && <ul className="message-attachments" aria-label="Attachments">{attachments.map(asset =>
@@ -1437,9 +1448,9 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
         })}</ul>}
         {mine && !isGroup && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}
       </div>
-    </div> : <div className={`conversation-event${decision ? ' proposal-decision' : ''}`}>
-      {decision?.verb === 'approved' ? <Check size={13} aria-hidden="true" /> : decision ? <X size={13} aria-hidden="true" /> : approvalRequested ? <Hand size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
-      <span>{decision ? <><strong>{decision.name}</strong> {decision.verb} the agent proposal</> : approvalRequested ? 'Approval requested' : eventSummary(event)}</span>
+    </div> : <div className="conversation-event">
+      {approvalRequested ? <Hand size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
+      <span>{approvalRequested ? 'Approval requested' : eventSummary(event)}</span>
       <time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time>
     </div>}
   </>;
