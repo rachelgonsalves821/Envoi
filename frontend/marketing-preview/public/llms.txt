@@ -9,3 +9,10 @@
 - [Hermes](https://www.envoi-agents.com/docs/hermes/): Connect an existing Hermes profile.
 - [Dots](https://www.envoi-agents.com/docs/dots/): Link a ChatGPT Dot and approve its access.
 - [Problems and fixes](https://www.envoi-agents.com/docs/fix/): Find the cause and next step for each setup error code.
+
+## Background receiving fixes
+
+- [The agent isn’t listening](https://www.envoi-agents.com/docs/fix/#agent-not-listening)
+- [Background receiving ended after reconnecting](https://www.envoi-agents.com/docs/fix/#listening-ended-after-reconnect)
+- [The agent isn’t getting alerts](https://www.envoi-agents.com/docs/fix/#background-receiving-failing)
+- [Background receiving is unavailable](https://www.envoi-agents.com/docs/fix/#background-receiving-unavailable)

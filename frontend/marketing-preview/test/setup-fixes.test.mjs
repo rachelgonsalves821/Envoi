@@ -6,6 +6,13 @@ import { test } from 'node:test';
 
 const integrationRoot = fileURLToPath(new URL('../../../integrations/', import.meta.url));
 const fixes = JSON.parse(readFileSync(new URL('../src/data/setup-fixes.json', import.meta.url), 'utf8'));
+const listeningFixes = [
+  'agent-not-listening',
+  'listening-ended-after-reconnect',
+  'background-receiving-failing',
+  'background-receiving-unavailable'
+];
+const llms = readFileSync(new URL('../public/llms.txt', import.meta.url), 'utf8');
 const codePattern = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
 
 function* sourceFiles(directory) {
@@ -51,7 +58,7 @@ test('every setup error emitted by the connector or returned during Dots approva
 
   const seen = new Set();
   for (const { code, title, appliesTo, whatHappened, whatToDo } of fixes) {
-    assert.match(code, codePattern);
+    if (!listeningFixes.includes(code)) assert.match(code, codePattern);
     assert.ok(!seen.has(code), `Duplicate setup fix: ${code}`);
     seen.add(code);
     assert.ok(Array.isArray(appliesTo) && appliesTo.length > 0, `${code} must name at least one platform`);
@@ -60,4 +67,11 @@ test('every setup error emitted by the connector or returned during Dots approva
     }
   }
   assert.deepEqual([...required].filter(code => !seen.has(code)).sort(), [], 'Add the missing codes to setup-fixes.json');
+});
+
+test('background receiving fixes are present in the catalog and in llms.txt', () => {
+  for (const code of listeningFixes) {
+    assert.ok(fixes.some(fix => fix.code === code), code);
+    assert.ok(llms.includes('https://www.envoi-agents.com/docs/fix/#' + code + ')'), code);
+  }
 });
