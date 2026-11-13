@@ -32,11 +32,11 @@ describe('Dots onboarding route and grant recovery', () => {
     ]) { const value = structuredClone(body); mutate(value); expect(() => connectionOffer(value)).toThrow('unavailable'); }
   });
 
-  it('offers a selectable diagnostic endpoint inside closed help', () => {
+  it('links a Dots reconnect to the troubleshooting guide', () => {
     const html = renderToStaticMarkup(createElement(DotsSetupGuide, { origin, name: 'Example', address: 'example@envoi.example', reconnect: true }));
-    const help = html.match(/<details[^>]*>[\s\S]*?<\/details>/)?.[0];
-    expect(help).toMatch(/<input[^>]*readOnly=""[^>]*value="https:\/\/envoi\.example\/mcp"/i);
-    expect(help).not.toMatch(/<details[^>]* open/);
+    expect(html).toContain('href="/docs/dots/"');
+    expect(html).toContain('Stuck? Dots setup guide');
+    expect(html).not.toContain('<textarea');
     expect(html).not.toContain('href="https://envoi.example/mcp"');
     expect(html).not.toContain('href="https://chatgpt.com/plugins"');
   });
