@@ -13,6 +13,12 @@ test('the deployable beta source retains all seven owner-approved live Dots valu
   for(const [name,value]of Object.entries(approved))assert.equal(config.env.beta.vars[name],value,name);
   assert.doesNotThrow(()=>validateOnboardingDeploymentProfile(config));
 });
+// Staging tests the same ChatGPT Dots as beta: without MCP events, a Dot that negotiates the events protocol gets
+// "Unsupported MCP protocol version" on every tool call and never starts background receiving (2026-11-13).
+test('staging carries the same live Dots values as beta',()=>{
+  for(const [name,value]of Object.entries(approved))assert.equal(config.env.staging.vars[name],value,`staging ${name}`);
+  assert.deepEqual(readOnboardingFlags(config.env.staging.vars).mcpEvents,true);
+});
 test('deployment validation rejects each regression to the former disabled profile',()=>{
   for(const name of Object.keys(approved)){
     const candidate=structuredClone(config);
