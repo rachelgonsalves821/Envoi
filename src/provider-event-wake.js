@@ -120,6 +120,9 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
         const matching=(history.events||[]).filter(event=>event.type===params.name.replace(/^envoi\./,'wake.'));
         const catchUp=matching.length>1?[matching[0],matching.at(-1)]:matching;
         for(const event of catchUp)await httpWake.queueProfile(sub,event.type,event.reason,event.cursor);
+        // provider-event-wake-activation v1 §1: a new subscription (none, or ended) whose catch-up queued nothing is woken once,
+        // so the host proves a real wake (agent-listening-status lastAlertAt). A renewal of an active one queues nothing new.
+        if(params.name==='envoi.work_available'&&(!current||current.status==='ended')&&!catchUp.length)await httpWake.queueProfile(sub,'wake.work_available','subscription_activated',history.cursor||null);
         phase='commit';
         return {id,refreshBefore:sub.expiresAt,cursor:history.cursor||null,truncated:Boolean(history.truncated)};
       });}catch(error){

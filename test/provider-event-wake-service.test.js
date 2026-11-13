@@ -46,12 +46,17 @@ const verifyHmac=(request,key=secret,index=0)=>{
   assert.equal(request.headers['webhook-signature'].split(' ')[index],`v1,${expected}`);
 };
 
+// provider-event-wake-activation v1: a fresh subscribe queues one subscription_activated hint; deliver it so a test starts from an empty lane.
+const drainActivation=async h=>{assert.equal(await h.http.runOnce(),true);assert.deepEqual(JSON.parse(h.sent.at(-1).bodyText).data,{reason:'subscription_activated'});};
 parity('MCP events verify, renew deterministically, rotate secrets and reuse the durable wake queue',async(t,kind)=>{
   const h=await harness(t,kind);
   const first=await h.provider.subscribe(identity,parameters(),protocol);assert.match(first.id,/^evtsub_[0-9a-f]{20}$/);assert.equal(first.cursor,'00000000000000000012');
   verifyHmac(h.sent[0]);assert.equal(JSON.parse(h.sent[0].bodyText).type,'verification');
   const stored=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));assert.equal(JSON.stringify(stored).includes(secret),false);assert.ok(stored.secretEncrypted.ciphertext);
   h.advance(1000);const renewed=await h.provider.subscribe(identity,parameters(),protocol);assert.equal(renewed.id,first.id);assert.notEqual(renewed.refreshBefore,first.refreshBefore);assert.equal(h.sent.length,1);
+  // provider-event-wake-activation v1: the new subscription's one activation hint (the renewal added none), signed like any event; its 2xx records lastSuccessAt.
+  await h.http.runOnce();assert.equal(h.sent.length,2);verifyHmac(h.sent[1]);assert.deepEqual([JSON.parse(h.sent[1].bodyText).name,JSON.parse(h.sent[1].bodyText).data],['envoi.work_available',{reason:'subscription_activated'}]);assert.equal(await h.http.runOnce(),false);
+  assert.ok((await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id))).delivery.lastSuccessAt,'the acknowledged activation proves listening');
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));await h.http.runOnce();const event=h.sent.at(-1);verifyHmac(event);const body=JSON.parse(event.bodyText);assert.equal(body.name,'envoi.work_available');assert.equal(body.eventId,event.headers['webhook-id']);assert.deepEqual(body.data,{reason:'message_delivered'});assert.equal(body.cursor,first.cursor);assert.equal(Buffer.byteLength(event.bodyText)<1024,true);assert.equal('agentId' in body,false);
   const params=parameters({delivery:{...parameters().delivery,secret:secondSecret}});await h.provider.subscribe(identity,params,protocol);assert.equal(JSON.parse(h.sent.at(-1).bodyText).type,'verification');
   await h.tx(()=>h.http.trigger({...binding,reason:'work_due'}));await h.http.runOnce();verifyHmac(h.sent.at(-1),secondSecret);verifyHmac(h.sent.at(-1),secret,1);
@@ -158,7 +163,9 @@ parity('unsubscribe deletes secrets, invalidates verification and fences previou
   const {secret:_,...delivery}=parameters().delivery;const unsubscribe={name:parameters().name,arguments:{},delivery};assert.deepEqual(await h.tx(()=>h.provider.unsubscribe(identity,unsubscribe,protocol)),{});assert.deepEqual(await h.tx(()=>h.provider.unsubscribe(identity,unsubscribe,protocol)),{});
   const ended=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));assert.equal(ended.secretEncrypted,undefined);assert.equal(ended.status,'ended');const sent=h.sent.length;
   await h.http.queueProfile(stale,'wake.work_available','work_due');assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id))).status,'ended');
-  await h.provider.subscribe(identity,parameters(),protocol);assert.equal(h.sent.length,sent+1);assert.equal(await h.http.runOnce(),false);
+  await h.provider.subscribe(identity,parameters(),protocol);assert.equal(h.sent.length,sent+1);
+  // provider-event-wake-activation v1 row 1: the re-created subscription gets its own activation hint; the old generation's hints stay fenced.
+  assert.equal(await h.http.runOnce(),true);assert.deepEqual(JSON.parse(h.sent.at(-1).bodyText).data,{reason:'subscription_activated'});assert.equal(h.sent.length,sent+2);assert.equal(await h.http.runOnce(),false);
 });
 parity('Grok 202 is receipt only; 401 pauses and owner secret replacement resumes; sender defects do not retry',async(t,kind)=>{
   const h=await harness(t,kind);const put=()=>h.provider.putGrok(binding,{url:'https://triggers.envoi-provider.com/run',secret});const initial=await h.tx(put);assert.equal(initial.target.secretSet,true);assert.equal(JSON.stringify(initial).includes(secret),false);
@@ -229,7 +236,7 @@ test('MCP wake tool metadata/input schemas and events discovery/list match appro
   const list=await canonical('provider-event-wake','events-list.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.list(identity,{},protocol),list.response.body.result);
 });
 parity('live a4 cursors advance through coalescing, retries and reconnect without regressing to older replay',async(t,kind)=>{
-  const h=await harness(t,kind);const created=await h.provider.subscribe(identity,parameters(),protocol);
+  const h=await harness(t,kind);const created=await h.provider.subscribe(identity,parameters(),protocol);await drainActivation(h);
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered',cursor:'00000000000000000013'}));
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered',cursor:'00000000000000000014'}));
   await h.http.runOnce();assert.equal(JSON.parse(h.sent.at(-1).bodyText).cursor,'00000000000000000013');
@@ -301,7 +308,7 @@ parity('MCP create and activation recheck authority after asynchronous work and 
 });
 
 parity('canonical owner decisions wake extension hosts using an approved opaque reason',async(t,kind)=>{
-  const h=await harness(t,kind);await h.provider.subscribe(identity,parameters(),protocol);
+  const h=await harness(t,kind);await h.provider.subscribe(identity,parameters(),protocol);await drainActivation(h);
   await h.tx(()=>h.http.trigger({...binding,reason:'human_decision',cursor:'00000000000000000013'}));
   assert.equal(await h.http.runOnce(),true);
   const delivered=JSON.parse(h.sent.at(-1).bodyText);
@@ -419,4 +426,14 @@ parity('Grok Bot routine delivery retries and rotates the webhook key on the sam
   assert.equal(ended.state, 'ended');
   assert.equal(ended.secretSet, false);
   assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId, target.id))).secretEncrypted, undefined);
+});
+
+// provider-event-wake-activation v1 §1 rows 1-3: one activation hint only for a new subscription with an empty catch-up; never for envoi.control_changed.
+parity('a new subscription is woken once: by its catch-up hint, else by subscription_activated',async(t,kind)=>{
+  const withCatchUp=await harness(t,kind,{},{eventHistory:async()=>({cursor:'00000000000000000013',truncated:false,events:[{type:'wake.work_available',reason:'message_delivered',cursor:'00000000000000000013'}]})});
+  await withCatchUp.provider.subscribe(identity,parameters({cursor:'00000000000000000012'}),protocol);
+  assert.equal(await withCatchUp.http.runOnce(),true);assert.deepEqual(JSON.parse(withCatchUp.sent.at(-1).bodyText).data,{reason:'message_delivered'});assert.equal(await withCatchUp.http.runOnce(),false);
+  const control=await harness(t,kind);
+  await control.provider.subscribe(identity,parameters({name:'envoi.control_changed'}),protocol);
+  assert.equal(await control.http.runOnce(),false,'control_changed subscriptions get no activation hint');
 });
