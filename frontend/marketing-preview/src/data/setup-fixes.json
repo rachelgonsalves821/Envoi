@@ -282,6 +282,15 @@
     "whatToDo": "Enable the API Server for the selected profile, start or restart its Gateway, and retry setup."
   },
   {
+    "code": "GATEWAY_RESELECTION_REFUSED",
+    "title": "Hermes Gateway reselection stopped",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The connector could not confirm that the restarted Gateway matches the saved Hermes profile and workspace.",
+    "whatToDo": "Keep the existing connection files and turn journals. Check the selected Hermes profile, workspace, and running Gateway on its host before retrying reselection."
+  },
+  {
     "code": "GATEWAY_TEST_FAILED",
     "title": "The Gateway could not finish the test",
     "appliesTo": [
@@ -311,6 +320,15 @@
     ],
     "whatHappened": "The setup details were missing, malformed, expired, or stored in a file the connector could not use.",
     "whatToDo": "Check Manage agents to see whether setup already connected the agent. If it did not, copy a fresh setup prompt from Envoi. If you use terminal setup, use the private file downloaded from that screen."
+  },
+  {
+    "code": "HERMES_TURN_RECOVERY_REQUIRED",
+    "title": "A saved Hermes turn needs recovery",
+    "appliesTo": [
+      "Hermes"
+    ],
+    "whatHappened": "The connector could not verify that a saved turn belongs to the selected profile and has ended.",
+    "whatToDo": "Keep the existing connection and turn journals. Verify the original turn’s terminal receipt in its Hermes profile before retrying Gateway reselection."
   },
   {
     "code": "INSUFFICIENT_SCOPE",
