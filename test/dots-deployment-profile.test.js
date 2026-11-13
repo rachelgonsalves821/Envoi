@@ -19,6 +19,11 @@ test('staging carries the same live Dots values as beta',()=>{
   for(const [name,value]of Object.entries(approved))assert.equal(config.env.staging.vars[name],value,`staging ${name}`);
   assert.deepEqual(readOnboardingFlags(config.env.staging.vars).mcpEvents,true);
 });
+// A container starts near the request that wakes it. From Asia it can start in Hong Kong, where chatgpt.com is blocked,
+// so Envoi cannot fetch ChatGPT's client metadata and every ChatGPT Dot fails (staging, 2026-11-13: colo HKG, fetch_failed).
+test('the staging container is pinned to North American regions',()=>{
+  assert.deepEqual(config.env.staging.containers[0].constraints,{regions:['ENAM','WNAM']});
+});
 test('deployment validation rejects each regression to the former disabled profile',()=>{
   for(const name of Object.keys(approved)){
     const candidate=structuredClone(config);
