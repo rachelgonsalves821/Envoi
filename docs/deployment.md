@@ -103,6 +103,14 @@ The backend exposes `/health` for liveness and `/ready` for dependency readiness
 
 Run `npm run db:migrate` as a release job before switching traffic. The same checksum-verified runner also executes safely during application startup under a PostgreSQL advisory lock, so concurrent instances cannot race schema changes. Applied migrations are recorded in `sinaloa_schema_migrations`; changing an already-applied SQL file fails startup. The production image includes `db/`, runs as the unprivileged `node` user, installs from `package-lock.json`, and uses `/ready` for its container health check.
 
+### Container region
+
+Cloudflare starts a container near the request that wakes it, so a visit from Asia can start it in Hong Kong. OpenAI blocks chatgpt.com there, so Envoi cannot fetch ChatGPT's OAuth client metadata (`https://chatgpt.com/oauth/client.json`). Every ChatGPT sign-in and token refresh then fails with `invalid_client`. The container log shows `envoi.oauth_client_rejected` with `stage: fetch`, `reason: fetch_failed` and `colo: HKG` (staging, 2026-11-13).
+
+Staging pins its container with `"constraints": { "regions": ["ENAM", "WNAM"] }`. Cloudflare documents this for containers, but some Wrangler versions reject `constraints` for Durable Object-managed containers (cloudflare/workers-sdk#15995). Prove it with a staging deploy first. If Wrangler rejects it, nothing is deployed: remove the field and use the fallback below. Add the same constraint to beta only after staging shows a North American colo in its container logs.
+
+Fallback when the container lands outside a region ChatGPT serves: restart it from a US request, then check the container logs' `colo`.
+
 ## Hosted acceptance and later multi-instance gates
 
 The following are required before opening the service to untrusted external traffic:
