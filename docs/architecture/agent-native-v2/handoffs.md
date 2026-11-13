@@ -5595,7 +5595,7 @@ The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:
 
 **Contract:** `agent-listening-status`, version 1 (proactive agents plan: `docs/architecture/agent-native-v2/proactive-agents.md`, task A1). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
 
-**Fixtures:** [`test/contract-fixtures/agent-listening-status/`](../../../test/contract-fixtures/agent-listening-status/): `schemas.json` (definitions plus `x-limits`, `x-states` and `x-owner-banner`) and 12 cases. `test/contract-agent-listening-status.test.js` checks every case against the §3 derivation and the §5 banner table.
+**Fixtures:** [`test/contract-fixtures/agent-listening-status/`](../../../test/contract-fixtures/agent-listening-status/): `schemas.json` (definitions plus `x-limits`, `x-states` and `x-owner-banner`) and 15 cases. **Correction 2026-11-13, same version** (Lane B `MISMATCH`, board #34 comment 6843888657): §5 now defines the stuck-Starting banner and a fix action for every banner row, including connector agents. Three fixtures were added; the other 12 are unchanged except for the new `action` field in their banners. `test/contract-agent-listening-status.test.js` checks every case against the §3 derivation and the §5 banner table.
 
 **Owner:** Lane A. **Consumers:** Lane B: the owner agent list (badge and banner), the Dots setup prompt and the Dots setup skill (the host self-check).
 
@@ -5659,8 +5659,20 @@ Paused agents, revoked credentials and every error are unchanged: `/mcp` still a
 
 **Owner UI (Lane B).**
 - **Badge** per agent: On / Starting / Failing / Off / "On demand only" (`unavailable`). Show no badge for `connector`; a5-presence's label already covers those agents.
-- **Banner** only when `waiting.count > 0` and an `x-owner-banner` row matches (the test pins the rule). For `starting`, show it only after `x-limits.startingTooLongSeconds` (600). Each row gives the title, the body and the docs anchor. Show "50+" when `more` is true.
-- The banner has one action, **Copy fix instructions**. It copies the prompt that matches the row: the restore prompt after a reconnect, the monitoring prompt when it was never turned on.
+- **Banner** only when `waiting.count > 0` and an `x-owner-banner` row matches; the first matching row wins, and the test pins the rule. Each row gives the title, the body, the docs anchor and one `action`. Show "50+" when `more` is true.
+- **Stuck Starting.** The `starting` row has `minStateSeconds: 600`. It matches only when the time since `since` is **more than** 600 seconds (`owner-dots-starting-stuck`, 10:01). At 600 seconds or less there is no banner (`owner-dots-starting`).
+- **Connector agents.** Two rows apply, chosen by a5-presence's `connection.state`. `needs_reconnect` gets `reconnect`. `never_seen` and `not_seen_recently` get `restart_connector`. `seen_recently` gets no banner.
+- **Actions** (`x-owner-banner.actions`):
+
+  | `action` | Used by | What the button does |
+  | --- | --- | --- |
+  | `restore_prompt` | `off` + `credential_ended`, `failing` | **Copy fix instructions**: the restore prompt (restore the native event source on the existing task, then claim waiting work) |
+  | `monitoring_prompt` | `off` (never on, or another reason), stuck `starting` | **Copy fix instructions**: the monitoring prompt with the rule text |
+  | `reconnect` | connector + `needs_reconnect` | **Reconnect**: opens the existing Connect wizard reconnect path for this agent and runtime (`reconnect=true`); nothing is copied from the banner |
+  | `restart_connector` | connector + `never_seen` / `not_seen_recently` | **Copy fix instructions**: `x-owner-banner.restartConnector` with `{name}`, `{address}`, `{platform}` and `{docs}` filled in (fixture `copyText`) |
+  | `none` | `unavailable` | no button; the docs link is the only action |
+
+  The Dots prompts are never offered for connector agents.
 
 **Host (Dots prompt and skill).**
 - Setup may say **Ready** with background receiving only when `state` is `on` and `lastAlertAt` is not `null` (`agent-info-listening`). With `on` and `lastAlertAt: null` (`agent-info-not-proven`), wait for the first alert run and check again.
@@ -5674,10 +5686,13 @@ Paused agents, revoked credentials and every error are unchanged: `/mcp` still a
 | `owner-dots-ended-after-reconnect.json` | The 2026-11-12 case: off, `credential_ended`, 1 waiting, reconnect banner |
 | `owner-dots-never-set-up.json` | Off, never subscribed, 1 waiting |
 | `owner-dots-starting.json` | Pending subscription, no banner |
+| `owner-dots-starting-stuck.json` | Pending for 10:01 with 1 waiting: still-setting-up banner, `monitoring_prompt` |
 | `owner-dots-failing.json` | Active but failing, 2 waiting |
 | `owner-dots-waiting-capped.json` | 73 claimable: `count` 50, `more` true |
 | `owner-wake-unavailable.json` | Wake off on this deployment |
-| `owner-connector-agent.json` | OpenClaw (`envoi_link`): `connector` |
+| `owner-connector-agent.json` | OpenClaw (`envoi_link`): `connector`, running, no banner |
+| `owner-connector-needs-reconnect.json` | OpenClaw `needs_reconnect`, 1 waiting: `reconnect` |
+| `owner-connector-not-running.json` | OpenClaw `not_seen_recently`, 1 waiting: `restart_connector` with `copyText` |
 | `agent-info-listening.json` | Host self-check: proven, may say Ready |
 | `agent-info-not-proven.json` | Activated, first alert not delivered yet |
 | `agent-info-ended-after-reconnect.json` | Host must restore, then claim |

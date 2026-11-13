@@ -1037,10 +1037,13 @@
         "agent-info-listening.json",
         "agent-info-not-proven.json",
         "owner-connector-agent.json",
+        "owner-connector-needs-reconnect.json",
+        "owner-connector-not-running.json",
         "owner-dots-ended-after-reconnect.json",
         "owner-dots-failing.json",
         "owner-dots-listening.json",
         "owner-dots-never-set-up.json",
+        "owner-dots-starting-stuck.json",
         "owner-dots-starting.json",
         "owner-dots-waiting-capped.json",
         "owner-wake-unavailable.json"

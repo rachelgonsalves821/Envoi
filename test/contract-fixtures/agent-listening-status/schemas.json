@@ -14,54 +14,87 @@
     "connector": "The agent's reported installation is not on demand. Its own connector receives work; a5-presence's connection.state reports whether it is running."
   },
   "x-owner-banner": {
-    "rule": "Show the banner only when waiting.count > 0 and one row below matches. Never for on or starting (unless starting for longer than x-limits.startingTooLongSeconds).",
+    "rule": "Show the banner only when waiting.count > 0 and the first matching row below matches. A row with minStateSeconds matches only when context now minus backgroundReceiving.since is greater than that many seconds. A row with connectionStates matches only when the agent's a5-presence connection.state is one of them. on never shows a banner.",
+    "actions": {
+      "restore_prompt": "Copy fix instructions: the restore prompt (restore the native event source on the existing task, then claim waiting work). Includes the agent address and the rule text.",
+      "monitoring_prompt": "Copy fix instructions: the monitoring prompt (turn on background receiving with the rule text). Includes the agent address.",
+      "reconnect": "Reconnect: open the existing Connect wizard reconnect path for this agent and runtime (quick-connect reconnect=true). No prompt is copied from the banner.",
+      "restart_connector": "Copy fix instructions: the restartConnector text in x-owner-banner, with {name}, {address} and {platform} filled in.",
+      "none": "No action button; the docs link is the only action."
+    },
+    "restartConnector": "Restart the Envoi connector for {name} ({address}) on the computer where {platform} runs, then check that it connects. If it still does not connect, follow {docs}.",
     "rows": [
       {
         "state": "off",
         "endedReason": "credential_ended",
         "title": "{name} isn't listening",
         "body": "Background receiving ended when this agent reconnected. {count} waiting.",
-        "docs": "/docs/fix/#listening-ended-after-reconnect"
+        "docs": "/docs/fix/#listening-ended-after-reconnect",
+        "action": "restore_prompt"
       },
       {
         "state": "off",
         "endedReason": null,
         "title": "{name} isn't listening",
         "body": "Background receiving was never turned on for this agent. {count} waiting.",
-        "docs": "/docs/fix/#agent-not-listening"
+        "docs": "/docs/fix/#agent-not-listening",
+        "action": "monitoring_prompt"
       },
       {
         "state": "off",
         "endedReason": "*",
         "title": "{name} isn't listening",
         "body": "Background receiving stopped. {count} waiting.",
-        "docs": "/docs/fix/#agent-not-listening"
+        "docs": "/docs/fix/#agent-not-listening",
+        "action": "monitoring_prompt"
+      },
+      {
+        "state": "starting",
+        "endedReason": null,
+        "minStateSeconds": 600,
+        "title": "{name} is still setting up",
+        "body": "Background receiving hasn't finished starting. {count} waiting.",
+        "docs": "/docs/fix/#agent-not-listening",
+        "action": "monitoring_prompt"
       },
       {
         "state": "failing",
         "endedReason": null,
         "title": "{name} isn't getting alerts",
         "body": "Envoi can't reach this agent's host. {count} waiting.",
-        "docs": "/docs/fix/#background-receiving-failing"
+        "docs": "/docs/fix/#background-receiving-failing",
+        "action": "restore_prompt"
       },
       {
         "state": "unavailable",
         "endedReason": null,
         "title": "{name} only works when you ask",
         "body": "Background receiving isn't available on this Envoi deployment. {count} waiting.",
-        "docs": "/docs/fix/#background-receiving-unavailable"
+        "docs": "/docs/fix/#background-receiving-unavailable",
+        "action": "none"
+      },
+      {
+        "state": "connector",
+        "endedReason": null,
+        "connectionStates": [
+          "needs_reconnect"
+        ],
+        "title": "{name} needs to reconnect",
+        "body": "Its connection to Envoi ended, so messages wait. {count} waiting.",
+        "docs": "/docs/fix/#agent-not-listening",
+        "action": "reconnect"
       },
       {
         "state": "connector",
         "endedReason": null,
         "connectionStates": [
           "never_seen",
-          "not_seen_recently",
-          "needs_reconnect"
+          "not_seen_recently"
         ],
         "title": "{name} isn't running",
         "body": "Its connector is not running, so messages wait. {count} waiting.",
-        "docs": "/docs/fix/#agent-not-listening"
+        "docs": "/docs/fix/#agent-not-listening",
+        "action": "restart_connector"
       }
     ]
   },
@@ -502,6 +535,9 @@
             "owner-dots-waiting-capped",
             "owner-wake-unavailable",
             "owner-connector-agent",
+            "owner-dots-starting-stuck",
+            "owner-connector-needs-reconnect",
+            "owner-connector-not-running",
             "agent-info-listening",
             "agent-info-not-proven",
             "agent-info-ended-after-reconnect",
@@ -781,7 +817,8 @@
                   "required": [
                     "title",
                     "body",
-                    "docs"
+                    "docs",
+                    "action"
                   ],
                   "properties": {
                     "title": {
@@ -791,6 +828,18 @@
                       "type": "string"
                     },
                     "docs": {
+                      "type": "string"
+                    },
+                    "action": {
+                      "enum": [
+                        "restore_prompt",
+                        "monitoring_prompt",
+                        "reconnect",
+                        "restart_connector",
+                        "none"
+                      ]
+                    },
+                    "copyText": {
                       "type": "string"
                     }
                   }

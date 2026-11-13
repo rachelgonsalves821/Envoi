@@ -90,7 +90,8 @@
     "banner": {
       "title": "Mark isn't listening",
       "body": "Background receiving ended when this agent reconnected. 1 message is waiting.",
-      "docs": "/docs/fix/#listening-ended-after-reconnect"
+      "docs": "/docs/fix/#listening-ended-after-reconnect",
+      "action": "restore_prompt"
     },
     "next": "Show the reconnect banner with Copy fix instructions (the restore prompt) and the docs link."
   }

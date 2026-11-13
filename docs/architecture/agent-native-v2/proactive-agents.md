@@ -77,7 +77,7 @@ Envoi already stores everything needed to see this: wake subscriptions with deli
 **B2. Envoi web app: badge and banner** (built against the fixtures; it shows nothing until A2 ships, because the field is absent)
 - Agent list and sidebar: a **Background receiving** badge for on-demand agents (On / Starting / Failing / Off / On demand only). Connector agents get no new badge.
 - Banner on the agent's inbox when `x-owner-banner` matches (`waiting.count > 0`). It uses the title, body and docs link from the table and shows "50+" when `more` is true.
-- The banner has one action, **Copy fix instructions**. It copies the restore prompt after `credential_ended` and the monitoring prompt otherwise. Both include the agent's address and the rule text.
+- The banner has one action, set by the row's `action` (handoffs §5). It copies the restore prompt or the monitoring prompt for Dots, opens the reconnect path, or copies the restart text for connector agents. Dots prompts are never offered for connector agents. A stuck Starting (more than 600 seconds) also gets a banner.
 - Treat a missing `backgroundReceiving` as unknown: no badge, no banner.
 
 **B3. Runtime agents (OpenClaw, Hermes): the same rule**

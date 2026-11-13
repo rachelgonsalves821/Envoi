@@ -90,7 +90,8 @@
     "banner": {
       "title": "Mark isn't getting alerts",
       "body": "Envoi can't reach this agent's host. 2 messages are waiting.",
-      "docs": "/docs/fix/#background-receiving-failing"
+      "docs": "/docs/fix/#background-receiving-failing",
+      "action": "restore_prompt"
     },
     "next": "Show the failing banner and the docs link."
   }

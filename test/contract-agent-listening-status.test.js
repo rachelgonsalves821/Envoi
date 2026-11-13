@@ -56,14 +56,27 @@ test('agent-listening-status: every fixture follows the §3 derivation', () => {
 test('agent-listening-status: owner banners follow x-owner-banner', () => {
   const rows = schemas['x-owner-banner'].rows;
   for (const fixture of fixtures.filter((entry) => entry.client.surface === 'owner_ui')) {
-    const { state, endedReason, waiting } = observed(fixture);
+    const { state, endedReason, waiting, since } = observed(fixture);
     const connectionState = fixture.response.body[0].connection.state;
+    const age = since ? (Date.parse(fixture.context.now) - Date.parse(since)) / 1000 : 0;
     const row = waiting.count === 0 ? null : rows.find((entry) => entry.state === state
       && (entry.endedReason === '*' ? endedReason !== null : entry.endedReason === endedReason)
-      && (!entry.connectionStates || entry.connectionStates.includes(connectionState)));
+      && (!entry.connectionStates || entry.connectionStates.includes(connectionState))
+      && (entry.minStateSeconds === undefined || age > entry.minStateSeconds));
     assert.equal(Boolean(fixture.client.banner), Boolean(row), `${fixture.id}: banner shown exactly when a row matches`);
-    if (row) assert.equal(fixture.client.banner.docs, row.docs, `${fixture.id}: docs link`);
+    if (!row) continue;
+    assert.equal(fixture.client.banner.docs, row.docs, `${fixture.id}: docs link`);
+    assert.equal(fixture.client.banner.action, row.action, `${fixture.id}: action`);
+    assert.ok(schemas['x-owner-banner'].actions[row.action], `${fixture.id}: ${row.action} is defined`);
+    assert.equal('copyText' in fixture.client.banner, row.action === 'restart_connector', `${fixture.id}: copyText exactly for restart_connector`);
   }
+});
+
+test('agent-listening-status: every banner row and action is exercised by a fixture', () => {
+  const { rows, actions } = schemas['x-owner-banner'];
+  const used = fixtures.map((fixture) => fixture.client.banner).filter(Boolean);
+  for (const row of rows.filter((entry) => entry.endedReason !== '*')) assert.ok(used.some((banner) => banner.docs === row.docs && banner.action === row.action && banner.title === row.title.replace('{name}', 'Mark')), `a fixture shows the ${row.state}/${row.connectionStates || row.endedReason} row`);
+  for (const action of Object.keys(actions).filter((name) => rows.some((row) => row.action === name))) assert.ok(used.some((banner) => banner.action === action), `a fixture uses ${action}`);
 });
 
 test('agent-listening-status: the handoff lists exactly the registered fixtures', async () => {

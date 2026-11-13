@@ -74,7 +74,8 @@
     "banner": {
       "title": "Mark only works when you ask",
       "body": "Background receiving isn't available on this Envoi deployment. 1 message is waiting.",
-      "docs": "/docs/fix/#background-receiving-unavailable"
+      "docs": "/docs/fix/#background-receiving-unavailable",
+      "action": "none"
     },
     "next": "Explain the agent works only when asked here."
   }

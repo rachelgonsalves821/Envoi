@@ -74,7 +74,8 @@
     "banner": {
       "title": "Mark isn't listening",
       "body": "Background receiving was never turned on for this agent. 1 message is waiting.",
-      "docs": "/docs/fix/#agent-not-listening"
+      "docs": "/docs/fix/#agent-not-listening",
+      "action": "monitoring_prompt"
     },
     "next": "Show the never-turned-on banner with Copy fix instructions (the monitoring prompt)."
   }
