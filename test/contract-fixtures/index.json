@@ -1023,6 +1023,28 @@
         "setup-status-replaced.json",
         "setup-status-waiting.json"
       ]
+    },
+    {
+      "id": "agent-listening-status",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-listening-status-v1",
+      "dir": "agent-listening-status",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "agent-info-case-scoped.json",
+        "agent-info-ended-after-reconnect.json",
+        "agent-info-listening.json",
+        "agent-info-not-proven.json",
+        "owner-connector-agent.json",
+        "owner-dots-ended-after-reconnect.json",
+        "owner-dots-failing.json",
+        "owner-dots-listening.json",
+        "owner-dots-never-set-up.json",
+        "owner-dots-starting.json",
+        "owner-dots-waiting-capped.json",
+        "owner-wake-unavailable.json"
+      ]
     }
   ]
 }

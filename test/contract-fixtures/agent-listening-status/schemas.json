@@ -1,0 +1,809 @@
+{
+  "$id": "agent-listening-status/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "x-limits": {
+    "waitingCountCap": 50,
+    "startingTooLongSeconds": 600
+  },
+  "x-states": {
+    "on": "An on-demand agent has an active wake subscription whose delivery is not failing. lastAlertAt is null until the first alert reaches the host.",
+    "starting": "No active subscription; at least one is pending activation.",
+    "failing": "Every active subscription has delivery.state failing.",
+    "off": "No active or pending subscription. endedReason and since describe the most recently ended one; both are null when the agent never had one.",
+    "unavailable": "Wake subscriptions are disabled on this deployment (ENVOI_HTTP_WAKE_V1 off), so background receiving cannot be on.",
+    "connector": "The agent's reported installation is not on demand. Its own connector receives work; a5-presence's connection.state reports whether it is running."
+  },
+  "x-owner-banner": {
+    "rule": "Show the banner only when waiting.count > 0 and one row below matches. Never for on or starting (unless starting for longer than x-limits.startingTooLongSeconds).",
+    "rows": [
+      {
+        "state": "off",
+        "endedReason": "credential_ended",
+        "title": "{name} isn't listening",
+        "body": "Background receiving ended when this agent reconnected. {count} waiting.",
+        "docs": "/docs/fix/#listening-ended-after-reconnect"
+      },
+      {
+        "state": "off",
+        "endedReason": null,
+        "title": "{name} isn't listening",
+        "body": "Background receiving was never turned on for this agent. {count} waiting.",
+        "docs": "/docs/fix/#agent-not-listening"
+      },
+      {
+        "state": "off",
+        "endedReason": "*",
+        "title": "{name} isn't listening",
+        "body": "Background receiving stopped. {count} waiting.",
+        "docs": "/docs/fix/#agent-not-listening"
+      },
+      {
+        "state": "failing",
+        "endedReason": null,
+        "title": "{name} isn't getting alerts",
+        "body": "Envoi can't reach this agent's host. {count} waiting.",
+        "docs": "/docs/fix/#background-receiving-failing"
+      },
+      {
+        "state": "unavailable",
+        "endedReason": null,
+        "title": "{name} only works when you ask",
+        "body": "Background receiving isn't available on this Envoi deployment. {count} waiting.",
+        "docs": "/docs/fix/#background-receiving-unavailable"
+      },
+      {
+        "state": "connector",
+        "endedReason": null,
+        "connectionStates": [
+          "never_seen",
+          "not_seen_recently",
+          "needs_reconnect"
+        ],
+        "title": "{name} isn't running",
+        "body": "Its connector is not running, so messages wait. {count} waiting.",
+        "docs": "/docs/fix/#agent-not-listening"
+      }
+    ]
+  },
+  "definitions": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "nullableTimestamp": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "endedReason": {
+      "enum": [
+        "credential_ended",
+        "replaced",
+        "superseded",
+        "receiver_gone",
+        "delivery_failed",
+        "ended_by_host",
+        "revoked_by_owner"
+      ]
+    },
+    "waiting": {
+      "description": "Producer shape (closed). Peer work claimable now, as envoi_claim_work would offer it; owner-held work and human instructions are not counted.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "more",
+        "oldestAt"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "more": {
+          "type": "boolean"
+        },
+        "oldestAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "count": {
+                "const": 0
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "oldestAt": {
+                "type": "null"
+              },
+              "more": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "oldestAt": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "more": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "count": {
+                "const": 50
+              }
+            }
+          }
+        }
+      ]
+    },
+    "backgroundReceiving": {
+      "description": "Producer shape (closed). Consumers must accept unknown state values and treat them like an absent field.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "since",
+        "lastAlertAt",
+        "endedReason",
+        "waiting"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "on",
+            "starting",
+            "failing",
+            "off",
+            "unavailable",
+            "connector"
+          ]
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastAlertAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "endedReason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/endedReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "waiting": {
+          "$ref": "#/definitions/waiting"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "on",
+                  "starting",
+                  "failing",
+                  "unavailable",
+                  "connector"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "endedReason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "starting",
+                  "unavailable",
+                  "connector"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lastAlertAt": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "unavailable",
+                  "connector"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "since": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ownerAgentWithListening": {
+      "description": "a5-presence (plus a5-presence-on-demand) ownerAgent, unchanged, with backgroundReceiving added.",
+      "type": "object",
+      "required": [
+        "id",
+        "address",
+        "status",
+        "connection",
+        "backgroundReceiving"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "connection": {
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "type": "string"
+            }
+          }
+        },
+        "backgroundReceiving": {
+          "$ref": "#/definitions/backgroundReceiving"
+        }
+      }
+    },
+    "ownerAgentListWithListening": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/ownerAgentWithListening"
+      }
+    },
+    "mcpToolsCall": {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "method": {
+          "const": "tools/call"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "arguments"
+          ],
+          "properties": {
+            "name": {
+              "const": "envoi_agent_info"
+            },
+            "arguments": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        }
+      }
+    },
+    "mcpAgentInfoResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "content",
+            "isError"
+          ],
+          "properties": {
+            "isError": {
+              "const": false
+            },
+            "content": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "text"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "description": "The JSON text of envoi_agent_info. Existing fields unchanged; backgroundReceiving is added for full (not case-scoped) credentials.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentId",
+        "inboxId",
+        "address",
+        "permissions"
+      ],
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "inboxId": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "caseId": {
+          "type": "string"
+        },
+        "backgroundReceiving": {
+          "$ref": "#/definitions/backgroundReceiving"
+        }
+      },
+      "if": {
+        "required": [
+          "caseId"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "backgroundReceiving"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "backgroundReceiving"
+        ]
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "context",
+        "request",
+        "response",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "agent-listening-status"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "enum": [
+            "owner-dots-listening",
+            "owner-dots-ended-after-reconnect",
+            "owner-dots-never-set-up",
+            "owner-dots-starting",
+            "owner-dots-failing",
+            "owner-dots-waiting-capped",
+            "owner-wake-unavailable",
+            "owner-connector-agent",
+            "agent-info-listening",
+            "agent-info-not-proven",
+            "agent-info-ended-after-reconnect",
+            "agent-info-case-scoped"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "http"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "now",
+            "deliveryMode",
+            "wakeAvailable",
+            "subscriptions",
+            "claimable"
+          ],
+          "properties": {
+            "now": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            "deliveryMode": {
+              "type": "string"
+            },
+            "wakeAvailable": {
+              "type": "boolean"
+            },
+            "connectionState": {
+              "type": "string"
+            },
+            "scopedCaseId": {
+              "type": "string"
+            },
+            "subscriptions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "installationId",
+                  "profile",
+                  "status",
+                  "createdAt",
+                  "activatedAt",
+                  "endedAt",
+                  "endedReason",
+                  "delivery"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "installationId": {
+                    "type": "string"
+                  },
+                  "profile": {
+                    "enum": [
+                      "mcp_events",
+                      "grok_trigger",
+                      "grok_bot",
+                      null
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "pending",
+                      "active",
+                      "ended"
+                    ]
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                  },
+                  "activatedAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "endedAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "endedReason": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "credential_ended",
+                          "replaced",
+                          "superseded",
+                          "receiver_gone",
+                          "delivery_failed",
+                          "ended_by_host",
+                          "revoked_by_owner"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "delivery": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "state",
+                          "lastSuccessAt",
+                          "consecutiveFailures"
+                        ],
+                        "properties": {
+                          "state": {
+                            "enum": [
+                              "unverified",
+                              "healthy",
+                              "failing"
+                            ]
+                          },
+                          "lastSuccessAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "consecutiveFailures": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "claimable": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "count",
+                "oldestAt"
+              ],
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "oldestAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "path",
+            "auth"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "auth": {
+              "enum": [
+                "human_session",
+                "bearer"
+              ]
+            },
+            "headers": {
+              "type": "object"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "body": {
+              "type": "object"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "schema",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "const": 200
+            },
+            "schema": {
+              "type": "string"
+            },
+            "toolResult": {
+              "const": "agentInfo"
+            },
+            "headers": {
+              "type": "object"
+            },
+            "body": {}
+          }
+        },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "surface",
+            "next"
+          ],
+          "properties": {
+            "surface": {
+              "enum": [
+                "owner_ui",
+                "host"
+              ]
+            },
+            "badge": {
+              "type": "string"
+            },
+            "banner": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "title",
+                    "body",
+                    "docs"
+                  ],
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "docs": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

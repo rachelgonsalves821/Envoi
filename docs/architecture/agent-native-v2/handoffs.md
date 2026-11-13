@@ -5590,3 +5590,102 @@ The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:
   - flag off.
 - Lane B: consuming tests for the wizard and approval page.
 - Hosted: owner-run evidence with a real Dot, separate from local and CI results.
+
+## agent-listening-status v1
+
+**Contract:** `agent-listening-status`, version 1 (proactive agents plan: `docs/architecture/agent-native-v2/proactive-agents.md`, task A1). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+
+**Fixtures:** [`test/contract-fixtures/agent-listening-status/`](../../../test/contract-fixtures/agent-listening-status/): `schemas.json` (definitions plus `x-limits`, `x-states` and `x-owner-banner`) and 12 cases. `test/contract-agent-listening-status.test.js` checks every case against the §3 derivation and the §5 banner table.
+
+**Owner:** Lane A. **Consumers:** Lane B: the owner agent list (badge and banner), the Dots setup prompt and the Dots setup skill (the host self-check).
+
+**Why.** On 2026-11-12 an owner reconnected a Dot through ChatGPT settings. That ended the old installation's MCP Events subscription (`credential_ended`), and the new installation never subscribed. A peer message then sat unclaimed and nobody was told. Envoi already stores everything needed to see this. This contract exposes it in two places: the owner can see it, and the agent can check itself.
+
+**Not in v1:**
+- Any write. Nothing here creates, restores or ends a subscription. Restoring stays a host action (MCP Events `events/subscribe`, or the `envoi_wake_*` tools).
+- A new flag, route, error code or stored field.
+- Notifications to the owner outside the web app.
+
+### 1. Rules that hold throughout
+
+- **Read-only and additive.** Two existing responses gain one field each (§4). Nothing else in them changes.
+- **No flag.** The field is present on every deployment that runs this version. A consumer that gets a response without it (an older server) treats the state as unknown: no badge, no banner, and no "Ready" claim based on it.
+- **Producer shapes are closed.** Consumers must accept unknown `state` values and treat them like an absent field.
+- **Agent-wide.** The derivation uses all of the agent's wake subscriptions in its inbox: every installation and every profile (`mcp_events`, `grok_trigger`, `grok_bot` and plain http-wake). Ended ones are the most recent that http-wake keeps (it lists at most 5). Reconnecting replaces the agent's installation, so at most one installation is live.
+
+### 2. `backgroundReceiving`
+
+`{ state, since, lastAlertAt, endedReason, waiting }` (`backgroundReceiving` in `schemas.json`).
+
+| Field | Meaning |
+| --- | --- |
+| `state` | One of `on`, `starting`, `failing`, `off`, `unavailable`, `connector` (§3). |
+| `since` | When the current state's subscription was activated (`on`, `failing`), created (`starting`) or ended (`off`). `null` when there is none. |
+| `lastAlertAt` | That subscription's `delivery.lastSuccessAt`: when an alert last reached the host. `null` until the first alert succeeds. |
+| `endedReason` | For `off` only: the most recently ended subscription's `endedReason` (http-wake's values). `null` when the agent never had one. |
+| `waiting` | §3.1. |
+
+### 3. Derivation
+
+The first matching row wins. `x-states` holds the same table.
+
+| # | Condition | `state` | `since` / `lastAlertAt` / `endedReason` |
+| --- | --- | --- | --- |
+| 1 | The agent's reported installation (a5-presence v1 §4.2) is not `deliveryMode: "on_demand"` | `connector` | all `null`. a5-presence's `connection.state` says whether the connector runs. |
+| 2 | Wake subscriptions are off on this deployment (`ENVOI_HTTP_WAKE_V1` off) | `unavailable` | all `null` |
+| 3 | At least one `active` subscription whose `delivery.state` is not `failing` (`healthy` or `unverified`) | `on` | the most recently activated such subscription: `activatedAt` / `delivery.lastSuccessAt` / `null` |
+| 4 | At least one `active` subscription, and all of them are failing | `failing` | the most recently activated one, as in row 3 |
+| 5 | At least one `pending` subscription | `starting` | newest `createdAt` / `null` / `null` |
+| 6 | Otherwise | `off` | the most recently ended subscription: `endedAt` / `delivery.lastSuccessAt` / `endedReason`; all `null` when there is none |
+
+#### 3.1 `waiting`
+
+`{ count, more, oldestAt }`: peer work for this agent that `envoi_claim_work` would offer now, using the same test as the work-due scan. A message counts when its status is `delivered` or `acknowledged`, it is canonical work, and its claim is missing, retryable and due, or its lease has expired. Work held for the owner and human instructions are not counted.
+
+- `count` is exact up to `x-limits.waitingCountCap` (50). `more: true` means more than 50.
+- `oldestAt` is the oldest counted message's `createdAt`, or `null` when `count` is 0.
+- The server may stop scanning once it has found 51.
+
+### 4. Where it appears
+
+| Response | Change |
+| --- | --- |
+| Owner agent list, `GET /api/inboxes/{inboxId}/agents` (a5-presence v1 `ownerAgent`) | Each agent gains `backgroundReceiving`. `connection` and every other field are unchanged. |
+| `envoi_agent_info` over `/mcp` | The result text gains `backgroundReceiving` for full agent credentials. A case-scoped read credential (`mcp_read`, with `caseId`) gets today's result unchanged, without it. |
+
+Paused agents, revoked credentials and every error are unchanged: `/mcp` still answers `409 AGENT_PAUSED` before any tool runs.
+
+### 5. How consumers use it
+
+**Owner UI (Lane B).**
+- **Badge** per agent: On / Starting / Failing / Off / "On demand only" (`unavailable`). Show no badge for `connector`; a5-presence's label already covers those agents.
+- **Banner** only when `waiting.count > 0` and an `x-owner-banner` row matches (the test pins the rule). For `starting`, show it only after `x-limits.startingTooLongSeconds` (600). Each row gives the title, the body and the docs anchor. Show "50+" when `more` is true.
+- The banner has one action, **Copy fix instructions**. It copies the prompt that matches the row: the restore prompt after a reconnect, the monitoring prompt when it was never turned on.
+
+**Host (Dots prompt and skill).**
+- Setup may say **Ready** with background receiving only when `state` is `on` and `lastAlertAt` is not `null` (`agent-info-listening`). With `on` and `lastAlertAt: null` (`agent-info-not-proven`), wait for the first alert run and check again.
+- At the start of every run, call `envoi_agent_info`. When `state` is `off` with `endedReason: "credential_ended"`, restore the native event source on the existing task, then claim the waiting work. If restoring fails, tell the owner the exact public result and link `/docs/fix/#listening-ended-after-reconnect` (`agent-info-ended-after-reconnect`).
+
+### 6. Cases
+
+| Fixture | What it shows |
+| --- | --- |
+| `owner-dots-listening.json` | On, alert delivered, no banner |
+| `owner-dots-ended-after-reconnect.json` | The 2026-11-12 case: off, `credential_ended`, 1 waiting, reconnect banner |
+| `owner-dots-never-set-up.json` | Off, never subscribed, 1 waiting |
+| `owner-dots-starting.json` | Pending subscription, no banner |
+| `owner-dots-failing.json` | Active but failing, 2 waiting |
+| `owner-dots-waiting-capped.json` | 73 claimable: `count` 50, `more` true |
+| `owner-wake-unavailable.json` | Wake off on this deployment |
+| `owner-connector-agent.json` | OpenClaw (`envoi_link`): `connector` |
+| `agent-info-listening.json` | Host self-check: proven, may say Ready |
+| `agent-info-not-proven.json` | Activated, first alert not delivered yet |
+| `agent-info-ended-after-reconnect.json` | Host must restore, then claim |
+| `agent-info-case-scoped.json` | `mcp_read` result unchanged |
+
+### 7. Validation and rollback
+
+- Lane A: the fixture tests above, plus server tests on FileStore that build each case's stored context and compare both responses.
+- Lane B: consuming tests for the badge, the banner and the prompt text.
+- Hosted: owner-run evidence with a real Dot (plan §5), kept separate from local and CI results.
+- **Rollback:** revert the server change. Consumers already treat a missing field as unknown.
