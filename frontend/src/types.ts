@@ -116,6 +116,7 @@ export interface CaseEvent {
   id: string;
   type: EventType;
   actor: string;
+  actorDisplayName?: string;
   createdAt: string;
   payload: Record<string, any>;
   linkedPolicyEvaluation: string | null;
@@ -173,6 +174,7 @@ export interface WorkCase {
     id: string;
     type: EventType;
     actorId: string;
+    actorDisplayName?: string;
     createdAt: string;
     summary: string;
     policyEvaluationId: string | null;

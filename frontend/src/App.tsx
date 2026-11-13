@@ -52,7 +52,7 @@ import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
-  caseSourceView, caseSubject, localAgentId, eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
+  caseSourceView, caseSubject, localAgentId, eventSummary, exchangeParties, filterAssets, humanProposalDecision, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
   sectionForCase, stateLabel, timelineForCase
 } from './model';
 import type {
@@ -1400,6 +1400,8 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
   const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const assigneeIds: string[] = isGroup && Array.isArray(event.payload.assigneeAgentIds) ? event.payload.assigneeAgentIds : [];
   const replyAuthor = replyTarget ? groupParticipant(workCase, view, replyTarget.payload.senderAgentId || replyTarget.actor) : null;
+  const decision = humanProposalDecision(event);
+  const approvalRequested = event.type === 'policyEvaluation' && event.payload.decision === 'needsHuman';
   return <>
     {showDay && <div className="conversation-day"><span>{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</span></div>}
     {isExchangeEvent(event) ? <div id={isGroup && typeof event.payload.messageId === 'string' ? `message-${event.payload.messageId}` : undefined} className={`conversation-message ${mine ? 'mine' : 'theirs'}${ownerInstruction ? ' owner-instruction' : ''}${continued ? ' continued' : ''}`}>
@@ -1415,9 +1417,10 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
         })}</ul>}
         {mine && !isGroup && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}
       </div>
-    </div> : <div className={`conversation-event${event.type === 'policyEvaluation' && event.payload.decision === 'needsHuman' ? ' needs-you' : ''}`}>
-      {event.type === 'policyEvaluation' && event.payload.decision === 'needsHuman' ? <Hand size={13} /> : <Sparkles size={13} />}
-      <span>{eventSummary(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time>
+    </div> : <div className={`conversation-event${decision ? ' proposal-decision' : ''}`}>
+      {decision?.verb === 'approved' ? <Check size={13} aria-hidden="true" /> : decision ? <X size={13} aria-hidden="true" /> : approvalRequested ? <Hand size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
+      <span>{decision ? <><strong>{decision.name}</strong> {decision.verb} the agent proposal</> : approvalRequested ? 'Approval requested' : eventSummary(event)}</span>
+      <time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time>
     </div>}
   </>;
 }
@@ -1477,12 +1480,15 @@ export function DecisionCard({ workCase, view, events, policy, canManageInbox, b
   const requestedAction = decisionPolicy(workCase)?.requestedAction;
   const restatesPolicy = Boolean(option?.outOfPolicyFlags?.length) && Boolean(requestedAction) && question === `${humanize(requestedAction)} needs your approval.`;
   return (
-    <section className="decision-card" aria-label="Needs your decision">
-      <div className="decision-label"><Hand size={14} />{expired ? 'Expired' : 'Needs your decision'}</div>
+    <section className="decision-card" aria-label={expired ? 'Expired decision' : 'Needs your decision'}>
+      <div className={`decision-label${expired ? '' : ' pending'}`}>{expired ? 'Expired' : 'Needs your decision'}</div>
       {!canManageInbox && <p className="decision-review-label">Workspace administrator review</p>}
       <h2 className={restatesPolicy ? 'sr-only' : undefined}>{question}</h2>
       {option && <ProposalOptionView option={option} expiresAt={proposal?.expiresAt || null} stageLabel={proposal?.status === 'countered' ? 'Counteroffer' : 'Offer'} partyLabel={optionParty?.displayName} onFlag={policy ? onPolicy : undefined} />}
-      {canManageInbox && <div className="decision-actions"><button className="button primary" disabled={Boolean(busy) || !canSubmitCaseDecision(workCase, 'approveOnce')} onClick={() => onAction('approveOnce')}>Approve Once</button><button className="button secondary" disabled title="Changing a proposal needs instruction support">Change</button><button className="button secondary" disabled={Boolean(busy) || !canSubmitCaseDecision(workCase, 'decline')} onClick={() => onAction('decline')}>Decline</button><button className="button quiet" disabled title="Policy editing needs server support">Always allow this</button></div>}
+      {canManageInbox && <div className="decision-actions">
+        <button className="button primary" disabled={Boolean(busy) || !canSubmitCaseDecision(workCase, 'approveOnce')} onClick={() => onAction('approveOnce')}>Approve once</button>
+        <button className="button secondary" disabled={Boolean(busy) || !canSubmitCaseDecision(workCase, 'decline')} onClick={() => onAction('decline')}>Reject</button>
+      </div>}
     </section>
   );
 }
@@ -1530,7 +1536,7 @@ function proposalParties(workCase: WorkCase, proposalId: string, events: CaseEve
 function TimelineEvent({ event, last, view, workCase, onPolicy }: { event: CaseEvent; last: boolean; view: HumanView; workCase: WorkCase; onPolicy: (policy: PolicyEvaluation) => void }) {
   const participant = resolveParticipant(workCase, event.actor, view.agents, view.participantDirectory, localAgentId(workCase, view));
   const policy = workCase.policyEvaluations?.find(item => item.id === event.linkedPolicyEvaluation);
-  const actor = event.actor ? participant.displayName : 'Envoi system';
+  const actor = humanProposalDecision(event)?.name || (event.actor ? participant.displayName : 'Envoi system');
   const actorIsAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent';
   const tone = event.type === 'error' ? 'unknown' : event.type === 'receipt' ? 'success' : event.type === 'decision' ? 'attention' : 'neutral';
   return (
@@ -2385,8 +2391,9 @@ function DetailDrawer({ drawer, onClose }: { drawer: { type: 'policy' | 'evidenc
 function Detail({ term, value }: { term: string; value: string }) { return <div><dt>{term}</dt><dd>{value}</dd></div>; }
 
 function ConfirmDialog({ action, busy, onCancel, onConfirm }: { action: HumanActionKey; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
-  const destructive = ['decline', 'revoke'].includes(action);
-  return <Modal title={confirmTitle(action)} onClose={onCancel} dismissible={!busy}><p className="dialog-copy">{confirmBody(action)}</p><div className="dialog-actions"><button className="button secondary" onClick={onCancel} disabled={busy}>Keep working</button><button className={`button ${destructive ? 'destructive' : 'primary'}`} onClick={onConfirm} disabled={busy}>{busy ? 'Recording action…' : humanize(action)}</button></div></Modal>;
+  const tone = action === 'revoke' ? 'destructive' : action === 'decline' ? 'secondary' : 'primary';
+  const label = action === 'decline' ? 'Reject' : humanize(action);
+  return <Modal title={confirmTitle(action)} onClose={onCancel} dismissible={!busy}><p className="dialog-copy">{confirmBody(action)}</p><div className="dialog-actions"><button className="button secondary" onClick={onCancel} disabled={busy}>Keep working</button><button className={`button ${tone}`} onClick={onConfirm} disabled={busy}>{busy ? 'Recording action…' : label}</button></div></Modal>;
 }
 
 function Modal({ title, children, onClose, dismissible = true, className = '' }: { title: string; children: ReactNode; onClose: () => void; dismissible?: boolean; className?: string }) {
@@ -2432,8 +2439,8 @@ function emptyTitle(section: NavSection) { return section === 'inbox' ? 'Your ag
 function emptyBody(section: NavSection) { return section === 'inbox' ? 'Agent-to-agent conversations will appear here as soon as they begin.' : section === 'needsMe' ? 'Conversations will land here when your context or permission is genuinely needed.' : 'Conversations will appear here when they reach this stage.'; }
 function caseType(workCase: WorkCase) { return `${humanize(workCase.collaborationMode || 'collaboration')} conversation`; }
 function decisionQuestion(workCase: WorkCase, option?: ProposalOption) { if (workCase.decision?.question) return workCase.decision.question; if (option?.outOfPolicyFlags?.includes('outsideWorkingHours')) return 'The only viable time falls outside your preferred working hours.'; const policy = decisionPolicy(workCase); return policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.'; }
-function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved', decline: 'Declined', editProposal: 'Edits requested', pause: 'Paused', resume: 'Resumed', revoke: 'Authority revoked', takeOver: 'Taken over' })[action]; }
-function confirmTitle(action: HumanActionKey) { return ({ decline: 'Decline this proposal?', revoke: 'Revoke authority?', takeOver: 'Take over this conversation?', pause: 'Pause this conversation?', resume: 'Resume this conversation?', approveOnce: 'Approve once?', editProposal: 'Request edits?' })[action]; }
+function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved', decline: 'Rejected', editProposal: 'Edits requested', pause: 'Paused', resume: 'Resumed', revoke: 'Authority revoked', takeOver: 'Taken over' })[action]; }
+function confirmTitle(action: HumanActionKey) { return ({ decline: 'Reject this proposal?', revoke: 'Revoke authority?', takeOver: 'Take over this conversation?', pause: 'Pause this conversation?', resume: 'Resume this conversation?', approveOnce: 'Approve once?', editProposal: 'Request edits?' })[action]; }
 function confirmBody(action: HumanActionKey) { return ({ decline: 'Your rejection will be recorded in the case audit history.', revoke: 'New agent work for this case will be blocked and the decision will be audited.', takeOver: 'A takeover request will be recorded in the case history.', pause: 'New agent work for this case will pause until you resume it.', resume: 'Permitted agent work can continue.', approveOnce: 'This grants one-time authority for the current action.', editProposal: 'A request for a revised option will be recorded.' })[action]; }
 function conversationTags(workCase: WorkCase) {
   const state = caseState(workCase);

@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import { ConversationEntry } from '../src/App';
+import { timelineForCase } from '../src/model';
 import type { CaseEvent, HumanView, WorkCase } from '../src/types';
 
 const workCase = { id: 'case_rows', principal: 'human_owner', actingAgent: 'agent_mine' } as WorkCase;
@@ -34,4 +35,31 @@ it('labels the own agent and omits the role chip for owner instructions', () => 
   const instruction = render({ ...message('e5', 'human_owner', '2026-10-06T12:00:00Z'), payload: { senderHumanId: 'human_owner', messageType: 'instruction', text: 'Pay it', deliveryState: 'delivered' } } as unknown as CaseEvent);
   expect(instruction).not.toContain('meta-role');
   expect(instruction).toContain('>Owner instruction<');
+});
+
+it.each([
+  ['approveOnce', 'human_owner', 'Rachel Gonsalves', 'approved'],
+  ['decline', 'human_teammate', 'Sam Lee', 'rejected'],
+  ['decline', 'human_missing', undefined, 'rejected']
+])('attributes a recorded %s to the actor in the workspace timeline', (actionKey, actorId, actorDisplayName, verb) => {
+  const [event] = timelineForCase({
+    ...workCase,
+    timeline: [{
+      id: 'decision', type: 'humanAction', actorId, actorDisplayName,
+      createdAt: '2026-10-06T12:00:00Z', summary: 'Legacy action summary.',
+      policyEvaluationId: null, payload: { action: { actionKey, outcome: 'ok' } }
+    }]
+  }, []);
+  expect(render(event)).toContain(`<strong>${actorDisplayName || 'A workspace member'}</strong> ${verb} the agent proposal`);
+});
+
+it('keeps failed actions and agent messages out of the human decision history', () => {
+  const agentEvent = message('agent-event', 'agent_other', '2026-10-06T12:00:00Z', {
+    action: { actionKey: 'approveOnce', outcome: 'ok' }
+  });
+  expect(render(agentEvent)).not.toContain('approved the agent proposal');
+  expect(render({
+    ...agentEvent, type: 'humanAction',
+    payload: { action: { actionKey: 'decline', outcome: 'failed' } }
+  })).not.toContain('rejected the agent proposal');
 });

@@ -2590,6 +2590,25 @@ async function participantDirectoryForHuman(inbox, agents, cases) {
   return Object.fromEntries(entries);
 }
 
+async function nameWorkspaceDecisionActors(inboxId, cases) {
+  const events = cases.flatMap(value => value.timeline.filter(event => {
+    const action = event.payload?.action;
+    return event.type === 'humanAction' && action?.outcome === 'ok'
+      && ['approveOnce', 'decline'].includes(action.actionKey)
+      && action.actor === event.actorId && /^human_[A-Za-z0-9_-]{1,122}$/.test(event.actorId)
+      && action.externalRefs?.serverAuthenticatedHuman === true && action.externalRefs.sourceInboxId === inboxId;
+  }));
+  const names = new Map(await Promise.all([...new Set(events.map(event => event.actorId))].map(async id => {
+    const human = await store.getJson(path.join('humans', `${id}.json`));
+    const name = typeof human?.displayName === 'string' ? human.displayName.trim() : '';
+    return [id, name && name.toLowerCase() !== human?.email?.toLowerCase() ? name : null];
+  })));
+  for (const event of events) {
+    const name = names.get(event.actorId);
+    if (name) event.actorDisplayName = name;
+  }
+}
+
 async function humanView(inboxId, inbox, cursors = {}, { includeOwnerReviews = false } = {}) {
   const [agents, calendarConnectors, page] = await Promise.all([
     store.listJson(path.join('inboxes', inboxId, 'agents')),
@@ -2629,7 +2648,10 @@ async function humanView(inboxId, inbox, cursors = {}, { includeOwnerReviews = f
       requestedAction: 'message.reply', grantType: 'oneTime', expiresAt: request.expiresAt, availableActions: ['approveOnce', 'decline']
     } });
   }
-  const participantDirectory = await participantDirectoryForHuman(inbox, agents, cases);
+  const [participantDirectory] = await Promise.all([
+    participantDirectoryForHuman(inbox, agents, cases),
+    nameWorkspaceDecisionActors(inboxId, projection.cases)
+  ]);
   const projectedInvitations = invitations
     .map(invitation => ({
       ...invitation,

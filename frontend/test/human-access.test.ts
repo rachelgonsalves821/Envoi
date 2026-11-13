@@ -31,7 +31,8 @@ describe('external runtime enrollment handoff', () => {
       onClose: vi.fn()
     }));
 
-    for (const runtime of ['openclaw', 'hermes', 'grok', 'dots']) expect(markup).toContain(`value="${runtime}"`);
+    for (const runtime of ['openclaw', 'hermes', 'hosted-grok', 'dots']) expect(markup).toContain(`value="${runtime}"`);
+    expect(markup).not.toContain('value="grok"');
     expect(markup.match(/<button class="button primary"/g)).toHaveLength(1);
     expect(markup).not.toContain('<details');
     expect(markup).not.toContain('Raw enrollment token');
@@ -86,7 +87,7 @@ describe('human action visibility', () => {
   it('shows decision actions to authorized workspace managers', () => {
     const markup = renderDecision(true);
     expect(markup).toContain('class="decision-actions"');
-    expect(markup).toContain('Approve Once');
+    expect(markup).toContain('Approve once');
     expect(markup).not.toContain('Pause conversation');
     expect(markup).not.toContain('Take Over');
   });

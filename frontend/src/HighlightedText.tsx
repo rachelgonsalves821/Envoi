@@ -11,5 +11,5 @@ export function HighlightedText({ text }: { text: string }) {
 }
 
 export function HighlightLegend() {
-  return <p className="hl-legend" aria-label="Highlight key"><mark className="hl hl-blocking">Needs your decision</mark><mark className="hl hl-review">Worth a look</mark><span>Hover or focus a highlight to see why.</span></p>;
+  return <p className="hl-legend" aria-label="Highlight key"><mark className="hl">Underlined terms</mark><span>Hover or focus a term to see why it’s flagged.</span></p>;
 }
