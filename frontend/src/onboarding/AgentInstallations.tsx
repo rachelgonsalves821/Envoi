@@ -1,11 +1,12 @@
-import { GrokBotMonitoring } from './GrokBotSetup';
+import { GrokBotMonitoring, GrokBotSetup } from './GrokBotSetup';
+import { GrokBotVerification } from './GrokBotVerification';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Agent } from '../types';
 import { agentLabel, connectionLabel } from '../agent-presence';
 import { onboardingApi } from './api';
 import { InstallationsController } from './claim-state';
 import { ClaimProblemNotice, useClaimClock } from './ClaimPage';
-import { canReconnectAgent, deliveryLabel, routeLabel, type OnboardingApi } from './types';
+import { canReconnectAgent, deliveryLabel, routeLabel, type Installation, type OnboardingApi } from './types';
 
 export interface AgentInstallationsProps {
   humanId: string; inboxId: string; agent: Agent; canManage: boolean; onReconnect?: () => void; onRefresh?: () => void | Promise<void>;
@@ -33,7 +34,27 @@ function InstallationsSession({ humanId, inboxId, agent, canManage, onReconnect,
         : <button type="button" className="button secondary compact" disabled={locked} onClick={() => setConfirmId(installation.id)}>Revoke installation</button>)}
       {installation.status === 'active' && installation.connectionRoute === 'remote_mcp_oauth' && <GrokBotMonitoring inboxId={inboxId} agent={agent} installationId={installation.id} onRefresh={onRefresh} />}
     </article>)}</div>
+    {state.data?.some(installation => installation.connectionRoute === 'remote_mcp_oauth') && <GrokBotConnection inboxId={inboxId} agent={agent} installations={state.data} onRefresh={async () => { await controller.load(); await onRefresh?.(); }} />}
     {onReconnect && canReconnectAgent(agent) && <><p>To move this identity to another runtime, start a new registration there and choose this existing agent when claiming its code.</p><button type="button" className="button secondary" disabled={locked} onClick={onReconnect}>Reconnect this identity</button></>}
     {agent.onboardingStatus === 'revoked' && <p>This identity is frozen by agent-wide revocation. Use Quick Connect under Advanced to re-onboard it.</p>}
   </section>;
+}
+
+function GrokBotConnection({ inboxId, agent, installations, onRefresh }: { inboxId: string; agent: Agent; installations: Installation[]; onRefresh: () => Promise<void> }) {
+  const [showSetup, setShowSetup] = useState(false);
+  const active = installations.find(installation => installation.connectionRoute === 'remote_mcp_oauth' && installation.status === 'active');
+  return <details className="onboarding-panel">
+    <summary>Grok Bot setup and verification</summary>
+    <p>Use this section if you connect {agent.address} through Grok Bot.</p>
+    <p>Receive {agent.permissions.includes('receive_agent_messages') ? 'allowed' : 'required'} · Send {agent.permissions.includes('send_agent_messages') ? 'allowed' : 'required'}</p>
+    <button type="button" className="button secondary compact" onClick={() => setShowSetup(!showSetup)}>{showSetup ? 'Hide connection steps' : active ? 'Reconnect Grok Bot' : 'Finish Grok Bot setup'}</button>
+    {showSetup && <><GrokBotSetup address={agent.address} /><button type="button" className="button secondary compact" onClick={() => void onRefresh()}>Refresh after approval</button></>}
+    {active && <div key={active.id}>
+      <GrokBotVerification inboxId={inboxId} agent={agent} />
+      <details><summary>Optional background receiving</summary>
+        <p>Use Grok Bot monitoring under your active installation to set up the routine and manage its optional webhook.</p>
+        <GrokBotVerification inboxId={inboxId} agent={agent} background />
+      </details>
+    </div>}
+  </details>;
 }

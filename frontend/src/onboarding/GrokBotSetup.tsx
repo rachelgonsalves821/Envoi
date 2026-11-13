@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Copy } from 'lucide-react';
+import { DEFAULT_AGENT_PERMISSIONS } from '../agent-permissions';
+import { AgentPermissionPicker } from './AgentPermissionPicker';
+import { setupHelpLabel } from '../quick-connect';
 import { ApiError, request } from '../api';
 import type { Agent } from '../types';
 import grokBotSkill from '../../../integrations/grok-bot-plugin/skills/envoi/SKILL.md?raw';
@@ -12,6 +16,17 @@ type WakeTarget = {
 
 export function readGrokBotSetup(signal: AbortSignal) {
   return request<{ available: boolean; hostedRequired: boolean; clientId?: string }>('/api/onboarding/grok-bot', { signal }, false);
+}
+
+export function GrokBotDetails({ address }: { address?: string }) {
+  return <div className="enroll-step">
+    <div className="setup-identity">
+      <small>Agent email address</small>
+      <strong>{address || 'Choose during Envoi approval'}</strong>
+    </div>
+    <AgentPermissionPicker selected={DEFAULT_AGENT_PERMISSIONS} />
+    <p className="enroll-note">You’ll confirm the address and requested permissions on Envoi’s approval page.</p>
+  </div>;
 }
 
 export function GrokBotSetup({ address }: { address?: string }) {
@@ -34,9 +49,7 @@ export function GrokBotSetup({ address }: { address?: string }) {
     ? `The approved Envoi address must be ${address}.`
     : 'Ask me to confirm the expected Envoi address before setting up receiving.';
   const prompt = `I have approved the hosted Envoi connector in Connect apps. Use only the existing Remote HTTPS connection at ${serverUrl}. ${expectedIdentity}
-Call envoi_agent_info and report the exact address and permissions. If the connection is missing, authorization fails, or the address differs, stop and direct me to Envoi → Manage agents → Connect Grok Bot. Do not install a connector, run a command, redeem an enrollment token, request an xAI API key, or use a different server.
-
-${grokBotReceivingPrompt(address)}`;
+Call envoi_agent_info and report the exact address and permissions. If the connection is missing, authorization fails, or the address differs, stop and direct me to Envoi → Manage agents → Connect Grok Bot. Do not install a connector, run a command, redeem an enrollment token, request an xAI API key, or use a different server.`;
   const workflowHeading = '## Routine workflow';
   const skill = `---
 name: envoi
@@ -56,7 +69,7 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
-  return <section className="onboarding-panel" aria-label="Grok Bot setup">
+  return <section className="hosted-grok-setup" aria-label="Grok Bot setup">
     <p>Connect your signed-in Grok Bot with one Envoi approval. If an earlier chat asks for an xAI API key, close that prompt and continue in <strong>Connect apps</strong>.</p>
     <ol className="grok-setup-steps">
       <li>
@@ -65,7 +78,7 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
         <dl className="grok-connector-settings">
           <dt>Name</dt><dd>Envoi</dd>
           <dt>Type</dt><dd>Remote HTTPS</dd>
-          <dt>Server URL</dt><dd><GrokConnectorValue label="Server URL" value={serverUrl} /></dd>
+          <dt>Server URL</dt><dd><GrokConnectorValue label="Server URL" value={serverUrl} primary /></dd>
           <dt>HTTP headers</dt><dd>Leave Key and Value blank</dd>
           <dt>Client ID</dt><dd>{clientId ? <GrokConnectorValue label="Client ID" value={clientId} /> : 'Leave blank'}</dd>
           {clientId && <><dt>Client Secret</dt><dd>Leave blank if shown</dd></>}
@@ -78,39 +91,42 @@ ${workflowHeading}${grokBotSkill.split(workflowHeading)[1]}`;
           ? <>Select your existing agent <strong>{address}</strong>.</>
           : 'Select your existing agent if it already has an Envoi address.'}</p>
       </li>
-      <li>
-        <strong>Turn on background receiving</strong>
-        <p>After approval, open a fresh chat in the same Bot and paste this message. It asks your Bot to verify the address and set up the five-minute inbox check. Check activity under <strong>Runtime installations → Grok Bot monitoring</strong>.</p>
-        <div className="grok-setup-actions">
-          <GrokBotPrompt label="Receiving setup message" copyLabel="Copy receiving setup message" value={prompt} />
-        </div>
-      </li>
     </ol>
-    <details>
-      <summary>Optional receiving skill</summary>
-      <p>After connecting, you can attach this file in Grok Bot and ask it to save it as a skill named Envoi. The skill describes how to handle inbox work on later runs. Attaching it alone does not connect Envoi or create a routine.</p>
-      <button type="button" className="button secondary compact" onClick={downloadSkill}>Download Grok Bot skill</button>
+    <details className="setup-details setup-help">
+      <summary>{setupHelpLabel}</summary>
+      <section className="setup-help-option">
+        <strong>Verify the connected identity</strong>
+        <p>After approval, use this optional check in the same Bot to confirm its Envoi address and permissions. You can test a reply or set up background receiving under <strong>Manage agents → Runtime installations → Grok Bot setup and verification</strong>.</p>
+        <div className="grok-setup-actions">
+          <GrokBotPrompt label="Identity check message" copyLabel="Copy identity check message" value={prompt} />
+        </div>
+      </section>
+      <section className="setup-help-option">
+        <strong>Optional receiving skill</strong>
+        <p>After connecting, you can attach this file in Grok Bot and ask it to save it as a skill named Envoi. The skill describes how to handle inbox work on later runs. Attaching it alone does not connect Envoi or create a routine.</p>
+        <button type="button" className="button secondary compact" onClick={downloadSkill}>Download Grok Bot skill</button>
+      </section>
     </details>
   </section>;
 }
 
-function GrokConnectorValue({ label, value }: { label: string; value: string }) {
+function GrokConnectorValue({ label, value, primary = false }: { label: string; value: string; primary?: boolean }) {
   const [feedback, setFeedback] = useState('');
   return <div className="grok-connector-value field">
     <input aria-label={label} readOnly value={value} onFocus={event => event.currentTarget.select()} />
-    <button type="button" className="button secondary compact" aria-label={`Copy ${label}`} onClick={async () => {
+    <button type="button" className={primary ? 'button primary' : 'button secondary compact'} aria-label={`Copy ${label}`} onClick={async () => {
       try {
         await navigator.clipboard.writeText(value);
         setFeedback(`${label} copied.`);
       } catch {
         setFeedback(`Select the ${label} field to copy it.`);
       }
-    }}>Copy</button>
+    }}>{primary ? <><Copy size={16} />Copy server URL</> : 'Copy'}</button>
     {feedback && <span role="status">{feedback}</span>}
   </div>;
 }
 
-function GrokBotPrompt({ label, copyLabel, value }: { label: string; copyLabel: string; value: string }) {
+export function GrokBotPrompt({ label, copyLabel, value }: { label: string; copyLabel: string; value: string }) {
   const [feedback, setFeedback] = useState('');
   const [showMessage, setShowMessage] = useState(false);
   return <>
@@ -176,13 +192,13 @@ export function GrokBotMonitoring({ inboxId, agent, installationId, onRefresh }:
   return <details className="onboarding-panel" onToggle={event => { if (event.currentTarget.open) void update(); }}>
     <summary>Grok Bot monitoring</summary>
     {enabled && <>
-      <p>Your Bot sets up the scheduled check during onboarding. The latest inbox check below shows when it last reached Envoi.</p>
+      <p>Set up a routine if you want your Bot to receive work while its chat is closed.</p>
       <details>
-        <summary>Resume monitoring setup</summary>
-        <p>If your Bot stopped after connecting, send it this message to pick up where it left off.</p>
-        <GrokBotPrompt label="Monitoring message" copyLabel="Copy monitoring recovery message" value={monitoringPrompt} />
+        <summary>Set up or resume background receiving</summary>
+        <p>Paste this message into the connected Grok Bot to set up its routine.</p>
+        <GrokBotPrompt label="Monitoring message" copyLabel="Copy monitoring setup message" value={monitoringPrompt} />
       </details>
-      <p>To test the scheduled check, leave the webhook unconfigured, close Grok Bot, and have another staging agent send a message. Look for a new inbox check and a completed item below.</p>
+      <p>Use the background delivery test to verify a reply and completion for a specific message.</p>
     </>}
     <dl>
       <dt>Webhook status</dt><dd>{ownTarget ? (({ active: 'Configured', needs_secret: 'Key needs updating', needs_attention: 'Needs attention', ended: 'Disconnected' } as Record<string, string>)[ownTarget.state] || 'Check webhook settings') : 'Not configured'}</dd>

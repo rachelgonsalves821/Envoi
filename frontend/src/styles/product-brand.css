@@ -207,7 +207,7 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 .app-shell .runtime-option.unavailable img { filter: grayscale(.35); }
 .app-shell .runtime-option.unavailable em { color: #637a8b; }
 .app-shell .modal { width: min(790px,100%); max-height: min(860px,calc(100dvh - 36px)); padding: clamp(20px, 3vw, 32px); border: 1px solid var(--line); box-shadow: 0 28px 80px rgba(15,42,67,.2); overscroll-behavior: contain; }
-.app-shell .modal.connect-agent-dialog { width: min(760px,100%); padding: clamp(20px, 4vw, 36px); }
+.app-shell .modal.enrollment-dialog { width: min(760px,100%); padding: clamp(20px, 4vw, 36px); }
 .app-shell .modal h2 { color: var(--ink); font-size: 25px; }
 .app-shell .runtime-picker legend { font-size: 20px; font-weight: 600; }
 .app-shell .runtime-picker-help { margin: 0 0 16px; color: var(--ink2); font-size: 14px; }
@@ -371,3 +371,43 @@ body:has(.onboarding-page) { background: #f6f9fc; }
   .managed-file-list li { gap: 8px; }
   .managed-file-list select { min-width: 0; font-size: 13px; }
 }
+
+/* Shared spacing for the workspace wizard and hosted Grok guide. */
+.enrollment-dialog .enroll-step, .hosted-grok-flow .enroll-step { display: grid; gap: 14px; }
+.app-shell .enrollment-dialog .runtime-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.app-shell .enrollment-dialog .runtime-option { min-height: 0; gap: 6px; padding: 12px; }
+.app-shell .enrollment-dialog .runtime-option:has(input:checked) { padding: 11px; }
+.app-shell .enrollment-dialog .runtime-option img { width: 28px; height: 28px; }
+.app-shell .enrollment-dialog .runtime-option input { inset: 12px 12px auto auto; margin: 0; }
+.enrollment-dialog .runtime-selected-mark { display: none; }
+.enrollment-dialog .runtime-option:has(input:checked) input { opacity: 0; }
+.enrollment-dialog .runtime-option:has(input:focus-visible) { outline: 2px solid #267db9; outline-offset: 2px; }
+.enrollment-dialog .runtime-option:has(input:checked) .runtime-selected-mark {
+  display: block;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: #176da9;
+}
+.enrollment-dialog .quick-connect, .enrollment-dialog .dots-guide,
+.hosted-grok-flow, .hosted-grok-setup { display: grid; gap: 14px; min-width: 0; }
+.enrollment-dialog .setup-handoff-actions { margin: 0; }
+.enrollment-dialog .quick-connect > p, .enrollment-dialog .dots-guide > p,
+.hosted-grok-flow .enroll-note { color: #47637a; }
+.enrollment-dialog .setup-identity, .hosted-grok-flow .setup-identity { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.setup-identity small { color: #47637a; font-size: 12px; }
+.enrollment-dialog .connection-progress {
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #edf4f9;
+  color: #0f2a43;
+  font-size: 13px;
+}
+.enrollment-dialog .setup-details, .hosted-grok-setup .setup-details { border-color: #dbe7f0; }
+.hosted-grok-flow .permission-switch-row { justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #dbe7f0; }
+.hosted-grok-flow .permission-switch-row input { order: 1; accent-color: #267db9; }
+.hosted-grok-flow .dialog-actions { margin-top: 0; }
+.hosted-grok-setup .grok-setup-steps { margin: 0; }
+.hosted-grok-setup .grok-connector-value:has(.primary) { grid-template-columns: minmax(0, 1fr); justify-items: start; }
