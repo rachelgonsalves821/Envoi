@@ -21,11 +21,13 @@ function elements(tree: ReactNode): ReactElement<any>[] {
 const text = (element: ReactElement<any>) => Children.toArray(element.props.children).filter(item => typeof item === 'string').join('');
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it('turns the released editor OAuth refusal into same-agent reconnect instructions without another permission write', async () => {
+it.each(['saved', 'OAUTH_RECONSENT_REQUIRED', 'PERMISSIONS_CHANGED'])('handles a permissions update resulting in %s', async outcome => {
   hooks.values = []; hooks.cursor = 0;
   vi.stubGlobal('window', { location: { origin: 'https://envoi.example' } });
-  const update = vi.spyOn(api, 'updateAgentPermissions').mockRejectedValue(new ApiError('Reconnect this OAuth agent to grant more permissions.', 409, 'OAUTH_RECONSENT_REQUIRED'));
   const agent = { id: 'agent_example', name: 'Example', address: 'example@envoi.example', principalHumanId: 'owner', status: 'active', onboardingStatus: 'approved', permissions: ['receive_agent_messages'] };
+  const update = vi.spyOn(api, 'updateAgentPermissions');
+  if (outcome === 'saved') update.mockResolvedValue({ agent: { ...agent, permissions: ['receive_agent_messages', 'send_agent_messages'] } });
+  else update.mockRejectedValue(new ApiError('Could not update permissions.', 409, outcome));
   const props: any = { entries: [{ agent, inbox: { id: 'inbox_example' }, view: { canManageInbox: true } }], onConnect: vi.fn(), onRefresh: vi.fn(), notify: vi.fn() };
   const render = () => { hooks.cursor = 0; return PoliciesPage(props); };
   let tree = render();
@@ -34,9 +36,19 @@ it('turns the released editor OAuth refusal into same-agent reconnect instructio
   tree = render(); elements(tree).find(item => item.type === 'button' && text(item) === 'Save permissions')!.props.onClick();
   await Promise.resolve(); await Promise.resolve();
   tree = render();
-  const recovery = elements(tree).find(item => item.type === DotsSetupGuide)!;
-  expect(recovery.props).toMatchObject({ name: 'Example', address: 'example@envoi.example', messageAccess: true });
   expect(update).toHaveBeenCalledExactlyOnceWith('inbox_example', 'agent_example', ['receive_agent_messages', 'send_agent_messages'], ['receive_agent_messages']);
+  const recovery = elements(tree).find(item => item.type === DotsSetupGuide);
+  if (outcome !== 'OAUTH_RECONSENT_REQUIRED') {
+    expect(recovery).toBeUndefined();
+    if (outcome === 'saved') {
+      expect(props.onRefresh).toHaveBeenCalledExactlyOnceWith('inbox_example');
+      expect(props.notify).toHaveBeenCalledExactlyOnceWith('Example’s permissions updated.');
+    } else {
+      expect(props.onRefresh).not.toHaveBeenCalled();
+    }
+    return;
+  }
+  expect(recovery?.props).toMatchObject({ name: 'Example', address: 'example@envoi.example', messageAccess: true });
   expect(props.notify).not.toHaveBeenCalled();
   const retry = elements(tree).find(item => item.type === 'button' && text(item) === 'Save permissions')!;
   expect(retry.props.disabled).toBe(true);

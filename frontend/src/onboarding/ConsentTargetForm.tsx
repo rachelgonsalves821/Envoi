@@ -26,8 +26,8 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, sa
   const [name, setName] = useState(savedSetup?.name ?? '');
   const [localPart, setLocalPart] = useState(savedSetup?.localPart ?? '');
   const [agentId, setAgentId] = useState('');
-  const defaultPermissions = requested.filter(value => grantable.includes(value)
-    && (!savedSetup || savedSetup.permissions.some(permission => permission === value)));
+  const preferredPermissions = savedSetup?.permissions ?? requested;
+  const defaultPermissions = grantable.filter(value => preferredPermissions.some(permission => permission === value));
   const [permissions, setPermissions] = useState<RegistrationPermission[]>(defaultPermissions);
   const eligible = agents.filter(canReconnectAgent);
   const agent = eligible.find(value => value.id === agentId);
@@ -36,9 +36,12 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, sa
   const locked = disabled || review.busy || review.blocked || review.retryAt > now;
   const addressTaken = savedSetup?.addressAvailable === false && localPart.trim() === savedSetup.localPart;
   const canCreate = Boolean(workspaceId && name.trim() && localPart.trim() && !addressTaken);
+  const selectedPermissions = permissions.filter(value => grantable.includes(value));
+  const sendGrantable = grantable.includes('send_agent_messages');
   function chooseAgent(id: string) {
     setAgentId(id); const selected = eligible.find(item => item.id === id);
-    setPermissions(requested.filter(value => grantable.includes(value) && (value === 'receive_agent_messages' || selected?.permissions.includes(value))));
+    setPermissions(grantable.filter(value => value === 'receive_agent_messages'
+      || (requested.includes(value) && selected?.permissions.includes(value))));
     if (selected) void replacement.reviewReplacement(selected.inboxId, selected.id);
   }
   return <form className="onboarding-approval-form" onSubmit={event => {
@@ -46,7 +49,7 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, sa
     if (kind === 'new_agent' && !canCreate) return;
     void onApprove({ target: kind === 'new_agent'
       ? { kind, workspaceInboxId: workspaceId, name: name.trim(), localPart: localPart.trim() }
-      : { kind, agentId, replacesInstallationId: current?.id ?? null }, grantedPermissions: [...permissions], policyProfile: 'default',
+      : { kind, agentId, replacesInstallationId: current?.id ?? null }, grantedPermissions: selectedPermissions, policyProfile: 'default',
       ...(kind === 'new_agent' && savedSetup ? { savedSetupId: savedSetup.setupId } : {}) });
   }}>
     <ClaimProblemNotice problem={review.problem} now={now} />
@@ -73,14 +76,19 @@ export function ConsentTargetForm({ workspaces, agents, requested, grantable, sa
         </div>}
       </>}
     </fieldset>
-    <fieldset disabled={locked}><legend>Permissions</legend><p>Only requested permissions allowed by workspace policy can be granted. Receiving messages is required.</p>
-      {kind === 'existing_agent' && <p>Existing permissions are selected initially. To add a requested permission, select it explicitly before approving.</p>}
-      {kind === 'new_agent' && savedSetup?.notRequested.includes('send_agent_messages') && <p role="status">You selected Send in Envoi. This assistant did not request Send, so it is unavailable on this approval.</p>}
-      <div className="onboarding-permissions">{requested.map(value => <label key={value}>
-        <input type="checkbox" checked={permissions.includes(value)} disabled={value === 'receive_agent_messages' || !grantable.includes(value)} onChange={event => setPermissions(previous => event.target.checked ? [...new Set([...previous, value])] : previous.filter(item => item !== value))} />
-        {permissionLabel(value)}{value === 'receive_agent_messages' ? ' (required)' : !grantable.includes(value) ? ' (not grantable)' : ''}
-      </label>)}</div>
-      {!permissions.includes('send_agent_messages') && <p className="onboarding-notice" role="status">This approval allows receiving only; the assistant cannot send messages or replies.{requested.includes('send_agent_messages') && grantable.includes('send_agent_messages') ? ' Select send agent messages above if you want two-way messaging.' : ' Sending must first be requested by the plugin and allowed by workspace policy.'}</p>}
+    <fieldset disabled={locked}><legend>Permissions</legend><p>Choose the permissions to grant. Receiving messages is required.</p>
+      {kind === 'existing_agent' && <p>Requested permissions the agent already has are preselected where available.</p>}
+      {kind === 'new_agent' && !sendGrantable && savedSetup?.permissions.includes('send_agent_messages') && <p role="status">You selected Send in Envoi. It is unavailable on this approval.</p>}
+      <div className="onboarding-permissions">{grantable.map(value => {
+        const checked = selectedPermissions.includes(value);
+        return <label key={value}>
+          <input type="checkbox" checked={checked} disabled={value === 'receive_agent_messages'} onChange={event => setPermissions(previous => event.target.checked ? [...new Set([...previous, value])] : previous.filter(item => item !== value))} />
+          <span>{permissionLabel(value)}{value === 'receive_agent_messages' ? ' (required)' : ''}
+            {checked && !requested.includes(value) && <small className="consent-unrequested">Your assistant didn’t ask to {permissionLabel(value)}. Approving will grant this permission.</small>}
+          </span>
+        </label>;
+      })}</div>
+      {sendGrantable && !selectedPermissions.includes('send_agent_messages') && <p className="onboarding-notice" role="status">Select send agent messages to allow your assistant to send messages and replies.</p>}
     </fieldset>
     <div className="onboarding-actions">{onDeny && <button className="button secondary" type="button" disabled={locked} onClick={onDeny}>Decline connection</button>}
       <button className="button primary" disabled={locked || (kind === 'existing_agent' ? !ready : !canCreate)}>Approve access</button>
