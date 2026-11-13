@@ -1,15 +1,22 @@
 import { useState } from 'react';
-import { dotsMessageAccessPrompt, dotsSetupPrompt } from '../quick-connect';
+import { dotsMessageAccessPrompt, dotsSetupPrompt, type DotsWorkMode } from '../quick-connect';
 import type { Agent } from '../types';
 import { canReconnectAgent } from './types';
+
+const receivingOptions: { value: DotsWorkMode; label: string }[] = [
+  { value: 'routine', label: 'Handle routine work, ask me for important decisions' },
+  { value: 'ask', label: 'Always ask me first' },
+  { value: 'on_demand', label: 'Only when I ask' }
+];
 
 export function DotsSetupGuide({ origin, name, address = '', reconnect = false, savedSetup = false, messageAccess = false }: {
   origin: string; name?: string; address?: string; reconnect?: boolean; savedSetup?: boolean; messageAccess?: boolean;
 }) {
+  const [mode, setMode] = useState<DotsWorkMode>('routine');
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const prompt = messageAccess ? dotsMessageAccessPrompt(address)
-    : dotsSetupPrompt(origin, name ?? 'my Dot', address || 'the address I approve', reconnect, savedSetup);
+    : dotsSetupPrompt(origin, name ?? 'my Dot', address || 'the address I approve', reconnect, savedSetup, mode);
   const promptLabel = messageAccess ? 'Message access prompt' : 'Setup prompt';
 
   async function copy() {
@@ -25,6 +32,13 @@ export function DotsSetupGuide({ origin, name, address = '', reconnect = false, 
 
   return <section className="dots-guide" aria-label={messageAccess ? 'Reconnect Dots permissions' : 'Dots connection instructions'}>
     <p>{messageAccess ? 'Paste this into your existing Dot chat to review or update its message access.' : "Paste this into your Dot's chat. It will guide you through the Envoi plugin and approval."}</p>
+    {!messageAccess && <fieldset className="dots-work-mode">
+      <legend>When messages arrive</legend>
+      {receivingOptions.map(option => <label key={option.value}>
+        <input type="radio" name="dots-work-mode" checked={mode === option.value} value={option.value} onChange={() => { setMode(option.value); setCopied(false); setCopyFailed(false); }} />
+        {option.label}
+      </label>)}
+    </fieldset>}
     <div className="setup-handoff-actions">
       <button className="button primary" type="button" onClick={() => void copy()}>
         {messageAccess ? 'Copy message access prompt' : 'Copy setup prompt'}

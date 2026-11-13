@@ -5,7 +5,7 @@ import { dotsDiagnosticPrompt, dotsMessageAccessPrompt, dotsMonitoringPrompt, do
 const prompts = [
   { id: 'check-connection', title: 'Check connection', description: 'Confirm the address, permissions, and tools your Dot can use.', text: dotsVerificationPrompt('') },
   { id: 'add-send-access', title: 'Add send access', description: 'Request approval for Send using your existing Dot connection.', text: dotsMessageAccessPrompt('') },
-  { id: 'background-receiving', title: 'Background receiving', description: 'Set up or check receiving for a workflow you approve.', text: dotsMonitoringPrompt },
+  { id: 'background-receiving', title: 'Background receiving', description: 'Set up or check receiving for a workflow you approve.', text: dotsMonitoringPrompt('https://www.envoi-agents.com', '') },
   { id: 'collect-a-report', title: 'Collect a report', description: 'Ask your Dot to report the state of its connection and monitoring.', text: dotsDiagnosticPrompt('') }
 ];
 ---
