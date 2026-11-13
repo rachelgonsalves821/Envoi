@@ -5593,7 +5593,7 @@ The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:
 
 ## agent-owner-permissions v1
 
-**Contract:** `agent-owner-permissions`, version 1 (simple-setup plan Phase 2b, part 2: `docs/architecture/agent-native-v2/onboarding-simple-setup.md` §5). It revises agent-remote-auth v1 §5.1, §5.2 and §6.2 row 7, and the owner Permissions route. **Status:** published, revision 2 (§7), awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+**Contract:** `agent-owner-permissions`, version 1 (simple-setup plan Phase 2b, part 2: `docs/architecture/agent-native-v2/onboarding-simple-setup.md` §5). It revises agent-remote-auth v1 §5.1, §5.2 and §6.2 row 7, and the owner Permissions route. **Status:** approved, revision 2 (§7): Lane B `CONTRACT-ACK` (board 6843844814), human `CONTRACT-APPROVED` (board 6843873044).
 
 **Fixtures:** [`test/contract-fixtures/agent-owner-permissions/`](../../../test/contract-fixtures/agent-owner-permissions/): `schemas.json` (`x-flags`, `x-codes` and the Permissions route's shapes; other shapes are agent-remote-auth's) and 9 cases: `consent-view-owner-choice`, `consent-approve-owner-choice`, `token-code-owner-choice`, `permissions-add-send`, `permissions-add-send-flag-off`, `permissions-add-unscoped`, `token-refresh-original-scope`, `token-refresh-removed-scope`, `token-refresh-recovered-after-removal`. agent-remote-auth's `token-refresh-scope-changed` is rewritten for §4. Every session, CSRF value, handle, code and token in them is a placeholder.
 
