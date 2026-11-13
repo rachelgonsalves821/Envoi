@@ -36,6 +36,41 @@ const view = (loadContractFixture(remote, 'consent-view.json') as any).response.
 const render = (props: ConsentTargetFormProps) => { hooks.cursor = 0; return ConsentTargetForm(props); };
 beforeEach(() => { hooks.values = []; hooks.cursor = 0; });
 
+it.each([false, true])('offers all grantable permissions and explains extra selections (saved setup: %s)', hasSavedSetup => {
+  const workspace = { id: 'inbox_saved', name: 'Saved workspace' } as Inbox;
+  const savedSetup = hasSavedSetup ? {
+    setupId: 'setup_milo', workspaceInboxId: workspace.id, workspaceName: workspace.name,
+    name: 'Milo', localPart: 'milo', address: 'milo@envoi-agents.com', expiresAt: '2026-11-12T15:30:00.000Z',
+    permissions: ['receive_agent_messages', 'send_agent_messages'], notRequested: ['send_agent_messages'], addressAvailable: true
+  } satisfies NonNullable<ConsentTargetFormProps['savedSetup']> : undefined;
+  const onApprove = vi.fn().mockResolvedValue(true);
+  const props: ConsentTargetFormProps = {
+    workspaces: [workspace], agents: [], requested: ['receive_agent_messages'],
+    grantable: ['receive_agent_messages', 'send_agent_messages', 'create_assets', 'execute_cases'],
+    savedSetup, disabled: false, onApprove
+  };
+  const checkboxes = (tree: ReactNode) => controls(tree, 'input').filter(input => input.props.type === 'checkbox');
+  let tree = render(props);
+  expect(checkboxes(tree).map(input => [input.props.checked, input.props.disabled]))
+    .toEqual([[true, true], [hasSavedSetup, false], [false, false], [false, false]]);
+  expect(controls(tree, 'small').filter(note => note.props.children?.toString().includes('didn’t ask'))).toHaveLength(Number(hasSavedSetup));
+  if (!hasSavedSetup) {
+    controls(tree, 'input').filter(input => !input.props.type && input.props.onChange)
+      .forEach((input, index) => input.props.onChange!({ target: { value: index === 0 ? 'Milo' : 'milo' } }));
+    checkboxes(tree)[1].props.onChange!({ target: { checked: true } });
+  }
+  checkboxes(tree)[2].props.onChange!({ target: { checked: true } });
+  tree = render(props);
+  expect(controls(tree, 'small').map(note => Children.toArray(note.props.children).join('')))
+    .toEqual(expect.arrayContaining([expect.stringContaining('send agent messages'), expect.stringContaining('create files')]));
+  controls(tree, 'form')[0].props.onSubmit!({ preventDefault() {} });
+  expect(onApprove).toHaveBeenCalledExactlyOnceWith({
+    target: { kind: 'new_agent', workspaceInboxId: workspace.id, name: 'Milo', localPart: 'milo' },
+    grantedPermissions: ['receive_agent_messages', 'send_agent_messages', 'create_assets'],
+    policyProfile: 'default', ...(savedSetup ? { savedSetupId: savedSetup.setupId } : {})
+  });
+});
+
 it('keeps a receive-only existing grant narrow until the owner explicitly selects requested sending', async () => {
   const agent = { ...revoked, permissions: ['receive_agent_messages'] };
   const client = { installations: vi.fn().mockResolvedValue({ agentId: agent.id, installations: [] }) } as unknown as OnboardingApi;
@@ -46,7 +81,7 @@ it('keeps a receive-only existing grant narrow until the owner explicitly select
   tree = render(props); controls(tree, 'select')[0].props.onChange!({ target: { value: agent.id } });
   await Promise.resolve(); await Promise.resolve();
   tree = render(props);
-  const sendLabel = controls(tree, 'label').find(label => Children.toArray(label.props.children).includes('send agent messages'))!;
+  const sendLabel = controls(tree, 'label').find(label => controls(label, 'span').some(span => Children.toArray(span.props.children).includes('send agent messages')))!;
   const send = controls(sendLabel, 'input')[0];
   expect(send.props.checked).toBe(false); expect(send.props.disabled).toBe(false);
   expect(onApprove).not.toHaveBeenCalled();
@@ -107,7 +142,7 @@ it('prefills editable saved values and includes the setup ID after the owner cho
   const inputs = controls(tree, 'input');
   expect(inputs.some(input => input.props.value === 'Milo')).toBe(true);
   const checkboxes = inputs.filter(input => input.props.type === 'checkbox');
-  expect(checkboxes.map(input => [input.props.checked, input.props.disabled])).toEqual([[true, true], [false, true], [false, false]]);
+  expect(checkboxes.map(input => [input.props.checked, input.props.disabled])).toEqual([[true, true], [false, false]]);
   controls(tree, 'form')[0].props.onSubmit!({ preventDefault() {} });
   expect(onApprove).not.toHaveBeenCalled();
   inputs.find(input => input.props.value === 'milo')!.props.onChange!({ target: { value: 'milo-new' } });
