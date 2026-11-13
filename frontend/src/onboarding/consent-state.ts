@@ -105,7 +105,7 @@ export class ConsentController {
     if (!this.allowed() || this.decision || this.state.outcome || !this.state.view || Date.parse(this.state.view.expiresAt) <= this.now()) return false;
     if (!validate.consentApproveRequest(body) || !remoteGrantAllowed(body.grantedPermissions)
       || (body.savedSetupId && (body.target.kind !== 'new_agent' || body.savedSetupId !== this.state.view.savedSetup?.setupId))
-      || body.grantedPermissions.some(permission => !this.state.view!.requestedPermissions.includes(permission) || !this.state.view!.grantablePermissions.includes(permission))) return false;
+      || body.grantedPermissions.some(permission => !this.state.view!.grantablePermissions.includes(permission))) return false;
     this.decision = { kind: 'approve', body: structuredClone(body) };
     return this.sendDecision();
   }

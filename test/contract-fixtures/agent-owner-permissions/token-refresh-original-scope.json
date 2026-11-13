@@ -1,0 +1,47 @@
+{
+  "contract": "agent-owner-permissions",
+  "version": 1,
+  "id": "token-refresh-original-scope",
+  "description": "§4, any flag state: the assistant re-sends the scope it first asked for (envoi.agent) after the owner added Send. Refresh succeeds and reports the current scopes.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_OWNER_PERMISSIONS": false,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "context": {
+    "familyCurrentScopes": "envoi.agent envoi.send"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/oauth/token",
+    "auth": "public_client",
+    "headers": {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    "form": {
+      "grant_type": "refresh_token",
+      "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+      "scope": "envoi.agent",
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "agent-remote-auth/tokenResponse",
+    "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache"
+    },
+    "body": {
+      "access_token": "envoi_agent_access_PLACEHOLDER_oauth_2",
+      "token_type": "Bearer",
+      "expires_in": 900,
+      "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_2",
+      "scope": "envoi.agent envoi.send"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Replace both stored tokens atomically."
+  }
+}

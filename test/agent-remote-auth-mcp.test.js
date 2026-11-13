@@ -141,9 +141,11 @@ for (const backend of backends) {
     // The refusal is a request the credential authenticated: it counts as presence.
     assert.ok((await ownerView(server, narrow.who, narrow.registration)).connection.presence.lastSeenAt);
 
-    // The token response named the narrower grant, and a refresh with the wider set is invalid_scope.
-    assertOAuthError(await tokenPost(server, refreshParams(publicClient, narrow.tokens.refresh_token, { scope: 'envoi.agent envoi.send' })), 'invalid_scope');
-    assert.equal(assertTokenResponse(await tokenPost(server, refreshParams(publicClient, narrow.tokens.refresh_token)), 'envoi.agent').scope, 'envoi.agent');
+    // The token response named the narrower grant. A refresh that re-sends the wider set it first asked for still renews,
+    // and reports the narrower grant (agent-owner-permissions v1 §4).
+    const renewed = assertTokenResponse(await tokenPost(server, refreshParams(publicClient, narrow.tokens.refresh_token, { scope: 'envoi.agent envoi.send' })), 'envoi.agent');
+    assert.equal(renewed.scope, 'envoi.agent');
+    assert.equal(assertTokenResponse(await tokenPost(server, refreshParams(publicClient, renewed.refresh_token)), 'envoi.agent').scope, 'envoi.agent');
 
     // A credential of another kind with a missing permission keeps today's answer: no scope error, no challenge.
     const helper = await newOwner(server);

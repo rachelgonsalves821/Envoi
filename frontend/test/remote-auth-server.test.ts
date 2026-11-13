@@ -320,7 +320,7 @@ it('pairs completed consent with private host exchange, MCP scope/pause, refresh
     // Neither a read-only REST call nor a wider scope request may consume the grant.
     const rest = await nativeFetch(server.baseUrl + '/api/agent/status', { headers: { authorization: 'Bearer ' + tokens.access_token } });
     expect(rest.status).toBe(401); expect((await rest.json() as any).code).toBe('AUTHENTICATION_REQUIRED');
-    const wider = await hostForm(server.baseUrl, '/oauth/token', { grant_type: 'refresh_token', client_id: clients[0].clientId, refresh_token: tokens.refresh_token, scope: 'envoi.agent envoi.send' });
+    const wider = await hostForm(server.baseUrl, '/oauth/token', { grant_type: 'refresh_token', client_id: clients[0].clientId, refresh_token: tokens.refresh_token, scope: 'envoi.agent envoi.email' });
     expect(wider.status).toBe(400); expect(wider.body.error).toBe('invalid_scope');
     const refreshFields = { grant_type: 'refresh_token', client_id: clients[0].clientId, refresh_token: tokens.refresh_token };
     const rotated = await hostForm(server.baseUrl, '/oauth/token', refreshFields);

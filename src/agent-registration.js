@@ -6,7 +6,7 @@ import path from 'node:path';
 import { agentPermissions, approvalSlotIndexPath, approverIndexDir, approverIndexPath, effectivePermissions, liveApproval, organizationMaximumPermissions, registrationPath } from './agent-approval.js';
 import { newestActiveInstallation } from './agent-installations.js';
 import { routeAvailable, browserPollAvailable, providerGatewayAuthority } from './onboarding-flags.js';
-import { oauthGrantablePermissions, scopeForPermissions } from './agent-remote-auth.js';
+import { oauthGrantablePermissions, oauthScopedPermissions, scopeForPermissions } from './agent-remote-auth.js';
 import { approverEmailHint, displayName, displayVerificationCode, generateBootstrapToken, generateVerificationCode, hashToken, isBootstrapToken, normalizeVerificationCode, sourceHmac, sourceKey, tokenLikePattern, unsafeNameCharacters, validRequestedName, verificationCodeHmac } from './agent-registration-codes.js';
 
 export const registrationTtlSeconds = 600;
@@ -155,7 +155,7 @@ export function hintForHuman(human, { production = false } = {}) {
 export function createAgentRegistrations({
   store, flags, codeKey, limits, pollLimiter, agentSlots, installations, withInboxMutation, canManageLive,
   normalizeLocalPart, addressForLocalPart, identityTaken, semanticDigest, memberOf = async () => true, log = event => console.log(JSON.stringify(event)),
-  production = process.env.ENVOI_AUTH_MODE === 'production'
+  production = process.env.ENVOI_AUTH_MODE === 'production', ownerPermissions = false
 }) {
   const now = () => new Date();
   const nowIso = () => store.now();
@@ -733,7 +733,10 @@ export function createAgentRegistrations({
       // scope (agent-remote-auth §4.3, §8), as consent's scope-derived request already does. receive_agent_messages stays
       // mandatory and narrowing is unchanged (effectivePermissions).
       const requestedPermissions = consent ? request.permissions : oauthGrantablePermissions(input.grantedPermissions);
-      const effective = effectivePermissions(requestedPermissions, input.grantedPermissions);
+      // agent-owner-permissions v1 §2: with the flag on, consent grants the owner's pick from every OAuth-scoped permission,
+      // even ones the client did not request. The registration still records what the client requested.
+      const grantable = consent && ownerPermissions ? oauthScopedPermissions : requestedPermissions;
+      const effective = effectivePermissions(grantable, input.grantedPermissions);
       const code = `${consent ? 'envoi_oauth_code_' : 'envoi_boot_'}${crypto.randomBytes(32).toString('base64url')}`;
       const codeHash = sha256Hex(code);
       const connectionRoute = consent ? request.connectionRoute : 'provider_connector';
