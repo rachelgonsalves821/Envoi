@@ -1067,6 +1067,21 @@
         "owner-dots-waiting-capped.json",
         "owner-wake-unavailable.json"
       ]
+    },
+    {
+      "id": "provider-event-wake-activation",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-event-wake-activation-v1",
+      "dir": "provider-event-wake-activation",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "delivery-activation-proves-listening.json",
+        "subscribe-after-ended-queues-activation.json",
+        "subscribe-new-queues-activation.json",
+        "subscribe-new-with-catch-up.json",
+        "subscribe-renewal-queues-nothing.json"
+      ]
     }
   ]
 }

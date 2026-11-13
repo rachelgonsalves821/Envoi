@@ -52,6 +52,7 @@ Envoi already stores everything needed to see this: wake subscriptions with deli
   - A derivation helper shared by both responses, with a bounded claimable-work scan.
   - FileStore tests that build each fixture's context.
   - Check that activation's first alert (`subscription_activated`) reaches an `mcp_events` subscription and sets `delivery.lastSuccessAt`. The Ready check depends on it.
+- **A2b. First alert for Dots** (owner decision Option 1, 2026-11-13). Contract `provider-event-wake-activation v1`: a new MCP Events subscription with no catch-up hint gets one `subscription_activated` hint, so B1's Ready check proves a real wake. Without it, a healthy new Dot monitor would stay `on` with `lastAlertAt: null` until real work arrived.
 - **A3. Integration.** Merge Lane B's PR into the base and run full CI on the combined head. Then hand off to the owner for base → main and staging.
 
 ### Lane B (Codex)
