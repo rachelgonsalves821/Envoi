@@ -5664,3 +5664,165 @@ This part is **not** behind the flag, so turning the flag off never strands an a
 **Revision 2 (2026-11-13), from Lane B's `MISMATCH` review:**
 1. The Permissions schemas require Receive in `permissions`, `expectedPermissions` and the returned agent, as the route already does. Negative checks are in the fixture test.
 2. Recovery after a permission change has one outcome: the identical earlier response (§4). The new sequence fixture `token-refresh-recovered-after-removal` covers a lost 200, removing Send, the retry, and the successor's refresh.
+
+## agent-listening-status v1
+
+**Contract:** `agent-listening-status`, version 1 (proactive agents plan: `docs/architecture/agent-native-v2/proactive-agents.md`, task A1). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+
+**Fixtures:** [`test/contract-fixtures/agent-listening-status/`](../../../test/contract-fixtures/agent-listening-status/): `schemas.json` (definitions plus `x-limits`, `x-states` and `x-owner-banner`) and 15 cases. **Correction 2026-11-13, same version** (Lane B `MISMATCH`, board #34 comment 6843888657): §5 now defines the stuck-Starting banner and a fix action for every banner row, including connector agents. Three fixtures were added; the other 12 are unchanged except for the new `action` field in their banners. `test/contract-agent-listening-status.test.js` checks every case against the §3 derivation and the §5 banner table.
+
+**Owner:** Lane A. **Consumers:** Lane B: the owner agent list (badge and banner), the Dots setup prompt and the Dots setup skill (the host self-check).
+
+**Why.** On 2026-11-12 an owner reconnected a Dot through ChatGPT settings. That ended the old installation's MCP Events subscription (`credential_ended`), and the new installation never subscribed. A peer message then sat unclaimed and nobody was told. Envoi already stores everything needed to see this. This contract exposes it in two places: the owner can see it, and the agent can check itself.
+
+**Not in v1:**
+- Any write. Nothing here creates, restores or ends a subscription. Restoring stays a host action (MCP Events `events/subscribe`, or the `envoi_wake_*` tools).
+- A new flag, route, error code or stored field.
+- Notifications to the owner outside the web app.
+
+### 1. Rules that hold throughout
+
+- **Read-only and additive.** Two existing responses gain one field each (§4). Nothing else in them changes.
+- **No flag.** The field is present on every deployment that runs this version. A consumer that gets a response without it (an older server) treats the state as unknown: no badge, no banner, and no "Ready" claim based on it.
+- **Producer shapes are closed.** Consumers must accept unknown `state` values and treat them like an absent field.
+- **Agent-wide.** The derivation uses all of the agent's wake subscriptions in its inbox: every installation and every profile (`mcp_events`, `grok_trigger`, `grok_bot` and plain http-wake). Ended ones are the most recent that http-wake keeps (it lists at most 5). Reconnecting replaces the agent's installation, so at most one installation is live.
+
+### 2. `backgroundReceiving`
+
+`{ state, since, lastAlertAt, endedReason, waiting }` (`backgroundReceiving` in `schemas.json`).
+
+| Field | Meaning |
+| --- | --- |
+| `state` | One of `on`, `starting`, `failing`, `off`, `unavailable`, `connector` (§3). |
+| `since` | When the current state's subscription was activated (`on`, `failing`), created (`starting`) or ended (`off`). `null` when there is none. |
+| `lastAlertAt` | That subscription's `delivery.lastSuccessAt`: when an alert last reached the host. `null` until the first alert succeeds. |
+| `endedReason` | For `off` only: the most recently ended subscription's `endedReason` (http-wake's values). `null` when the agent never had one. |
+
+*Clarification during implementation, 2026-11-13, after `CONTRACT-APPROVED` (no fixture changes).* The published enum listed 7 of http-wake's 11 end reasons. `schemas.json` now lists all 11. The four added are `ended_by_owner` (MCP Events), `feature_disabled`, `challenge_expired` and `expired`. Consumers are unaffected: the banner's `off` + `*` row already covers any reason other than `credential_ended`.
+| `waiting` | §3.1. |
+
+### 3. Derivation
+
+The first matching row wins. `x-states` holds the same table.
+
+| # | Condition | `state` | `since` / `lastAlertAt` / `endedReason` |
+| --- | --- | --- | --- |
+| 1 | The agent's reported installation (a5-presence v1 §4.2) is not `deliveryMode: "on_demand"` | `connector` | all `null`. a5-presence's `connection.state` says whether the connector runs. |
+| 2 | Wake subscriptions are off on this deployment (`ENVOI_HTTP_WAKE_V1` off) | `unavailable` | all `null` |
+| 3 | At least one `active` subscription whose `delivery.state` is not `failing` (`healthy` or `unverified`) | `on` | the most recently activated such subscription: `activatedAt` / `delivery.lastSuccessAt` / `null` |
+| 4 | At least one `active` subscription, and all of them are failing | `failing` | the most recently activated one, as in row 3 |
+| 5 | At least one `pending` subscription | `starting` | newest `createdAt` / `null` / `null` |
+| 6 | Otherwise | `off` | the most recently ended subscription: `endedAt` / `delivery.lastSuccessAt` / `endedReason`; all `null` when there is none |
+
+#### 3.1 `waiting`
+
+`{ count, more, oldestAt }`: peer work for this agent that `envoi_claim_work` would offer now, using the same test as the work-due scan. A message counts when its status is `delivered` or `acknowledged`, it is canonical work, and its claim is missing, retryable and due, or its lease has expired. Work held for the owner and human instructions are not counted.
+
+- `count` is exact up to `x-limits.waitingCountCap` (50). `more: true` means more than 50.
+- `oldestAt` is the oldest counted message's `createdAt`, or `null` when `count` is 0.
+- The server may stop scanning once it has found 51.
+
+### 4. Where it appears
+
+| Response | Change |
+| --- | --- |
+| Owner agent list, `GET /api/inboxes/{inboxId}/agents` (a5-presence v1 `ownerAgent`) | Each agent gains `backgroundReceiving`. `connection` and every other field are unchanged. |
+| `envoi_agent_info` over `/mcp` | The result text gains `backgroundReceiving` for full agent credentials. A case-scoped read credential (`mcp_read`, with `caseId`) gets today's result unchanged, without it. |
+
+Paused agents, revoked credentials and every error are unchanged: `/mcp` still answers `409 AGENT_PAUSED` before any tool runs.
+
+### 5. How consumers use it
+
+**Owner UI (Lane B).**
+- **Badge** per agent: On / Starting / Failing / Off / "On demand only" (`unavailable`). Show no badge for `connector`; a5-presence's label already covers those agents.
+- **Banner** only when `waiting.count > 0` and an `x-owner-banner` row matches; the first matching row wins, and the test pins the rule. Each row gives the title, the body, the docs anchor and one `action`. Show "50+" when `more` is true.
+- **Stuck Starting.** The `starting` row has `minStateSeconds: 600`. It matches only when the time since `since` is **more than** 600 seconds (`owner-dots-starting-stuck`, 10:01). At 600 seconds or less there is no banner (`owner-dots-starting`).
+- **Connector agents.** Two rows apply, chosen by a5-presence's `connection.state`. `needs_reconnect` gets `reconnect`. `never_seen` and `not_seen_recently` get `restart_connector`. `seen_recently` gets no banner.
+- **Actions** (`x-owner-banner.actions`):
+
+  | `action` | Used by | What the button does |
+  | --- | --- | --- |
+  | `restore_prompt` | `off` + `credential_ended`, `failing` | **Copy fix instructions**: the restore prompt (restore the native event source on the existing task, then claim waiting work) |
+  | `monitoring_prompt` | `off` (never on, or another reason), stuck `starting` | **Copy fix instructions**: the monitoring prompt with the rule text |
+  | `reconnect` | connector + `needs_reconnect` | **Reconnect**: opens the existing Connect wizard reconnect path for this agent and runtime (`reconnect=true`); nothing is copied from the banner |
+  | `restart_connector` | connector + `never_seen` / `not_seen_recently` | **Copy fix instructions**: `x-owner-banner.restartConnector` with `{name}`, `{address}`, `{platform}` and `{docs}` filled in (fixture `copyText`) |
+  | `none` | `unavailable` | no button; the docs link is the only action |
+
+  The Dots prompts are never offered for connector agents.
+
+**Host (Dots prompt and skill).**
+- Setup may say **Ready** with background receiving only when `state` is `on` and `lastAlertAt` is not `null` (`agent-info-listening`). With `on` and `lastAlertAt: null` (`agent-info-not-proven`), wait for the first alert run and check again.
+- At the start of every run, call `envoi_agent_info`. When `state` is `off` with `endedReason: "credential_ended"`, restore the native event source on the existing task, then claim the waiting work. If restoring fails, tell the owner the exact public result and link `/docs/fix/#listening-ended-after-reconnect` (`agent-info-ended-after-reconnect`).
+
+### 6. Cases
+
+| Fixture | What it shows |
+| --- | --- |
+| `owner-dots-listening.json` | On, alert delivered, no banner |
+| `owner-dots-ended-after-reconnect.json` | The 2026-11-12 case: off, `credential_ended`, 1 waiting, reconnect banner |
+| `owner-dots-never-set-up.json` | Off, never subscribed, 1 waiting |
+| `owner-dots-starting.json` | Pending subscription, no banner |
+| `owner-dots-starting-stuck.json` | Pending for 10:01 with 1 waiting: still-setting-up banner, `monitoring_prompt` |
+| `owner-dots-failing.json` | Active but failing, 2 waiting |
+| `owner-dots-waiting-capped.json` | 73 claimable: `count` 50, `more` true |
+| `owner-wake-unavailable.json` | Wake off on this deployment |
+| `owner-connector-agent.json` | OpenClaw (`envoi_link`): `connector`, running, no banner |
+| `owner-connector-needs-reconnect.json` | OpenClaw `needs_reconnect`, 1 waiting: `reconnect` |
+| `owner-connector-not-running.json` | OpenClaw `not_seen_recently`, 1 waiting: `restart_connector` with `copyText` |
+| `agent-info-listening.json` | Host self-check: proven, may say Ready |
+| `agent-info-not-proven.json` | Activated, first alert not delivered yet |
+| `agent-info-ended-after-reconnect.json` | Host must restore, then claim |
+| `agent-info-case-scoped.json` | `mcp_read` result unchanged |
+
+### 7. Validation and rollback
+
+- Lane A: the fixture tests above, plus server tests on FileStore that build each case's stored context and compare both responses.
+- Lane B: consuming tests for the badge, the banner and the prompt text.
+- Hosted: owner-run evidence with a real Dot (plan §5), kept separate from local and CI results.
+- **Rollback:** revert the server change. Consumers already treat a missing field as unknown.
+
+## provider-event-wake-activation v1
+
+**Contract:** `provider-event-wake-activation`, version 1. It amends `provider-event-wake v1` (proactive agents plan, owner decision Option 1, 2026-11-13). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human). provider-event-wake v1 stays approved and unchanged; once this is approved, MCP Events subscribe follows v1 plus this amendment.
+
+**Fixtures:** [`test/contract-fixtures/provider-event-wake-activation/`](../../../test/contract-fixtures/provider-event-wake-activation/): `schemas.json` (`x-rule` and the fixture shape) and 5 cases. `test/contract-provider-event-wake-activation.test.js` checks every case against the rule.
+
+**Owner:** Lane A. **Consumers:** Lane B: the Dots setup prompt's Ready check (proactive-agents plan B1). The host simply sees one ordinary `envoi.work_available` event.
+
+**Why.** `agent-listening-status v1` lets setup say Ready only when `lastAlertAt` is set: a real alert reached the Dot. For plain http-wake, activation already queues one `subscription_activated` hint (http-wake §3.3 row 9). MCP Events does not. Its verification is synchronous and does not touch `delivery`, and catch-up replays only earlier hints. So a healthy new Dot monitor stayed `on` with `lastAlertAt: null` until real work arrived.
+
+### 1. Rule
+
+On `events/subscribe` for `envoi.work_available`, in the same transaction that creates or renews the subscription (provider-event-wake §4 and §9):
+
+| # | Subscription before the call | Catch-up queued a hint? | Effect |
+| --- | --- | --- | --- |
+| 1 | none, or `ended` (new) | no | Queue exactly one `envoi.work_available` with `reason: "subscription_activated"` |
+| 2 | none, or `ended` (new) | yes | Nothing more: the catch-up hint already wakes the host |
+| 3 | `active` (renewal, same identity, with or without a rotated secret) | any | Nothing new |
+
+- `subscription_activated` is already in provider-event-wake's `x-events` payload enum. No schema, code, route or flag changes.
+- The hint is an ordinary event. It is delivered, signed, retried, coalesced and acknowledged exactly as provider-event-wake §5–§8 says, with the subscription's current cursor.
+- A paused agent cannot subscribe (provider-event-wake §10, `409 AGENT_PAUSED`), so no hint is queued for one.
+- `envoi.control_changed` subscriptions are unchanged.
+
+### 2. Effect on agent-listening-status
+
+When the host acknowledges the hint (2xx), http-wake records `delivery.lastSuccessAt`. agent-listening-status then reports `state: "on"` with `lastAlertAt` set (`delivery-activation-proves-listening`). The host's run for this hint claims once, normally getting no work, and then calls `envoi_agent_info`: that run is the proof.
+
+### 3. Cases
+
+| Fixture | What it shows |
+| --- | --- |
+| `subscribe-new-queues-activation.json` | First subscribe, nothing waiting: one `subscription_activated` |
+| `subscribe-new-with-catch-up.json` | New, cursor replays a missed hint: the catch-up hint only |
+| `subscribe-renewal-queues-nothing.json` | Renewal of an active subscription: nothing new |
+| `subscribe-after-ended-queues-activation.json` | After a reconnect ended the old one: one `subscription_activated` |
+| `delivery-activation-proves-listening.json` | The hint is acknowledged; `lastAlertAt` is set |
+
+### 4. Validation and rollback
+
+- Lane A: the rule test above, plus a server test on FileStore covering rows 1–3 and the resulting `envoi_agent_info`.
+- Lane B: the B1 Ready wording relies on it.
+- Hosted: plan §7 step 1 with a real Dot.
+- **Rollback:** revert the server change. Hosts then fall back to "on, not yet proven" until real work arrives (agent-listening-status `agent-info-not-proven`).

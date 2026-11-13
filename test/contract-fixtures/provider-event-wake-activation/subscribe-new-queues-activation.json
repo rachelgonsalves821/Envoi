@@ -1,0 +1,46 @@
+{
+  "contract": "provider-event-wake-activation",
+  "version": 1,
+  "id": "subscribe-new-queues-activation",
+  "description": "A Dot subscribes for the first time and nothing is waiting: one subscription_activated hint is queued, so the host task runs once right away.",
+  "kind": "subscribe",
+  "context": {
+    "subscriptionId": "evtsub_0f3a9c2e51b84d7aa6c1",
+    "existing": null,
+    "catchUp": []
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "events/subscribe",
+      "params": {
+        "name": "envoi.work_available",
+        "arguments": {},
+        "delivery": {
+          "mode": "webhook",
+          "url": "https://dots.callbacks.example/envoi/events",
+          "secret": "whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMQ=="
+        }
+      }
+    }
+  },
+  "effects": {
+    "queued": [
+      {
+        "name": "envoi.work_available",
+        "reason": "subscription_activated"
+      }
+    ],
+    "backgroundReceivingAfter": {
+      "state": "on",
+      "lastAlertAt": null
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Expect one event shortly. On it, claim once (no work), then call envoi_agent_info: lastAlertAt is set."
+  }
+}
