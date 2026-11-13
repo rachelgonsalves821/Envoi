@@ -78,6 +78,7 @@ import { createCaseSessionMcp } from './case-session-mcp.js';
 import { authorityToolError, createCaseTools, caseToolError, humanDecisionWorkMessage } from './case-tools.js';
 import { createCaseReferenceCodec, projectCaseSnapshot } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
+import { deriveBackgroundReceiving, waitingCountCap } from './agent-listening.js';
 import { createMcpWakeTools } from './mcp-wake-tools.js';
 import { createProviderEventWake } from './provider-event-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
@@ -1548,11 +1549,58 @@ async function withOwnerConnection(inboxId, state, families = null) {
       if (!installation) throw new Error('The reported family names an installation that cannot be read');
       onDemand = installation.deliveryMode === 'on_demand';
     }
-    return { ...state, connection: ownerConnection(state, family, record, store.now(), { onDemand }) };
+    const connected = { ...state, connection: ownerConnection(state, family, record, store.now(), { onDemand }) };
+    const backgroundReceiving = await backgroundReceivingFor(inboxId, state.id, { onDemand });
+    return backgroundReceiving ? { ...connected, backgroundReceiving } : connected;
   } catch {
     console.error(JSON.stringify({ event: 'envoi.agent_presence_read_failed' }));
     return state;
   }
+}
+// agent-listening-status v1 §3: onDemand is the reported family's installation (a5-presence-on-demand §2), as above.
+// A failed read omits the field; consumers treat a missing field as unknown (§1). Read-only: never inside a mutation.
+async function backgroundReceivingFor(inboxId, agentId, { onDemand = null } = {}) {
+  try {
+    if (onDemand === null) {
+      const family = reportedFamily(await agentFamilies(inboxId, agentId));
+      const installation = family?.installationId ? await store.getJson(installationPath(inboxId, agentId, family.installationId)) : null;
+      if (family?.installationId && !installation) return null;
+      onDemand = installation?.deliveryMode === 'on_demand';
+    }
+    const subscriptions = onDemand ? await httpWake.listening(inboxId, agentId) : [];
+    return deriveBackgroundReceiving({ onDemand, wakeAvailable: subscriptions !== null, subscriptions: subscriptions || [], claimable: await claimableWork(inboxId, agentId) });
+  } catch {
+    console.error(JSON.stringify({ event: 'envoi.agent_listening_read_failed' }));
+    return null;
+  }
+}
+// agent-listening-status v1 §3.1: peer work envoi_claim_work would offer now, by the work-due scan's test
+// (owner-held work and human instructions excluded). Stops after waitingCountCap + 1 and after a bounded scan.
+async function claimableWork(inboxId, agentId) {
+  const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+  if (!agent || !canAct(agent, 'receive_agent_messages')) return { count: 0, oldestAt: null };
+  const identity = { agent, inboxId }, at = Date.now(), found = [];
+  for (const status of ['delivered', 'acknowledged']) {
+    let after, scanned = 0;
+    while (found.length <= waitingCountCap && scanned < 1000) {
+      const messages = await store.queryJson(path.join('inboxes', inboxId, 'messages'), { limit: 100, sortField: 'createdAt', order: 'asc', filters: { recipientAgentId: agentId, status }, after });
+      for (const message of messages) {
+        if (message.recipientInboxId !== inboxId || !isCanonicalWork(message) || isHumanInstruction(message)) continue;
+        const claim = await store.getJson(workClaimPath(inboxId, message.id));
+        const due = !claim || (claim.status === 'retryable' && new Date(claim.retryAt) <= at)
+          || (['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) <= at);
+        if (!due || (claim && !claim.reofferWithoutAttempt && agentWorkAttempts(claim) >= agentWorkMaxAttempts)) continue;
+        if (await isWorkHeldForOwner(inboxId, claim) || !await canOfferWork(message, identity)) continue;
+        found.push(message.createdAt);
+        if (found.length > waitingCountCap) break;
+      }
+      scanned += messages.length;
+      if (messages.length < 100) break;
+      const last = messages.at(-1);
+      after = { value: String(last.createdAt ?? ''), id: last.id };
+    }
+  }
+  return { count: found.length, oldestAt: found.length ? found.reduce((a, b) => (String(a) < String(b) ? a : b)) : null };
 }
 async function ownerAgentState(inboxId, agent) {
   const families = await agentFamilies(inboxId, agent.id);
@@ -4549,7 +4597,7 @@ async function route(req, res) {
       if (fresh.paused) throw agentPausedError();
       return messageAccessResult(fresh, remoteAuth.origin, organizationMaximumPermissions());
     } : null;
-    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, requestMessageAccess, onPermissionDenied: () => { req[monadPermissionDenied] = true; },
+    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, requestMessageAccess, listening: () => backgroundReceivingFor(identity.inboxId, identity.agent.id), onPermissionDenied: () => { req[monadPermissionDenied] = true; },
       eventsEnabled: Boolean(onboardingFlags.mcpEvents), providerEvents: events, ownerReviewEnabled: caseSessions.enabled, workReplyEnabled: Boolean(onboardingFlags.grokBotWake),
       wakeTools: { ...mcpWakeTools, call: (name, args) => withInboxMutation(identity.inboxId, async () => mcpWakeTools.call(name, args, await freshMcpIdentity())) } });
   }

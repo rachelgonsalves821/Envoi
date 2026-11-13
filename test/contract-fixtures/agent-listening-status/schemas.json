@@ -122,7 +122,11 @@
         "receiver_gone",
         "delivery_failed",
         "ended_by_host",
-        "revoked_by_owner"
+        "revoked_by_owner",
+        "ended_by_owner",
+        "feature_disabled",
+        "challenge_expired",
+        "expired"
       ]
     },
     "waiting": {
@@ -652,7 +656,11 @@
                           "receiver_gone",
                           "delivery_failed",
                           "ended_by_host",
-                          "revoked_by_owner"
+                          "revoked_by_owner",
+                          "ended_by_owner",
+                          "feature_disabled",
+                          "challenge_expired",
+                          "expired"
                         ]
                       },
                       {
