@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { bootstrapGrantType, oauthErrorDescriptions } from './agent-remote-auth.js';
+import { bootstrapGrantType, oauthErrorDescriptions, remoteAuthScopes } from './agent-remote-auth.js';
 
 // agent-remote-auth v1 (approved revision 4, Policy B) §6-§8, task RA-A2: the pure parts of the token and revocation
 // endpoints. Form parsing, client authentication, PKCE, the refresh recovery envelope and the response shapes live
@@ -122,7 +122,14 @@ export function refreshGrantParameters(params) {
 }
 export const grantTypes = Object.freeze({ authorization_code: 'authorization_code', refresh_token: 'refresh_token', bootstrap: bootstrapGrantType });
 
-// §6.2 row 7: the requested scope, as a set, must equal the family's current scopes.
+// agent-owner-permissions v1 §4 (revises agent-remote-auth §6.2 row 7): a refresh scope parameter only has to name known scopes,
+// each once. The response always carries the family's current scopes.
+export const knownScopes = requested => {
+  const scopes = String(requested).split(' ');
+  return scopes.every(scope => remoteAuthScopes.some(entry => entry.scope === scope)) && new Set(scopes).size === scopes.length;
+};
+
+// The requested scope, as a set, equals the given scopes.
 export const sameScopes = (requested, current) => {
   const a = [...new Set(String(requested).split(' ').filter(Boolean))].sort();
   const b = [...new Set(String(current).split(' ').filter(Boolean))].sort();

@@ -52,6 +52,14 @@ export interface AgentConnection {
   presence: AgentPresence;
 }
 
+export interface AgentBackgroundReceiving {
+  state: string;
+  since: string | null;
+  lastAlertAt: string | null;
+  endedReason: string | null;
+  waiting: { count: number; more: boolean; oldestAt: string | null };
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -69,6 +77,7 @@ export interface Agent {
   resumedAt?: string;
   credentialRevoked?: boolean;
   connection?: AgentConnection;
+  backgroundReceiving?: AgentBackgroundReceiving;
 }
 
 export interface ParticipantIdentity {

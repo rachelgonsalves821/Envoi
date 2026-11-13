@@ -4694,7 +4694,7 @@ A request without `scope` asks for `envoi.agent envoi.send`, the same set as the
 `GET /api/oauth/authorization-requests/{handle}`, human session, returns `consentView`:
 - `client`: `name` (as a `displayName`), `clientIdHost` (the host of a URL client id, or `null` for a pre-registered client), `redirectHost` (the redirect URI's host and, for loopback, the port), `loopbackRedirect` (boolean), `registration` (`metadata_document` or `pre_registered`) and `provider` (pre-registered clients only);
 - `connectionRoute`;
-- `requestedPermissions` and `grantablePermissions` (requested ∩ organization maximum), as in agent-registration §5.2;
+- `requestedPermissions` and `grantablePermissions` (requested ∩ organization maximum), as in agent-registration §5.2. With `ENVOI_OWNER_PERMISSIONS` on, see agent-owner-permissions v1 §2;
 - `expiresAt`, the handle's expiry;
 - `decision`: present exactly when **this** human already decided the handle. It is the `consentDecided` body of §5.2, or `{ "status": "denied" }` after a deny. The page then shows the outcome instead of the form, so a reload never offers the same decision twice.
 
@@ -4847,7 +4847,7 @@ Parameters: `grant_type=refresh_token`, `refresh_token`, `client_id` (public cli
 | 4 | The token is a refresh token of a family issued to this client (`oauthClientId`) | `invalid_grant`. A refresh token of a `local_helper` family, or of another client, is unknown here. |
 | 5 | The family is not revoked, and `refreshExpiresAt` has not passed | `invalid_grant` |
 | 6 | The token is the family's **current** refresh token, or the previous one inside the recovery window (below) | otherwise `invalid_grant`, and the family is revoked as `refresh_replay` |
-| 7 | `scope`, if present, equals the family's current scopes | `invalid_scope`. Narrowing is not supported in v1. |
+| 7 | `scope`, if present, equals the family's current scopes. **Revised by agent-owner-permissions v1 §4:** it only has to name known scopes, and the response carries the current scopes | `invalid_scope`. Narrowing is not supported in v1. |
 | 8 | `resource`, if present, equals the family's audience | `invalid_target` |
 
 On success: `200` `tokenResponse` with a **new** access token and a **new** refresh token. Refresh tokens always rotate, which the MCP specification requires for public clients. A1's `rotationId` does not exist in OAuth, so the server keys recovery differently.
@@ -5590,3 +5590,239 @@ The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:
   - flag off.
 - Lane B: consuming tests for the wizard and approval page.
 - Hosted: owner-run evidence with a real Dot, separate from local and CI results.
+
+## agent-owner-permissions v1
+
+**Contract:** `agent-owner-permissions`, version 1 (simple-setup plan Phase 2b, part 2: `docs/architecture/agent-native-v2/onboarding-simple-setup.md` §5). It revises agent-remote-auth v1 §5.1, §5.2 and §6.2 row 7, and the owner Permissions route. **Status:** approved, revision 2 (§7): Lane B `CONTRACT-ACK` (board 6843844814), human `CONTRACT-APPROVED` (board 6843873044).
+
+**Fixtures:** [`test/contract-fixtures/agent-owner-permissions/`](../../../test/contract-fixtures/agent-owner-permissions/): `schemas.json` (`x-flags`, `x-codes` and the Permissions route's shapes; other shapes are agent-remote-auth's) and 9 cases: `consent-view-owner-choice`, `consent-approve-owner-choice`, `token-code-owner-choice`, `permissions-add-send`, `permissions-add-send-flag-off`, `permissions-add-unscoped`, `token-refresh-original-scope`, `token-refresh-removed-scope`, `token-refresh-recovered-after-removal`. agent-remote-auth's `token-refresh-scope-changed` is rewritten for §4. Every session, CSRF value, handle, code and token in them is a placeholder.
+
+**Owner:** Lane A. **Consumers:** Lane B: the owner approval page (`/authorize-agent`) and the agent Permissions page.
+
+**Why.** A ChatGPT plugin decides which scopes it asks for, and the staging plugin asks for `envoi.agent` only. Under agent-remote-auth the owner can then grant Receive and nothing else, even when they ticked Send in the Connect wizard. Adding Send later gets `OAUTH_RECONSENT_REQUIRED`, and reconnecting asks for the same scopes again. With this contract **the owner's choice in Envoi wins**, within the workspace's limits.
+
+**Not in v1:**
+- Telling a connected client that its tool list changed (`notifications/tools/list_changed`). The hosted test (§6) checks whether ChatGPT offers the send tools without it.
+- Permissions with no OAuth scope (`use_email_transport`) for OAuth agents.
+
+### 1. Rules that hold throughout
+
+- `/mcp` already checks each tool call against the agent's **stored** permissions (agent-remote-auth §9), so a change applies to the next call. Nothing here changes `/mcp`.
+- A token never carries more than the agent's stored permissions at the time it is issued.
+- `receive_agent_messages` stays mandatory, and the organization maximum still applies.
+- No new error codes. `OAUTH_RECONSENT_REQUIRED` is written down here for the first time (`x-codes`); its behaviour with the flag off is today's.
+
+### 2. Approval page (flag on)
+
+**§5.1 `consentView`.** `requestedPermissions` is unchanged: the scopes the client asked for. `grantablePermissions` becomes **every permission with an OAuth scope** (agent-remote-auth `x-scopes`: Receive, Send, Files, Cases) ∩ organization maximum, instead of requested ∩ organization maximum (`consent-view-owner-choice`).
+
+**§5.2 Approve.** The effective permissions become granted ∩ grantable, plus Receive, instead of requested ∩ granted ∩ organization maximum. Everything else in §5.2 is unchanged: precedence, codes, retry, slots and holds. This applies to `remote_mcp_oauth` and `provider_connector` consent, and to `new_agent` and `existing_agent` targets (`consent-approve-owner-choice`).
+
+**§6.1 Code exchange.** `tokenResponse.scope` is the scope of the effective permissions, as today. It may now be wider than the client asked for. RFC 6749 §5.1 allows that, and the response already always carries `scope` (`token-code-owner-choice`).
+
+**What the page does.** It offers every grantable permission. It pre-ticks the saved setup's permissions (agent-saved-setup §4) when there is one, else the requested ones. Next to each ticked permission the client did not request, it says so in one line, for example "Your assistant didn't ask for Send. It will get it." `savedSetup.notRequested` keeps its meaning.
+
+### 3. Permissions page (flag on)
+
+`POST /api/inboxes/{agentInboxId}/agents/{agentId}/permissions` keeps its body (`{ permissions, expectedPermissions }`), checks and `200 { agent }` response. Both arrays must still name known permissions, each once, **always including Receive**; otherwise the route answers `400` as today (`permissionsUpdateRequest`). One rule changes. Adding a permission to an agent with a live OAuth family no longer gets `409 OAUTH_RECONSENT_REQUIRED` when **every added permission has an OAuth scope** (`permissions-add-send`). Adding `use_email_transport` still gets it (`permissions-add-unscoped`). With the flag off, nothing changes (`permissions-add-send-flag-off`).
+
+The page sends the change. It shows its existing reconnect guide only when the answer is `OAUTH_RECONSENT_REQUIRED`, so it needs no flag of its own. Removing a permission is unchanged.
+
+### 4. Refresh scope (any flag state)
+
+agent-remote-auth §6.2 row 7 becomes: **`scope`, if present, names only known scopes** (`x-scopes`, each once); otherwise `invalid_scope`. It no longer has to equal the family's current scopes. The response's `scope` is always the family's current scopes, from the agent's stored permissions. So a client that re-sends the scope it first asked for keeps renewing:
+- after the owner adds a permission (`token-refresh-original-scope`);
+- after the owner removes one (`token-refresh-removed-scope`).
+
+A refresh never yields more than the agent holds. RFC 6749 §6 asks a client not to request more than it was granted. The server tolerates that request, rather than refusing it, and reports the scope it actually issued.
+
+This part is **not** behind the flag, so turning the flag off never strands an agent that was granted more than it asked for. It also fixes today's case where an owner unticks Send at approval and a client that re-sends its original scope fails every renewal. Row 8 (`resource`) is unchanged.
+
+**Recovery re-delivers; it does not issue.** Inside agent-remote-auth's 60-second recovery window, before either successor token is used, the identical retry still gets the **identical** earlier response: the same successor tokens and the same `scope`, even when the owner changed permissions in between. Its `scope` parameter is checked with the new row 7 only. A recovered response can therefore report a scope the agent no longer holds. That grants nothing: `/mcp` checks the stored permissions on every call (§1), so a send tool gets `403 INSUFFICIENT_SCOPE`, and the next refresh with the successor token reports the current scopes (`token-refresh-recovered-after-removal`). "Never more than the agent holds" applies when tokens are issued; re-delivery issues nothing.
+
+### 5. Flag and rollout
+
+`ENVOI_OWNER_PERMISSIONS` defaults to off. The Worker forwards it to the container (`CONTAINER_ENV_KEYS`), and it is turned on for staging only. While it is off, §2 and §3 are exactly agent-remote-auth v1. §4 holds either way.
+
+**Rollback:** turn the flag off. Agents keep the permissions they were granted, as stored data. Their renewals keep working through §4. The owner can remove a permission on the Permissions page at any time.
+
+### 6. Validation
+
+- **Lane A:** fixtures replayed against FileStore and PostgreSQL. Tests cover §2–§4 with the flag on and off, plus a refresh after an add and after a remove. The existing tests that expect `invalid_scope` for a different refresh scope, and `OAUTH_RECONSENT_REQUIRED` on widening, are updated to this contract.
+- **Lane B:** consuming tests for the approval page's grantable list and the "didn't ask for" line, and for the Permissions page with and without `OAUTH_RECONSENT_REQUIRED`.
+- **Hosted (owner, staging, flag on; replaces plan §7).** Use the existing Receive-only test Dot:
+  1. Add Send on its Permissions page.
+  2. Ask the Dot to call `envoi_agent_info`, then to send one short message to a test address.
+  3. Wait 20 minutes, then ask it to call `envoi_agent_info` again.
+  4. Remove Send, wait 20 minutes, then ask it to call `envoi_agent_info` again.
+
+  Pass: every step works, step 2's message arrives, and step 4 shows Receive only. If ChatGPT doesn't offer the send tool in step 2, `notifications/tools/list_changed` becomes a follow-up. A new Dot connected through the wizard with Send ticked must also come out with Send.
+- **Fixture checks:** `contract-fixtures.test.js` ("agent-owner-permissions fixtures agree across cases") validates every request and step, refuses a Permissions body or agent without Receive, and checks the recovery sequence.
+
+### 7. Revisions before approval
+
+**Revision 2 (2026-11-13), from Lane B's `MISMATCH` review:**
+1. The Permissions schemas require Receive in `permissions`, `expectedPermissions` and the returned agent, as the route already does. Negative checks are in the fixture test.
+2. Recovery after a permission change has one outcome: the identical earlier response (§4). The new sequence fixture `token-refresh-recovered-after-removal` covers a lost 200, removing Send, the retry, and the successor's refresh.
+
+## agent-listening-status v1
+
+**Contract:** `agent-listening-status`, version 1 (proactive agents plan: `docs/architecture/agent-native-v2/proactive-agents.md`, task A1). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+
+**Fixtures:** [`test/contract-fixtures/agent-listening-status/`](../../../test/contract-fixtures/agent-listening-status/): `schemas.json` (definitions plus `x-limits`, `x-states` and `x-owner-banner`) and 15 cases. **Correction 2026-11-13, same version** (Lane B `MISMATCH`, board #34 comment 6843888657): §5 now defines the stuck-Starting banner and a fix action for every banner row, including connector agents. Three fixtures were added; the other 12 are unchanged except for the new `action` field in their banners. `test/contract-agent-listening-status.test.js` checks every case against the §3 derivation and the §5 banner table.
+
+**Owner:** Lane A. **Consumers:** Lane B: the owner agent list (badge and banner), the Dots setup prompt and the Dots setup skill (the host self-check).
+
+**Why.** On 2026-11-12 an owner reconnected a Dot through ChatGPT settings. That ended the old installation's MCP Events subscription (`credential_ended`), and the new installation never subscribed. A peer message then sat unclaimed and nobody was told. Envoi already stores everything needed to see this. This contract exposes it in two places: the owner can see it, and the agent can check itself.
+
+**Not in v1:**
+- Any write. Nothing here creates, restores or ends a subscription. Restoring stays a host action (MCP Events `events/subscribe`, or the `envoi_wake_*` tools).
+- A new flag, route, error code or stored field.
+- Notifications to the owner outside the web app.
+
+### 1. Rules that hold throughout
+
+- **Read-only and additive.** Two existing responses gain one field each (§4). Nothing else in them changes.
+- **No flag.** The field is present on every deployment that runs this version. A consumer that gets a response without it (an older server) treats the state as unknown: no badge, no banner, and no "Ready" claim based on it.
+- **Producer shapes are closed.** Consumers must accept unknown `state` values and treat them like an absent field.
+- **Agent-wide.** The derivation uses all of the agent's wake subscriptions in its inbox: every installation and every profile (`mcp_events`, `grok_trigger`, `grok_bot` and plain http-wake). Ended ones are the most recent that http-wake keeps (it lists at most 5). Reconnecting replaces the agent's installation, so at most one installation is live.
+
+### 2. `backgroundReceiving`
+
+`{ state, since, lastAlertAt, endedReason, waiting }` (`backgroundReceiving` in `schemas.json`).
+
+| Field | Meaning |
+| --- | --- |
+| `state` | One of `on`, `starting`, `failing`, `off`, `unavailable`, `connector` (§3). |
+| `since` | When the current state's subscription was activated (`on`, `failing`), created (`starting`) or ended (`off`). `null` when there is none. |
+| `lastAlertAt` | That subscription's `delivery.lastSuccessAt`: when an alert last reached the host. `null` until the first alert succeeds. |
+| `endedReason` | For `off` only: the most recently ended subscription's `endedReason` (http-wake's values). `null` when the agent never had one. |
+
+*Clarification during implementation, 2026-11-13, after `CONTRACT-APPROVED` (no fixture changes).* The published enum listed 7 of http-wake's 11 end reasons. `schemas.json` now lists all 11. The four added are `ended_by_owner` (MCP Events), `feature_disabled`, `challenge_expired` and `expired`. Consumers are unaffected: the banner's `off` + `*` row already covers any reason other than `credential_ended`.
+| `waiting` | §3.1. |
+
+### 3. Derivation
+
+The first matching row wins. `x-states` holds the same table.
+
+| # | Condition | `state` | `since` / `lastAlertAt` / `endedReason` |
+| --- | --- | --- | --- |
+| 1 | The agent's reported installation (a5-presence v1 §4.2) is not `deliveryMode: "on_demand"` | `connector` | all `null`. a5-presence's `connection.state` says whether the connector runs. |
+| 2 | Wake subscriptions are off on this deployment (`ENVOI_HTTP_WAKE_V1` off) | `unavailable` | all `null` |
+| 3 | At least one `active` subscription whose `delivery.state` is not `failing` (`healthy` or `unverified`) | `on` | the most recently activated such subscription: `activatedAt` / `delivery.lastSuccessAt` / `null` |
+| 4 | At least one `active` subscription, and all of them are failing | `failing` | the most recently activated one, as in row 3 |
+| 5 | At least one `pending` subscription | `starting` | newest `createdAt` / `null` / `null` |
+| 6 | Otherwise | `off` | the most recently ended subscription: `endedAt` / `delivery.lastSuccessAt` / `endedReason`; all `null` when there is none |
+
+#### 3.1 `waiting`
+
+`{ count, more, oldestAt }`: peer work for this agent that `envoi_claim_work` would offer now, using the same test as the work-due scan. A message counts when its status is `delivered` or `acknowledged`, it is canonical work, and its claim is missing, retryable and due, or its lease has expired. Work held for the owner and human instructions are not counted.
+
+- `count` is exact up to `x-limits.waitingCountCap` (50). `more: true` means more than 50.
+- `oldestAt` is the oldest counted message's `createdAt`, or `null` when `count` is 0.
+- The server may stop scanning once it has found 51.
+
+### 4. Where it appears
+
+| Response | Change |
+| --- | --- |
+| Owner agent list, `GET /api/inboxes/{inboxId}/agents` (a5-presence v1 `ownerAgent`) | Each agent gains `backgroundReceiving`. `connection` and every other field are unchanged. |
+| `envoi_agent_info` over `/mcp` | The result text gains `backgroundReceiving` for full agent credentials. A case-scoped read credential (`mcp_read`, with `caseId`) gets today's result unchanged, without it. |
+
+Paused agents, revoked credentials and every error are unchanged: `/mcp` still answers `409 AGENT_PAUSED` before any tool runs.
+
+### 5. How consumers use it
+
+**Owner UI (Lane B).**
+- **Badge** per agent: On / Starting / Failing / Off / "On demand only" (`unavailable`). Show no badge for `connector`; a5-presence's label already covers those agents.
+- **Banner** only when `waiting.count > 0` and an `x-owner-banner` row matches; the first matching row wins, and the test pins the rule. Each row gives the title, the body, the docs anchor and one `action`. Show "50+" when `more` is true.
+- **Stuck Starting.** The `starting` row has `minStateSeconds: 600`. It matches only when the time since `since` is **more than** 600 seconds (`owner-dots-starting-stuck`, 10:01). At 600 seconds or less there is no banner (`owner-dots-starting`).
+- **Connector agents.** Two rows apply, chosen by a5-presence's `connection.state`. `needs_reconnect` gets `reconnect`. `never_seen` and `not_seen_recently` get `restart_connector`. `seen_recently` gets no banner.
+- **Actions** (`x-owner-banner.actions`):
+
+  | `action` | Used by | What the button does |
+  | --- | --- | --- |
+  | `restore_prompt` | `off` + `credential_ended`, `failing` | **Copy fix instructions**: the restore prompt (restore the native event source on the existing task, then claim waiting work) |
+  | `monitoring_prompt` | `off` (never on, or another reason), stuck `starting` | **Copy fix instructions**: the monitoring prompt with the rule text |
+  | `reconnect` | connector + `needs_reconnect` | **Reconnect**: opens the existing Connect wizard reconnect path for this agent and runtime (`reconnect=true`); nothing is copied from the banner |
+  | `restart_connector` | connector + `never_seen` / `not_seen_recently` | **Copy fix instructions**: `x-owner-banner.restartConnector` with `{name}`, `{address}`, `{platform}` and `{docs}` filled in (fixture `copyText`) |
+  | `none` | `unavailable` | no button; the docs link is the only action |
+
+  The Dots prompts are never offered for connector agents.
+
+**Host (Dots prompt and skill).**
+- Setup may say **Ready** with background receiving only when `state` is `on` and `lastAlertAt` is not `null` (`agent-info-listening`). With `on` and `lastAlertAt: null` (`agent-info-not-proven`), wait for the first alert run and check again.
+- At the start of every run, call `envoi_agent_info`. When `state` is `off` with `endedReason: "credential_ended"`, restore the native event source on the existing task, then claim the waiting work. If restoring fails, tell the owner the exact public result and link `/docs/fix/#listening-ended-after-reconnect` (`agent-info-ended-after-reconnect`).
+
+### 6. Cases
+
+| Fixture | What it shows |
+| --- | --- |
+| `owner-dots-listening.json` | On, alert delivered, no banner |
+| `owner-dots-ended-after-reconnect.json` | The 2026-11-12 case: off, `credential_ended`, 1 waiting, reconnect banner |
+| `owner-dots-never-set-up.json` | Off, never subscribed, 1 waiting |
+| `owner-dots-starting.json` | Pending subscription, no banner |
+| `owner-dots-starting-stuck.json` | Pending for 10:01 with 1 waiting: still-setting-up banner, `monitoring_prompt` |
+| `owner-dots-failing.json` | Active but failing, 2 waiting |
+| `owner-dots-waiting-capped.json` | 73 claimable: `count` 50, `more` true |
+| `owner-wake-unavailable.json` | Wake off on this deployment |
+| `owner-connector-agent.json` | OpenClaw (`envoi_link`): `connector`, running, no banner |
+| `owner-connector-needs-reconnect.json` | OpenClaw `needs_reconnect`, 1 waiting: `reconnect` |
+| `owner-connector-not-running.json` | OpenClaw `not_seen_recently`, 1 waiting: `restart_connector` with `copyText` |
+| `agent-info-listening.json` | Host self-check: proven, may say Ready |
+| `agent-info-not-proven.json` | Activated, first alert not delivered yet |
+| `agent-info-ended-after-reconnect.json` | Host must restore, then claim |
+| `agent-info-case-scoped.json` | `mcp_read` result unchanged |
+
+### 7. Validation and rollback
+
+- Lane A: the fixture tests above, plus server tests on FileStore that build each case's stored context and compare both responses.
+- Lane B: consuming tests for the badge, the banner and the prompt text.
+- Hosted: owner-run evidence with a real Dot (plan §5), kept separate from local and CI results.
+- **Rollback:** revert the server change. Consumers already treat a missing field as unknown.
+
+## provider-event-wake-activation v1
+
+**Contract:** `provider-event-wake-activation`, version 1. It amends `provider-event-wake v1` (proactive agents plan, owner decision Option 1, 2026-11-13). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human). provider-event-wake v1 stays approved and unchanged; once this is approved, MCP Events subscribe follows v1 plus this amendment.
+
+**Fixtures:** [`test/contract-fixtures/provider-event-wake-activation/`](../../../test/contract-fixtures/provider-event-wake-activation/): `schemas.json` (`x-rule` and the fixture shape) and 5 cases. `test/contract-provider-event-wake-activation.test.js` checks every case against the rule.
+
+**Owner:** Lane A. **Consumers:** Lane B: the Dots setup prompt's Ready check (proactive-agents plan B1). The host simply sees one ordinary `envoi.work_available` event.
+
+**Why.** `agent-listening-status v1` lets setup say Ready only when `lastAlertAt` is set: a real alert reached the Dot. For plain http-wake, activation already queues one `subscription_activated` hint (http-wake §3.3 row 9). MCP Events does not. Its verification is synchronous and does not touch `delivery`, and catch-up replays only earlier hints. So a healthy new Dot monitor stayed `on` with `lastAlertAt: null` until real work arrived.
+
+### 1. Rule
+
+On `events/subscribe` for `envoi.work_available`, in the same transaction that creates or renews the subscription (provider-event-wake §4 and §9):
+
+| # | Subscription before the call | Catch-up queued a hint? | Effect |
+| --- | --- | --- | --- |
+| 1 | none, or `ended` (new) | no | Queue exactly one `envoi.work_available` with `reason: "subscription_activated"` |
+| 2 | none, or `ended` (new) | yes | Nothing more: the catch-up hint already wakes the host |
+| 3 | `active` (renewal, same identity, with or without a rotated secret) | any | Nothing new |
+
+- `subscription_activated` is already in provider-event-wake's `x-events` payload enum. No schema, code, route or flag changes.
+- The hint is an ordinary event. It is delivered, signed, retried, coalesced and acknowledged exactly as provider-event-wake §5–§8 says, with the subscription's current cursor.
+- A paused agent cannot subscribe (provider-event-wake §10, `409 AGENT_PAUSED`), so no hint is queued for one.
+- `envoi.control_changed` subscriptions are unchanged.
+
+### 2. Effect on agent-listening-status
+
+When the host acknowledges the hint (2xx), http-wake records `delivery.lastSuccessAt`. agent-listening-status then reports `state: "on"` with `lastAlertAt` set (`delivery-activation-proves-listening`). The host's run for this hint claims once, normally getting no work, and then calls `envoi_agent_info`: that run is the proof.
+
+### 3. Cases
+
+| Fixture | What it shows |
+| --- | --- |
+| `subscribe-new-queues-activation.json` | First subscribe, nothing waiting: one `subscription_activated` |
+| `subscribe-new-with-catch-up.json` | New, cursor replays a missed hint: the catch-up hint only |
+| `subscribe-renewal-queues-nothing.json` | Renewal of an active subscription: nothing new |
+| `subscribe-after-ended-queues-activation.json` | After a reconnect ended the old one: one `subscription_activated` |
+| `delivery-activation-proves-listening.json` | The hint is acknowledged; `lastAlertAt` is set |
+
+### 4. Validation and rollback
+
+- Lane A: the rule test above, plus a server test on FileStore covering rows 1–3 and the resulting `envoi_agent_info`.
+- Lane B: the B1 Ready wording relies on it.
+- Hosted: plan §7 step 1 with a real Dot.
+- **Rollback:** revert the server change. Hosts then fall back to "on, not yet proven" until real work arrives (agent-listening-status `agent-info-not-proven`).

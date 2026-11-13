@@ -1023,6 +1023,65 @@
         "setup-status-replaced.json",
         "setup-status-waiting.json"
       ]
+    },
+    {
+      "id": "agent-owner-permissions",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-owner-permissions-v1",
+      "dir": "agent-owner-permissions",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "consent-approve-owner-choice.json",
+        "consent-view-owner-choice.json",
+        "permissions-add-send-flag-off.json",
+        "permissions-add-send.json",
+        "permissions-add-unscoped.json",
+        "token-code-owner-choice.json",
+        "token-refresh-original-scope.json",
+        "token-refresh-recovered-after-removal.json",
+        "token-refresh-removed-scope.json"
+      ]
+    },
+    {
+      "id": "agent-listening-status",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-listening-status-v1",
+      "dir": "agent-listening-status",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "agent-info-case-scoped.json",
+        "agent-info-ended-after-reconnect.json",
+        "agent-info-listening.json",
+        "agent-info-not-proven.json",
+        "owner-connector-agent.json",
+        "owner-connector-needs-reconnect.json",
+        "owner-connector-not-running.json",
+        "owner-dots-ended-after-reconnect.json",
+        "owner-dots-failing.json",
+        "owner-dots-listening.json",
+        "owner-dots-never-set-up.json",
+        "owner-dots-starting-stuck.json",
+        "owner-dots-starting.json",
+        "owner-dots-waiting-capped.json",
+        "owner-wake-unavailable.json"
+      ]
+    },
+    {
+      "id": "provider-event-wake-activation",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-event-wake-activation-v1",
+      "dir": "provider-event-wake-activation",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "delivery-activation-proves-listening.json",
+        "subscribe-after-ended-queues-activation.json",
+        "subscribe-new-queues-activation.json",
+        "subscribe-new-with-catch-up.json",
+        "subscribe-renewal-queues-nothing.json"
+      ]
     }
   ]
 }

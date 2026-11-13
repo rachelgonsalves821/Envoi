@@ -23,7 +23,7 @@ import { AuthorizationEntry, AuthorizeAgentPage } from './onboarding/AuthorizeAg
 import { authorizationHandle, authorizationStartError } from './onboarding/consent-state';
 import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
-import { DotsPermissionRecovery, DotsSetupGuide } from './onboarding/DotsSetupGuide';
+import { DotsSetupGuide } from './onboarding/DotsSetupGuide';
 import { SavedSetupProgress } from './onboarding/SavedSetupProgress';
 import { ConnectionMilestones } from './onboarding/ConnectionMilestones';
 import { savedSetupApi, type SavedSetup } from './onboarding/saved-setup';
@@ -43,6 +43,8 @@ import { previewRequested } from './preview';
 import { HighlightedText, HighlightLegend } from './HighlightedText';
 import { findHighlights } from './highlights';
 import { agentLabel, connectionLabel } from './agent-presence';
+import { listeningBadge } from './agent-listening';
+import { AgentListeningNotice } from './AgentListeningNotice';
 import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
@@ -870,6 +872,7 @@ export function AppShell(props: ShellProps) {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [listeningReconnect, setListeningReconnect] = useState<(Agent & { runtime?: ConnectorRuntime }) | null>(null);
   const [connectResult, setConnectResult] = useState<EnrollmentResult | null>(null);
   const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -904,11 +907,12 @@ export function AppShell(props: ShellProps) {
         id: inbox.ownerAgentId || inbox.id,
         name: entry?.agent.name || inbox.removedAgent?.name || inbox.name.replace(/ inbox$/i, ''),
         inbox,
+        badge: listeningBadge(entry?.agent.backgroundReceiving),
         onboardingStatus: entry?.agent.onboardingStatus || (inbox.status === 'pending_approval' ? 'pending_approval' : 'approved')
       };
     }),
     ...agentEntries.filter(entry => entry.inbox.id === rootWorkspace.id && !agentInboxes.some(inbox => inbox.ownerAgentId === entry.agent.id)).map(({ agent, inbox }) => ({
-      id: agent.id, name: agent.name, inbox, onboardingStatus: agent.onboardingStatus
+      id: agent.id, name: agent.name, inbox, badge: listeningBadge(agent.backgroundReceiving), onboardingStatus: agent.onboardingStatus
     }))
   ];
   const aggregateViews = [view, ...[rootWorkspace, ...agentInboxes].filter(inbox => inbox.id !== workspace.id).map(inbox => childViews[inbox.id]).filter((item): item is HumanView => Boolean(item))];
@@ -942,6 +946,12 @@ export function AppShell(props: ShellProps) {
   const selectedCase = selectedCaseEntry?.workCase || null;
   const selectedCaseView = selectedCaseEntry?.sourceView || view;
   const currentAgent = workspace.kind === 'agent' ? view.agents.find(item => item.id === workspace.ownerAgentId) || null : null;
+  const listeningNotice = currentAgent && section === 'inbox' && <AgentListeningNotice
+    key={`${workspace.id}:${currentAgent.id}:${currentAgent.backgroundReceiving?.state}:${currentAgent.backgroundReceiving?.endedReason}:${currentAgent.connection?.state}`}
+    agent={currentAgent} inboxId={workspace.id} onReconnect={canManageInbox ? runtime => {
+      setConnectResult(null);
+      setListeningReconnect({ ...currentAgent, runtime });
+    } : undefined} />;
 
   useEffect(() => { document.documentElement.dataset.theme = 'light'; localStorage.removeItem('envoi.theme'); }, []);
   useEffect(() => { props.onChildViewsChange?.(childViews); }, [childViews, props.onChildViewsChange]);
@@ -1106,10 +1116,10 @@ export function AppShell(props: ShellProps) {
           <NavItem section="needsMe" label="Needs you" icon={<Hand />} count={counts.needsMe} active={workspace.id === rootWorkspace.id && section === 'needsMe'} onClick={() => chooseInbox(rootWorkspace, 'needsMe')} attention />
           <NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === rootWorkspace.id && section === 'completed'} onClick={() => chooseInbox(rootWorkspace, 'completed')} />
           <div className="nav-section-heading"><span>Agents</span><button aria-label="Add agent" disabled={!canManageInbox} onClick={openConnect}><Plus size={15} /></button></div>
-          {agentNavEntries.map(({ id, name, inbox, onboardingStatus }, index) => {
+          {agentNavEntries.map(({ id, name, inbox, badge, onboardingStatus }, index) => {
             const expanded = expandedAgents.includes(id);
             const color = AGENT_COLORS[index % AGENT_COLORS.length];
-            return <div key={id}><div className="agent-nav-row"><button className="nav-item" aria-current={workspace.id === inbox.id ? 'page' : undefined} onClick={() => chooseInbox(inbox)}><span className="agent-dot" style={{ '--agent-color': color } as React.CSSProperties}>{initials(name)}</span><span>{name}</span>{onboardingStatus !== 'approved' && <span className="nav-count">Setup</span>}</button><button className="icon-button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${name}`} aria-expanded={expanded} onClick={() => toggleAgent(id)}><ChevronDown size={14} /></button></div>{expanded && <div className="agent-subnav"><NavItem section="inbox" label="Inbox" icon={<Inbox />} active={workspace.id === inbox.id && section === 'inbox'} onClick={() => chooseInbox(inbox)} /><NavItem section="needsMe" label="Needs you" icon={<Hand />} active={workspace.id === inbox.id && section === 'needsMe'} onClick={() => chooseInbox(inbox, 'needsMe')} /><NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === inbox.id && section === 'completed'} onClick={() => chooseInbox(inbox, 'completed')} /></div>}</div>;
+            return <div key={id}><div className="agent-nav-row"><button className="nav-item" aria-current={workspace.id === inbox.id ? 'page' : undefined} onClick={() => chooseInbox(inbox)}><span className="agent-dot" style={{ '--agent-color': color } as React.CSSProperties}>{initials(name)}</span><span>{name}</span>{onboardingStatus !== 'approved' && <span className="nav-count">Setup</span>}</button><button className="icon-button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${name}`} aria-expanded={expanded} onClick={() => toggleAgent(id)}><ChevronDown size={14} /></button></div>{badge && <span className="listening-badge sidebar-listening-badge">{badge}</span>}{expanded && <div className="agent-subnav"><NavItem section="inbox" label="Inbox" icon={<Inbox />} active={workspace.id === inbox.id && section === 'inbox'} onClick={() => chooseInbox(inbox)} /><NavItem section="needsMe" label="Needs you" icon={<Hand />} active={workspace.id === inbox.id && section === 'needsMe'} onClick={() => chooseInbox(inbox, 'needsMe')} /><NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === inbox.id && section === 'completed'} onClick={() => chooseInbox(inbox, 'completed')} /></div>}</div>;
           })}
           {agentInboxes.some(inbox => inbox.status === 'removed') && <div className="nav-section-heading"><span>Archived agents</span></div>}
           {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
@@ -1154,7 +1164,7 @@ export function AppShell(props: ShellProps) {
           </main>
         ) : (
           <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}${selectedCase && wide ? ' split-view' : ''}`}>
-{(!selectedCase || wide) && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={openConnect} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} conversationsStatus={doneLoadStatus} onRetryConversations={() => { for (const inbox of missingAgentViews) void refreshAgentInbox(inbox.id).catch(() => setChildViewFailures(current => current.includes(inbox.id) ? current : [...current, inbox.id])); }} />}
+{(!selectedCase || wide) && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} listeningNotice={listeningNotice} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={openConnect} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} conversationsStatus={doneLoadStatus} onRetryConversations={() => { for (const inbox of missingAgentViews) void refreshAgentInbox(inbox.id).catch(() => setChildViewFailures(current => current.includes(inbox.id) ? current : [...current, inbox.id])); }} />}
             {selectedCase && <main id="main-content" className="case-main">
 <CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
             </main>}
@@ -1165,6 +1175,7 @@ export function AppShell(props: ShellProps) {
       {toast && <div className="toast"><Check size={16} />{toast}</div>}
       {folderDialogOpen && <Modal title="Create folder" dismissible={!folderBusy} onClose={() => setFolderDialogOpen(false)}><CreateInboxFolderContent busy={folderBusy} error={folderError} onClose={() => setFolderDialogOpen(false)} onCreate={name => void createFolder(name)} /></Modal>}
       {folderToDelete && <Modal title="Delete folder?" dismissible={!folderBusy} onClose={() => setFolderToDelete(null)}><p className="dialog-copy">Delete “{folderToDelete.name}”? Conversations in this folder will stay in All inboxes.</p><FormError message={folderError} /><div className="dialog-actions"><button className="button secondary" disabled={folderBusy} onClick={() => setFolderToDelete(null)}>Cancel</button><button className="button destructive" disabled={folderBusy} onClick={() => void deleteFolder()}>{folderBusy ? 'Deleting…' : 'Delete folder'}</button></div></Modal>}
+      {listeningReconnect && listeningReconnect.id === currentAgent?.id && <EnrollmentDialog workspace={workspace} reconnectAgent={listeningReconnect} result={connectResult} setResult={setConnectResult} onRefresh={onRefresh} onClose={() => { setListeningReconnect(null); setConnectResult(null); }} />}
       {connectOpen && <EnrollmentDialog workspace={rootWorkspace} agentDomain={queueView.publicEmailTransport?.internalAgentDomain || 'envoi-agents.com'} result={connectResult} setResult={setConnectResult} onRefresh={onRefresh} onClose={() => { setConnectOpen(false); setConnectResult(null); }} />}
     </div>
   );
@@ -1188,7 +1199,7 @@ function NavItem({ section, label, icon, count, active, attention, onClick }: { 
   return <button className={`nav-item ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => onClick(section)}><span className="nav-icon">{icon}</span><span>{label}</span>{Boolean(count) && <span className={`nav-count ${attention ? 'attention' : ''}`} aria-label={`${count} items`}>{count! > 9 ? '9+' : count}</span>}</button>;
 }
 
-function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onConnect, onLoadOlder, historyBusy, onSelect, conversationsStatus, onRetryConversations }: { section: NavSection; folderName?: string; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onConnect: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void; conversationsStatus?: 'loading' | 'error'; onRetryConversations?: () => void }) {
+function CaseQueue({ section, folderName, cases, view, currentAgent, listeningNotice, selectedId, caseKey, onOpenNav, onConnect, onLoadOlder, historyBusy, onSelect, conversationsStatus, onRetryConversations }: { section: NavSection; folderName?: string; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; listeningNotice?: ReactNode; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onConnect: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void; conversationsStatus?: 'loading' | 'error'; onRetryConversations?: () => void }) {
   const [query, setQuery] = useState('');
   const loadMarker = useRef<HTMLDivElement>(null);
   const hasMore = Boolean(Object.keys(olderCursors(view)).length);
@@ -1214,6 +1225,7 @@ function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId,
   return (
     <aside id={selectedId ? undefined : "main-content"} className="case-queue" aria-label={`${section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'Inbox'} cases`}>
       <div className="queue-header"><div className="queue-context">{currentAgent ? <><span className="agent-dot" style={{ '--agent-color': AGENT_COLORS[Math.max(0, view.agents.indexOf(currentAgent)) % AGENT_COLORS.length] } as React.CSSProperties}>{initials(currentAgent.name)}</span><span title={currentAgent.address}>{currentAgent.name} · {currentAgent.address}</span></> : <span>All agents</span>}</div><div className="queue-title-row"><button className="icon-button mobile-only queue-menu" aria-label="Open navigation" onClick={onOpenNav}><Menu size={18} /></button><h1>{folderName || (section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'All inboxes')}</h1></div></div>
+      {listeningNotice}
       <label className="queue-search"><Search size={15} /><span className="sr-only">Search cases</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search" /><kbd>/</kbd></label>
       <div className="case-list" role="listbox" aria-label="Conversations">
         {filtered.map(item => <CaseRow key={caseKey(item)} workCase={item} view={caseSourceView(item, view)} showOwner={!currentAgent} selected={selectedId === caseKey(item)} onSelect={onSelect} />)}
@@ -1760,7 +1772,6 @@ export function PoliciesPage({ entries, onConnect, onRefresh, notify }: { entrie
     finally { setBusy(false); }
   }
   return <PageFrame eyebrow="" title="Permissions" description="Review and update what each agent can do.">
-    <DotsPermissionRecovery agents={entries.filter(entry => entry.view.canManageInbox).map(entry => entry.agent)} />
     {entries.length === 0 ? <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Connect an agent to see its permissions." action={<button className="button secondary" onClick={onConnect}>Connect an agent</button>} /> : <><div className="permission-editor-actions">{entries.filter(entry => entry.view.canManageInbox && entry.agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(entry.agent.status)).map(entry => <button key={entry.agent.id} type="button" className="button secondary compact" onClick={() => openEditor(entry)}>Edit {entry.agent.name}’s permissions</button>)}</div><div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
       <div className="permission-table-head" role="row"><span role="columnheader">Action</span>{entries.map(({ agent }) => <span role="columnheader" key={agent.id}>{agent.name}</span>)}</div>
       {AGENT_PERMISSION_OPTIONS.map(option => <div className="permission-table-row" role="row" key={option.id}><div role="cell"><strong>{option.label}</strong><small>{option.description}</small></div>{entries.map(entry => {
@@ -1877,6 +1888,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const [showSteps, setShowSteps] = useState(false);
+  const badge = listeningBadge(agent.backgroundReceiving);
   const showInstallations = canManageInbox && workspace.kind === 'agent' && workspace.ownerAgentId === agent.id
     && (agent.onboardingStatus === 'approved' || frozen);
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
@@ -1942,6 +1954,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div></div>
       <div className="agent-status-access">
         <span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span>
+        {badge && <span className="listening-badge">{badge}</span>}
         {approvedAccess && <div className="capability-list">{agent.permissions.slice(0, 4).map(item => <span key={item}>{humanize(item)}</span>)}</div>}
       </div>
       <div className="agent-card-actions">

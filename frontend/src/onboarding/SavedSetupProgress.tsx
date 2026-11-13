@@ -3,7 +3,7 @@ import { ConnectionMilestones } from './ConnectionMilestones';
 import { savedSetupApi, savedSetupStage, watchSavedSetup, type SavedSetup } from './saved-setup';
 
 const stages = ['waiting', 'approved', 'connected', 'ready'] as const;
-const milestones = ['Saved', 'Approved', 'Connected', 'Ready'];
+const milestones = ['Saved', 'Approved', 'Connected', 'Checked in'];
 
 export function SavedSetupProgress({ setup, onConnected, onStartAgain }: {
   setup: SavedSetup;
@@ -40,7 +40,7 @@ export function SavedSetupProgress({ setup, onConnected, onStartAgain }: {
       waiting: ['Waiting for approval', 'Paste the setup prompt into your Dot’s chat to begin.'],
       approved: ['Access approved', 'Return to the Dot’s chat to finish connecting.'],
       connected: ['Your Dot is connected', 'The Dot still needs to verify its connection.'],
-      ready: ['Your Dot is ready', 'It can use Envoi from its chat.']
+      ready: ['Your Dot checked in', 'Check the Dot’s chat for its setup result.']
     }[stage];
   const canRestart = stage === 'expired' || stage === 'replaced' || unavailable === 'ended';
   return <div className="connection-progress">
