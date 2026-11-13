@@ -20,11 +20,11 @@ function memoryStore() {
   } };
 }
 
-async function startServer() {
+async function startServer(env: NodeJS.ProcessEnv = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-connector-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_AGENT_WORK_RETRY_BASE_MS: '50' },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_AGENT_WORK_RETRY_BASE_MS: '50', ...env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const baseUrl = await new Promise<string>((resolve, reject) => {
@@ -40,12 +40,13 @@ async function startServer() {
   return { baseUrl, dataDir, child };
 }
 
-async function request(baseUrl: string, pathname: string, browser: BrowserSession, options: { token?: string; body?: Record<string, unknown> } = {}) {
+async function request(baseUrl: string, pathname: string, browser: BrowserSession, options: { token?: string; body?: Record<string, unknown>; idempotencyKey?: string } = {}) {
   const method = options.body ? 'POST' : 'GET';
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
     headers: {
       ...(options.body ? { 'content-type': 'application/json' } : {}),
+      ...(options.idempotencyKey ? { 'idempotency-key': options.idempotencyKey } : {}),
       ...(!options.token ? browser.headers(baseUrl, method) : {}),
       ...(options.token ? { authorization: `Bearer ${options.token}` } : {})
     },
@@ -102,6 +103,49 @@ describe('customer-hosted connector against the real local API', () => {
       await rm(server.dataDir, { recursive: true, force: true });
     }
   });
+
+  it('settles an exact peer message without taking the earlier owner instruction in the same case', async () => {
+    const server = await startServer({ ENVOI_INSTALLATIONS_V2: 'true', ENVOI_CASE_SESSIONS_V1: 'true' });
+    servers.push(server);
+    const { baseUrl } = server;
+    const senderHuman = await owner(baseUrl, 'Peer sender owner', '+14165550143');
+    const recipientHuman = await owner(baseUrl, 'Peer recipient owner', '+14165550144');
+    const sender = await enroll(baseUrl, senderHuman, 'Peer sender');
+    const recipient = await enroll(baseUrl, recipientHuman, 'Peer recipient');
+    const session = recipient.get();
+    const client = new EnvoiClient(baseUrl, sender.get().agentApiToken);
+    const caseId = newCaseId();
+    const send = (key: string, text: string) => client.sendMessage(sender.get().inboxId, key, {
+      senderAgentId: sender.get().agentId, recipientEmail: session.address, caseId, text,
+    });
+    const readMessages = async () => (await request(baseUrl, `/api/inboxes/${session.inboxId}/messages`, recipientHuman.browser, { token: session.agentApiToken })).payload as any[];
+    const waitForDelivery = (id: string) => eventually(async () => (await readMessages()).find(message => message.id === id && message.status === 'delivered') || null);
+    const processed: string[] = [];
+    const connector = new EnvoiConnector(baseUrl, recipient.store, {
+      caseSessionHandler: { admit: async () => {}, process: async (_channel, context) => { processed.push(context.workId!); } },
+    });
+    const seed = await send('peer-seed', 'Open the test case.');
+    await waitForDelivery(seed.id);
+    expect(await connector.processWorkOnce()).toBe(true);
+
+    const instruction = await request(baseUrl, `/api/inboxes/${session.inboxId}/cases/${caseId}/instructions`, recipientHuman.browser, {
+      body: { text: 'Owner instruction to preserve.' }, idempotencyKey: 'owner-instruction',
+    });
+    expect(instruction.status).toBe(201);
+    const peer = await send('peer-follow-up', 'Synthetic file request.');
+    await waitForDelivery(peer.id);
+    const expectation = { workId: peer.id, caseId };
+    const driver = connector.scopedWakeWorkDriver();
+    await expect(driver.processWorkBatch([expectation], undefined, { acceptHumanInstructions: false }))
+      .resolves.toEqual([{ ...expectation, status: 'fulfilled', worked: true }]);
+    expect(processed).toEqual([seed.id, peer.id]);
+    const messages = await readMessages();
+    expect(messages.find(message => message.id === peer.id)?.status).toBe('processed');
+    expect(messages.find(message => message.id === instruction.payload.id)?.status).toBe('delivered');
+    const receipts = await request(baseUrl, `/api/inboxes/${session.inboxId}/delivery-receipts`, recipientHuman.browser, { token: session.agentApiToken });
+    expect((receipts.payload as any[]).filter(receipt => receipt.messageId === peer.id && receipt.state === 'processed')).toHaveLength(1);
+    expect((receipts.payload as any[]).some(receipt => receipt.messageId === instruction.payload.id)).toBe(false);
+  }, 20_000);
 
   it('keeps identity and queued work through offline delivery and a recipient process restart', async () => {
     const server = await startServer();
