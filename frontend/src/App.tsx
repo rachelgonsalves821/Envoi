@@ -1402,6 +1402,7 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
   const replyAuthor = replyTarget ? groupParticipant(workCase, view, replyTarget.payload.senderAgentId || replyTarget.actor) : null;
   const decision = humanProposalDecision(event);
   const approvalRequested = event.type === 'policyEvaluation' && event.payload.decision === 'needsHuman';
+  const attachments = Array.isArray(event.payload.attachments) ? event.payload.attachments as Asset[] : [];
   return <>
     {showDay && <div className="conversation-day"><span>{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</span></div>}
     {isExchangeEvent(event) ? <div id={isGroup && typeof event.payload.messageId === 'string' ? `message-${event.payload.messageId}` : undefined} className={`conversation-message ${mine ? 'mine' : 'theirs'}${ownerInstruction ? ' owner-instruction' : ''}${continued ? ' continued' : ''}`}>
@@ -1410,6 +1411,13 @@ export function ConversationEntry({ event, previous, workCase, view, replyTarget
         <div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong>{!ownerInstruction && !isGroup && <span className="meta-role">{mine ? 'Your agent' : participant.orgRef || 'External agent'}</span>}<span>{ownerInstruction ? 'Owner instruction' : exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div>
         {isGroup && typeof event.payload.inReplyTo === 'string' && <div className="group-reply">{replyAuthor ? <a href={`#message-${encodeURIComponent(event.payload.inReplyTo)}`}>Reply to {replyAuthor.displayName}</a> : 'Reply to an earlier message'}</div>}
         <div className="message-bubble">{ownerInstruction && event.payload.text ? String(event.payload.text) : <HighlightedText text={eventSummary(event)} />}</div>
+        {attachments.length > 0 && <ul className="message-attachments" aria-label="Attachments">{attachments.map(asset =>
+          <li key={asset.id}>
+            <a download={assetDisplayName(asset)} href={`/api/inboxes/${encodeURIComponent(view.inbox.id)}/assets/${encodeURIComponent(asset.id)}/content`}>
+              <Download size={14} aria-hidden="true" /> Download {assetDisplayName(asset)}
+            </a>
+          </li>
+        )}</ul>}
         {assigneeIds.length > 0 && <ul className="group-assignments" aria-label="Assignments">{assigneeIds.map(agentId => {
           const assignee = groupParticipant(workCase, view, agentId);
           const assignment = workCase.assignments?.find(item => item.messageId === event.payload.messageId && item.agentId === agentId);

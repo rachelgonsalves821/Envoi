@@ -201,6 +201,16 @@ var ie = class {
 			}
 		} : n;
 	}
+	async downloadChatAttachment(e, t) {
+		let n = `/api/inboxes/${encodeURIComponent(e)}/assets/${encodeURIComponent(t.id)}/content`, r = await R(this.fetcher, `${this.baseUrl.replace(/\/$/, "")}${n}`, {
+			headers: { authorization: `Bearer ${this.accessToken}` },
+			redirect: "error"
+		}, this.requestTimeoutMs);
+		if (!r.ok) return L(r, "Envoi attachment download failed");
+		let i = await r.arrayBuffer(), a = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", i));
+		if (i.byteLength !== t.size || btoa(String.fromCharCode(...a)) !== t.checksumSha256) throw Error("Downloaded attachment did not match the original file.");
+		return i;
+	}
 	acknowledge(e, t, n, r) {
 		return this.request(`/api/inboxes/${encodeURIComponent(e)}/messages/${encodeURIComponent(t)}/acknowledgements`, {
 			method: "POST",
@@ -1357,6 +1367,9 @@ var ze = class {
 	}
 	getCleanAssetDownload(e) {
 		return this.withFreshClient((t, n) => t.getCleanAssetDownload(n.inboxId, e), !1);
+	}
+	downloadChatAttachment(e) {
+		return this.withFreshClient((t, n) => t.downloadChatAttachment(n.inboxId, e), !1);
 	}
 	async postWork(e, t, n, r, i = !1) {
 		return this.withFreshSession(async (a, o) => {

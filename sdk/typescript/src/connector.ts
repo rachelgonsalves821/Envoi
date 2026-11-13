@@ -1,4 +1,4 @@
-import { responsePayload, rotateAgentToken, EnvoiClient, EnvoiError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ClientOptions, type GroupMessageInput, type NativeMessageInput } from './index';
+import { responsePayload, rotateAgentToken, EnvoiClient, EnvoiError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ChatAttachment, type ClientOptions, type GroupMessageInput, type NativeMessageInput } from './index';
 import { lifecyclePolicy, retryDelay, guidanceText, type ConnectorLifecycle, type ConnectorState } from './lifecycle';
 export type { ConnectorLifecycle, ConnectorState } from './lifecycle';
 import { CONNECTOR_RUNTIMES, type ConnectorRuntime } from './quick-connect';
@@ -50,6 +50,7 @@ export interface NativeWorkMessage extends Record<string, unknown> {
   caseId?: string | null;
   groupCase?: { messageId: string; memberAgentIds: string[] };
   text: string;
+  attachments?: ChatAttachment[];
 }
 
 export interface HumanInstructionWorkMessage extends Record<string, unknown> {
@@ -742,6 +743,10 @@ export class EnvoiConnector {
 
   getCleanAssetDownload(assetId: string) {
     return this.withFreshClient((client, session) => client.getCleanAssetDownload(session.inboxId, assetId), false);
+  }
+
+  downloadChatAttachment(attachment: ChatAttachment) {
+    return this.withFreshClient((client, session) => client.downloadChatAttachment(session.inboxId, attachment), false);
   }
 
   private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string, signal?: AbortSignal, scopedResponse = false): Promise<T> {

@@ -1339,6 +1339,7 @@ function setCaseMessageDeliveryState(value, message, state, at) {
       messageType: message.type,
       text: message.text,
       data: message.payload,
+      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       senderAgentId: message.senderAgentId,
       recipientAgentId: message.recipientAgentId,
       recipientEmail: message.recipientEmail,
@@ -1521,7 +1522,7 @@ const matchesCasePair = (binding, message) => JSON.stringify(binding.agentIds) =
   && JSON.stringify(binding.inboxIds) === JSON.stringify(pairIds([message.senderInboxId, message.recipientInboxId]));
 async function sharedCaseForAsset(caseId) {
   const [binding, value] = await Promise.all([store.getJson(caseBindingPath(caseId)), store.getJson(sharedCasePath(caseId))]);
-  return binding?.agentIds?.length === 2 && binding?.inboxIds?.length === 2 && value?.id === caseId
+  return (binding?.mode === 'group' || binding?.agentIds?.length === 2 && binding?.inboxIds?.length === 2) && value?.id === caseId
     && JSON.stringify(pairIds(value.participants || [])) === JSON.stringify(binding.agentIds) ? { binding, value } : null;
 }
 const agentFamilies = (inboxId, agentId) => store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
@@ -1560,7 +1561,13 @@ async function ownerAgentState(inboxId, agent) {
 async function assetPair(asset, recipientAgentId, recipientInboxId) {
   if (!asset?.key || !asset.caseId || !asset.workspaceId || !asset.createdByAgentId || asset.createdByAgentId === recipientAgentId) return null;
   const shared = await sharedCaseForAsset(asset.caseId);
-  if (!shared || !matchesCasePair(shared.binding, { senderAgentId: asset.createdByAgentId, recipientAgentId, senderInboxId: asset.workspaceId, recipientInboxId })) return null;
+  if (!shared) return null;
+  const { binding } = shared;
+  const matches = binding.mode === 'group'
+    ? binding.members.some(member => member.agentId === asset.createdByAgentId && member.inboxId === asset.workspaceId)
+      && binding.members.some(member => member.agentId === recipientAgentId && member.inboxId === recipientInboxId)
+    : matchesCasePair(binding, { senderAgentId: asset.createdByAgentId, recipientAgentId, senderInboxId: asset.workspaceId, recipientInboxId });
+  if (!matches) return null;
   const [ownerDirectory, recipientDirectory] = await Promise.all([
     store.getJson(path.join('directory', 'agents', `${asset.createdByAgentId}.json`)),
     store.getJson(path.join('directory', 'agents', `${recipientAgentId}.json`))
@@ -1577,6 +1584,48 @@ async function assetRelationshipBlocked(asset, recipientAgentId, recipientInboxI
 async function assetReader(req, inbox) {
   const [human, agent] = await Promise.all([auth.getHuman(req), getAgentPrincipal(req, inbox.id)]);
   return { agent, manager: await canManageInbox(human, inbox) };
+}
+
+function attachmentIds(input) {
+  if (input === undefined) return [];
+  if (!Array.isArray(input) || input.length > 10 || new Set(input).size !== input.length
+    || input.some(id => typeof id !== 'string' || !/^obj_[a-f0-9-]+$/.test(id))) {
+    throw codedError(400, 'INVALID_ATTACHMENTS', 'Supply up to ten distinct uploaded asset IDs.');
+  }
+  return input;
+}
+
+async function chatAttachments(ids, caseId, senderAgentId, senderInboxId, recipients) {
+  const attachments = [];
+  const grants = [];
+  for (const id of ids) {
+    const asset = await store.getJson(objectMetadataPath(id));
+    if (!asset?.key || asset.managedFile || asset.caseId !== caseId
+      || asset.createdByAgentId !== senderAgentId || asset.workspaceId !== senderInboxId) {
+      throw codedError(404, 'ASSET_NOT_FOUND', 'Attachment is unavailable in this conversation.');
+    }
+    if (asset.state !== 'clean') throw codedError(423, 'ASSET_NOT_CLEAN', 'Attachment must pass its safety scan before sending.');
+    for (const { agentId, inboxId } of recipients) {
+      if (!await assetPair(asset, agentId, inboxId)) throw caseParticipantMismatch();
+      if (await assetRelationshipBlocked(asset, agentId, inboxId)) {
+        throw codedError(403, 'AGENT_BLOCKED', 'Attachment cannot be shared with a blocked participant.');
+      }
+      const location = assetGrantPath(inboxId, id);
+      const existing = await store.getJson(location);
+      if (existing) {
+        if (existing.recipientAgentId !== agentId || existing.caseId !== caseId || existing.assetId !== id
+          || existing.ownerAgentId !== senderAgentId || existing.ownerInboxId !== senderInboxId
+          || existing.recipientInboxId !== inboxId) throw nativeIdempotencyConflict();
+        continue;
+      }
+      grants.push(document(location, { id: `grant_${hashSecret(`${id}:${caseId}:${agentId}`).slice(0, 40)}`,
+        schemaVersion: '1.0', assetId: id, caseId, ownerInboxId: senderInboxId, ownerAgentId: senderAgentId,
+        recipientInboxId: inboxId, recipientAgentId: agentId, grantedByAgentId: senderAgentId, createdAt: store.now() }));
+    }
+    const { filename, mimeType, size, checksumSha256 } = asset;
+    attachments.push({ id, filename, mimeType, size, checksumSha256 });
+  }
+  return { attachments, grants };
 }
 async function assetReadAccess(asset, inbox, reader) {
   if (!asset || asset.managedFile) return { allowed: false };
@@ -1694,7 +1743,7 @@ async function verifyGroupMembers(members, assignees = []) {
   return inboxes[0];
 }
 
-async function writeGroupMessage(binding, identity, input, messageId, writeAudit) {
+async function writeGroupMessage(binding, identity, input, messageId, writeAudit, req) {
   if (!groupMember(binding, identity)) throw codedError(404, 'GROUP_CASE_NOT_FOUND', 'Group case not found.');
   if (!canAct(identity.agent, 'send_agent_messages')) throw codedError(403, 'INSUFFICIENT_SCOPE', 'Message send permission required.');
   const { text, inReplyTo = null, assigneeAgentIds = [] } = input;
@@ -1709,7 +1758,9 @@ async function writeGroupMessage(binding, identity, input, messageId, writeAudit
   const value = await getCase(identity.inboxId, caseId);
   if (value?.state !== 'inProgress') throw codedError(409, 'CASE_CONTROLLED', 'This group case is unavailable.');
   const assignees = [...assigneeAgentIds].sort();
-  const requestHash = semanticDigest({ caseId, text, inReplyTo, assignees });
+  const ids = attachmentIds(input.attachmentIds);
+  if (ids.length && !canAct(identity.agent, 'create_assets')) throw codedError(403, 'INSUFFICIENT_SCOPE', 'Attachment sharing requires file creation permission.');
+  const requestHash = semanticDigest({ caseId, text, inReplyTo, assignees, ...(ids.length ? { attachmentIds: ids } : {}) });
   const requestPath = path.join('group-message-requests', `${messageId}.json`);
   const previous = await store.getJson(requestPath);
   if (previous) {
@@ -1719,13 +1770,21 @@ async function writeGroupMessage(binding, identity, input, messageId, writeAudit
   if (inReplyTo !== null && !value.events.some(event => event.type === 'message' && event.payload?.id === inReplyTo)) {
     throw codedError(404, 'GROUP_REPLY_NOT_FOUND', 'Reply target is not in this group case.');
   }
+  const { attachments, grants } = await chatAttachments(ids, caseId, identity.agent.id, identity.inboxId,
+    binding.members.filter(member => member.agentId !== identity.agent.id));
+  if (attachments.length && onboardingFlags.relationships) {
+    for (const { id } of attachments) await requireV2Authorization(req, identity.inboxId, identity.agent.id, 'asset.grant', {
+      caseRecord: value, resourceGrant: { resourceId: id, agentId: identity.agent.id, active: true }
+    });
+  }
   const at = store.now();
   const message = { id: messageId, caseId, senderAgentId: identity.agent.id, senderAddress: identity.agent.address,
-    text, inReplyTo, assigneeAgentIds: assignees, createdAt: at };
+    text, inReplyTo, assigneeAgentIds: assignees, createdAt: at, ...(attachments.length ? { attachments } : {}) };
   appendEvent(value, { id: `evt_${messageId}`, type: 'message', actor: identity.agent.id, createdAt: at,
     payload: { ...message, messageId, messageType: 'message', deliveryState: 'delivered' } });
   value.updatedAt = at;
   const documents = [
+    ...grants,
     document(requestPath, { requestHash, message }),
     document(sharedCasePath(caseId), value),
     ...binding.inboxIds.map(inboxId => document(caseRecordPath(inboxId, caseId), value))
@@ -1779,7 +1838,7 @@ async function handleGroupCaseRoute(req, res, route) {
   if (caseId) {
     const messageId = `msg_${hashSecret(JSON.stringify(['group', identity.agent.id, caseId, key])).slice(0, 32)}`;
     const result = await withInboxMutation(identity.inboxId, async writeAudit =>
-      writeGroupMessage(binding, await freshIdentity(), input, messageId, writeAudit),
+      writeGroupMessage(binding, await freshIdentity(), input, messageId, writeAudit, req),
     binding.inboxIds, [caseMutationKey(caseId)]);
     return json(res, result.replayed ? 200 : 201, result.message);
   }
@@ -2165,6 +2224,7 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
     updatedAt: queuedAt
   };
   const delivery = await store.enqueueOutbox([
+    ...(caseOptions.attachmentGrants || []),
     document(messagePath(senderInbox.id, queued.id), queued),
     ...shared.documents
   ], outbox);
@@ -6781,7 +6841,8 @@ async function route(req, res) {
     if (recipient.id === sender.id) return fail(res, 400, 'Sender and recipient must be different agents');
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
     const requestedCaseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
-    const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, proposal: input.proposal || null, authority: input.authority || null, signature: input.signature || null, artifactRefs: input.artifactRefs || [] }));
+    const ids = attachmentIds(input.attachmentIds);
+    const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, proposal: input.proposal || null, authority: input.authority || null, signature: input.signature || null, artifactRefs: input.artifactRefs || [], ...(ids.length ? { attachmentIds: ids } : {}) }));
     const priorMessage = await store.getJson(messagePath(inboxId, messageId));
     const candidateCaseId = requestedCaseId || priorMessage?.caseId || store.id('case');
     const response = await withInboxMutation(inboxId, async writeAudit => {
@@ -6824,6 +6885,16 @@ async function route(req, res) {
       }
       const createdAt = store.now();
       const conversationId = candidateCaseId;
+      if (ids.length && !canAct(currentPrincipal, 'create_assets')) throw codedError(403, 'INSUFFICIENT_SCOPE', 'Attachment sharing requires file creation permission.');
+      const { attachments, grants } = await chatAttachments(ids, conversationId, senderAgentId, inboxId, [
+        { agentId: currentRecipient.id, inboxId: currentRecipientDirectory.inboxId }
+      ]);
+      if (attachments.length && onboardingFlags.relationships) {
+        const caseRecord = await getCase(inboxId, conversationId);
+        for (const { id } of attachments) await requireV2Authorization(req, inboxId, senderAgentId, 'asset.grant', {
+          caseRecord, resourceGrant: { resourceId: id, agentId: senderAgentId, active: true }
+        });
+      }
       const protocol = createProtocolMessage({
         messageId,
         conversationId,
@@ -6847,6 +6918,7 @@ async function route(req, res) {
         id: messageId,
         ...protocol,
         caseId: conversationId,
+        ...(attachments.length ? { attachments } : {}),
         senderInboxId: inboxId,
         recipientInboxId: currentRecipientDirectory.inboxId,
         senderType: 'agent',
@@ -6864,7 +6936,7 @@ async function route(req, res) {
         queuedAt: createdAt,
         status: 'queued'
       };
-      const queued = await enqueueNativeMessage(message, currentSenderInbox, currentRecipientDirectory.inboxId, 'message.queued', writeAudit, req);
+      const queued = await enqueueNativeMessage(message, currentSenderInbox, currentRecipientDirectory.inboxId, 'message.queued', writeAudit, req, { attachmentGrants: grants });
       return { status: 202, payload: queued, queued: true };
     }, [recipientDirectory.inboxId], [caseMutationKey(candidateCaseId)]);
     if (response.queued) deliveryWorker.kick();
@@ -7004,7 +7076,7 @@ async function route(req, res) {
     if (access.blocked) return fail(res, 403, 'AGENT_BLOCKED');
     if (!access.allowed) return fail(res, 404, 'ASSET_NOT_FOUND');
     if (asset.state !== 'clean') return fail(res, 423, 'ASSET_NOT_CLEAN');
-    if (!access.owner) return json(res, 200, { object: asset, download: {
+    if (!access.owner && !(url.searchParams.get('transport') === 'signed' && await getAgentPrincipal(req, inboxId))) return json(res, 200, { object: asset, download: {
       url: `${publicBaseUrl(req)}/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(asset.id)}/content`,
       method: 'GET', headers: {}
     } });

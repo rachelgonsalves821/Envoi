@@ -7,7 +7,7 @@ import type { CaseEvent, HumanView, WorkCase } from '../src/types';
 
 const workCase = { id: 'case_rows', principal: 'human_owner', actingAgent: 'agent_mine' } as WorkCase;
 const view = {
-  inbox: { ownerAgentId: 'agent_mine' },
+  inbox: { id: 'inbox_mine', ownerAgentId: 'agent_mine' },
   messages: [],
   agents: [{ id: 'agent_mine', displayName: 'Milo' }],
   requester: { id: 'human_owner', auth: { provider: 'local', assurance: 'totp' } },
@@ -62,4 +62,16 @@ it('keeps failed actions and agent messages out of the human decision history', 
     ...agentEvent, type: 'humanAction',
     payload: { action: { actionKey: 'decline', outcome: 'failed' } }
   })).not.toContain('rejected the agent proposal');
+});
+
+it.each(['direct', 'group'])('renders a download in the viewing inbox for a %s chat attachment', mode => {
+  const event = message('e6', 'agent_other', '2026-10-06T12:00:00Z', {
+    attachments: [{ id: 'obj_pdf', filename: 'proposal.pdf' }]
+  });
+  const markup = renderToStaticMarkup(createElement(ConversationEntry, {
+    event, workCase: mode === 'group' ? { ...workCase, caseMode: 'group', members: [] } : workCase, view
+  }));
+  expect(markup).toContain('href="/api/inboxes/inbox_mine/assets/obj_pdf/content"');
+  expect(markup).toContain('download="proposal.pdf"');
+  expect(markup).toContain('Download proposal.pdf');
 });

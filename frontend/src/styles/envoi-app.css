@@ -169,6 +169,9 @@
 .app-shell .group-reply, .app-shell .group-assignments { color: var(--ink2); font-size: 12px; }
 .app-shell .group-reply { margin-bottom: 4px; }
 .app-shell .group-assignments { margin: 6px 0 0; padding-inline-start: 16px; }
+.app-shell .message-attachments { display: grid; gap: 5px; list-style: none; margin: 6px 0 0; padding: 0; }
+.app-shell .message-attachments a { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.app-shell .message-attachments a:hover { background: var(--fill); }
 .app-shell .participant-duo .participant-card { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 11px 12px; border: 0; border-radius: 12px; background: var(--fill); }
 .app-shell .participant-duo .participant-card.mine { background: var(--accent-soft); }
 .app-shell .participant-duo .counterparty-avatar { width: 36px; height: 36px; font-size: 14px; }
