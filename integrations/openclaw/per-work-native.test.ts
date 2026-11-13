@@ -37,7 +37,7 @@ it('copies private native config only, preserves provider auth/model and origina
  expect(config.agents).not.toHaveProperty('list');expect(config.agents.entries).toEqual({main:{workspace:path.join(s.options.workRoot,'msg_actual','workspace'),agentDir:path.join(s.options.workRoot,'msg_actual','agent-state')}});
  expect(await fs.readFile(path.join(s.profile,'openclaw.json'))).toEqual(original);expect(await fs.readFile(path.join(s.profile,'envoi-state','history'),'utf8')).toBe('ORIGINAL_ENROLLMENT_HISTORY');expect(await fs.readdir(path.join(s.options.workRoot,'msg_actual','state'))).toEqual([]);
  await startOwnedOpenClawWork(factory,prepared.prepared,{canonical,capabilitySha256:'1'.repeat(64),ownerSelectionSha256:'2'.repeat(64),meterToken:'FAKE_NATIVE_METER_TOKEN',environment:{},signal,authorize:vi.fn(async()=>{}),ports:{}as any});
- expect(fake.start).toHaveBeenCalledTimes(1);const actual=fake.start.mock.calls[0][0]as any;expect(actual.pins).toMatchObject({workId:binding.workId,caseSessionId:binding.caseSessionId,capabilitySha256:'1'.repeat(64),nativeSourceSha256:pins.nativeSourceSha256});expect(actual.nativeEnvironmentFile).toBe(s.options.nativeEnvironmentFile);expect(actual.bootstrap.binding.nativeSources.packageTree).toMatch(/^[a-f0-9]{64}$/);expect(actual.environment.OPENCLAW_CONFIG_PATH).toBe(path.join(s.options.workRoot,'msg_actual','openclaw.json'));
+ expect(fake.start).toHaveBeenCalledTimes(1);const actual=fake.start.mock.calls[0][0]as any;expect(actual.pins).toMatchObject({workId:binding.workId,caseSessionId:binding.caseSessionId,capabilitySha256:'1'.repeat(64),nativeSourceSha256:pins.nativeSourceSha256});expect(actual.nativeEnvironmentFile).toBe(s.options.nativeEnvironmentFile);expect(actual.bootstrap.binding.nativeSources.packageTree).toMatch(/^[a-f0-9]{64}$/);expect(actual.environment.OPENCLAW_CONFIG_PATH).toBe(path.join(s.options.workRoot,'msg_actual','openclaw.json'));expect(actual.environment).not.toHaveProperty('OPENCLAW_DISABLE_BUNDLED_PLUGINS');
  await expect(prepareOwnedOpenClawWork(factory,{binding,canonical,gatewayPort:41002,proxyToken:'fake',proxyIdentity:'proxy_duplicate',signal})).rejects.toThrow('NEW_EXACT_NATIVE_WORK_REQUIRED');
 });
 it('preserves an earlier attempt profile and supports the same logical work in a caller-pinned fresh attempt root',async()=>{
@@ -46,13 +46,17 @@ it('preserves an earlier attempt profile and supports the same logical work in a
  await prepareOwnedOpenClawWork(first.factory,input);
  const oldRoot=path.join(s.options.workRoot,binding.workId),files=['openclaw.json','original-config.private.backup.json'],before=await Promise.all(files.map(file=>fs.readFile(path.join(oldRoot,file))));
  const reopened=await prepareOwnedOpenClawFactory(s.options);await expect(prepareOwnedOpenClawWork(reopened.factory,input)).rejects.toMatchObject({code:'EEXIST'});
- const fresh=await prepareOwnedOpenClawFactory({...s.options,workRoot:path.join(s.options.workRoot,'attempt-reviewed-2')}),next={...binding,caseSessionId:'case_session_retry',processIdentity:'process_retry'};
+ const fresh=await prepareOwnedOpenClawFactory({...s.options,workRoot:path.join(s.options.workRoot,'attempt-reviewed-2'),directClientTools:true}),next={...binding,caseSessionId:'case_session_retry',processIdentity:'process_retry'};
  const prepared=await prepareOwnedOpenClawWork(fresh.factory,{...input,binding:next,canonical:{...canonical,fence:2},gatewayPort:41002,proxyIdentity:'proxy_retry'});
  expect(prepared.privateTarget.binding).toMatchObject({workId:binding.workId,caseId:binding.caseId,caseSessionId:next.caseSessionId,fence:2});
  for(let i=0;i<files.length;i++)expect(await fs.readFile(path.join(oldRoot,files[i]))).toEqual(before[i]);
  expect(prepared.privateTarget.configurationPathSha256).not.toBe(hash(path.resolve(path.join(oldRoot,'openclaw.json'))));
+ const retryConfig=JSON.parse(await fs.readFile(path.join(s.options.workRoot,'attempt-reviewed-2',binding.workId,'openclaw.json'),'utf8'));
+ expect(retryConfig.tools).toEqual({profile:'minimal',deny:['*'],toolSearch:false});
  expect(await fs.readFile(path.join(s.profile,'envoi-state','history'),'utf8')).toBe('ORIGINAL_ENROLLMENT_HISTORY');expect(fake.start).not.toHaveBeenCalled();
  await expect(prepareOwnedOpenClawWork(fresh.factory,{...input,binding:next,canonical:{...canonical,fence:2}})).rejects.toThrow('NEW_EXACT_NATIVE_WORK_REQUIRED');
+ await startOwnedOpenClawWork(fresh.factory,prepared.prepared,{canonical:{...canonical,fence:2},capabilitySha256:'1'.repeat(64),ownerSelectionSha256:'2'.repeat(64),meterToken:'FAKE_NATIVE_METER_TOKEN',environment:{OPENCLAW_DISABLE_BUNDLED_PLUGINS:'0'},signal,authorize:async()=>{},ports:{}as any});
+ expect(fake.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({environment:expect.objectContaining({OPENCLAW_DISABLE_BUNDLED_PLUGINS:'1',OPENCLAW_GATEWAY_STARTUP_TRACE:'1'})}));
 });
 
 async function freePort(){const server=createServer();await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const port=(server.address()as {port:number}).port;await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));return port;}
