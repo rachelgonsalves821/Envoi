@@ -4694,7 +4694,7 @@ A request without `scope` asks for `envoi.agent envoi.send`, the same set as the
 `GET /api/oauth/authorization-requests/{handle}`, human session, returns `consentView`:
 - `client`: `name` (as a `displayName`), `clientIdHost` (the host of a URL client id, or `null` for a pre-registered client), `redirectHost` (the redirect URI's host and, for loopback, the port), `loopbackRedirect` (boolean), `registration` (`metadata_document` or `pre_registered`) and `provider` (pre-registered clients only);
 - `connectionRoute`;
-- `requestedPermissions` and `grantablePermissions` (requested ∩ organization maximum), as in agent-registration §5.2;
+- `requestedPermissions` and `grantablePermissions` (requested ∩ organization maximum), as in agent-registration §5.2. With `ENVOI_OWNER_PERMISSIONS` on, see agent-owner-permissions v1 §2;
 - `expiresAt`, the handle's expiry;
 - `decision`: present exactly when **this** human already decided the handle. It is the `consentDecided` body of §5.2, or `{ "status": "denied" }` after a deny. The page then shows the outcome instead of the form, so a reload never offers the same decision twice.
 
@@ -4847,7 +4847,7 @@ Parameters: `grant_type=refresh_token`, `refresh_token`, `client_id` (public cli
 | 4 | The token is a refresh token of a family issued to this client (`oauthClientId`) | `invalid_grant`. A refresh token of a `local_helper` family, or of another client, is unknown here. |
 | 5 | The family is not revoked, and `refreshExpiresAt` has not passed | `invalid_grant` |
 | 6 | The token is the family's **current** refresh token, or the previous one inside the recovery window (below) | otherwise `invalid_grant`, and the family is revoked as `refresh_replay` |
-| 7 | `scope`, if present, equals the family's current scopes | `invalid_scope`. Narrowing is not supported in v1. |
+| 7 | `scope`, if present, equals the family's current scopes. **Revised by agent-owner-permissions v1 §4:** it only has to name known scopes, and the response carries the current scopes | `invalid_scope`. Narrowing is not supported in v1. |
 | 8 | `resource`, if present, equals the family's audience | `invalid_target` |
 
 On success: `200` `tokenResponse` with a **new** access token and a **new** refresh token. Refresh tokens always rotate, which the MCP specification requires for public clients. A1's `rotationId` does not exist in OAuth, so the server keys recovery differently.
@@ -5590,6 +5590,80 @@ The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:
   - flag off.
 - Lane B: consuming tests for the wizard and approval page.
 - Hosted: owner-run evidence with a real Dot, separate from local and CI results.
+
+## agent-owner-permissions v1
+
+**Contract:** `agent-owner-permissions`, version 1 (simple-setup plan Phase 2b, part 2: `docs/architecture/agent-native-v2/onboarding-simple-setup.md` §5). It revises agent-remote-auth v1 §5.1, §5.2 and §6.2 row 7, and the owner Permissions route. **Status:** published, revision 2 (§7), awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+
+**Fixtures:** [`test/contract-fixtures/agent-owner-permissions/`](../../../test/contract-fixtures/agent-owner-permissions/): `schemas.json` (`x-flags`, `x-codes` and the Permissions route's shapes; other shapes are agent-remote-auth's) and 9 cases: `consent-view-owner-choice`, `consent-approve-owner-choice`, `token-code-owner-choice`, `permissions-add-send`, `permissions-add-send-flag-off`, `permissions-add-unscoped`, `token-refresh-original-scope`, `token-refresh-removed-scope`, `token-refresh-recovered-after-removal`. agent-remote-auth's `token-refresh-scope-changed` is rewritten for §4. Every session, CSRF value, handle, code and token in them is a placeholder.
+
+**Owner:** Lane A. **Consumers:** Lane B: the owner approval page (`/authorize-agent`) and the agent Permissions page.
+
+**Why.** A ChatGPT plugin decides which scopes it asks for, and the staging plugin asks for `envoi.agent` only. Under agent-remote-auth the owner can then grant Receive and nothing else, even when they ticked Send in the Connect wizard. Adding Send later gets `OAUTH_RECONSENT_REQUIRED`, and reconnecting asks for the same scopes again. With this contract **the owner's choice in Envoi wins**, within the workspace's limits.
+
+**Not in v1:**
+- Telling a connected client that its tool list changed (`notifications/tools/list_changed`). The hosted test (§6) checks whether ChatGPT offers the send tools without it.
+- Permissions with no OAuth scope (`use_email_transport`) for OAuth agents.
+
+### 1. Rules that hold throughout
+
+- `/mcp` already checks each tool call against the agent's **stored** permissions (agent-remote-auth §9), so a change applies to the next call. Nothing here changes `/mcp`.
+- A token never carries more than the agent's stored permissions at the time it is issued.
+- `receive_agent_messages` stays mandatory, and the organization maximum still applies.
+- No new error codes. `OAUTH_RECONSENT_REQUIRED` is written down here for the first time (`x-codes`); its behaviour with the flag off is today's.
+
+### 2. Approval page (flag on)
+
+**§5.1 `consentView`.** `requestedPermissions` is unchanged: the scopes the client asked for. `grantablePermissions` becomes **every permission with an OAuth scope** (agent-remote-auth `x-scopes`: Receive, Send, Files, Cases) ∩ organization maximum, instead of requested ∩ organization maximum (`consent-view-owner-choice`).
+
+**§5.2 Approve.** The effective permissions become granted ∩ grantable, plus Receive, instead of requested ∩ granted ∩ organization maximum. Everything else in §5.2 is unchanged: precedence, codes, retry, slots and holds. This applies to `remote_mcp_oauth` and `provider_connector` consent, and to `new_agent` and `existing_agent` targets (`consent-approve-owner-choice`).
+
+**§6.1 Code exchange.** `tokenResponse.scope` is the scope of the effective permissions, as today. It may now be wider than the client asked for. RFC 6749 §5.1 allows that, and the response already always carries `scope` (`token-code-owner-choice`).
+
+**What the page does.** It offers every grantable permission. It pre-ticks the saved setup's permissions (agent-saved-setup §4) when there is one, else the requested ones. Next to each ticked permission the client did not request, it says so in one line, for example "Your assistant didn't ask for Send. It will get it." `savedSetup.notRequested` keeps its meaning.
+
+### 3. Permissions page (flag on)
+
+`POST /api/inboxes/{agentInboxId}/agents/{agentId}/permissions` keeps its body (`{ permissions, expectedPermissions }`), checks and `200 { agent }` response. Both arrays must still name known permissions, each once, **always including Receive**; otherwise the route answers `400` as today (`permissionsUpdateRequest`). One rule changes. Adding a permission to an agent with a live OAuth family no longer gets `409 OAUTH_RECONSENT_REQUIRED` when **every added permission has an OAuth scope** (`permissions-add-send`). Adding `use_email_transport` still gets it (`permissions-add-unscoped`). With the flag off, nothing changes (`permissions-add-send-flag-off`).
+
+The page sends the change. It shows its existing reconnect guide only when the answer is `OAUTH_RECONSENT_REQUIRED`, so it needs no flag of its own. Removing a permission is unchanged.
+
+### 4. Refresh scope (any flag state)
+
+agent-remote-auth §6.2 row 7 becomes: **`scope`, if present, names only known scopes** (`x-scopes`, each once); otherwise `invalid_scope`. It no longer has to equal the family's current scopes. The response's `scope` is always the family's current scopes, from the agent's stored permissions. So a client that re-sends the scope it first asked for keeps renewing:
+- after the owner adds a permission (`token-refresh-original-scope`);
+- after the owner removes one (`token-refresh-removed-scope`).
+
+A refresh never yields more than the agent holds. RFC 6749 §6 asks a client not to request more than it was granted. The server tolerates that request, rather than refusing it, and reports the scope it actually issued.
+
+This part is **not** behind the flag, so turning the flag off never strands an agent that was granted more than it asked for. It also fixes today's case where an owner unticks Send at approval and a client that re-sends its original scope fails every renewal. Row 8 (`resource`) is unchanged.
+
+**Recovery re-delivers; it does not issue.** Inside agent-remote-auth's 60-second recovery window, before either successor token is used, the identical retry still gets the **identical** earlier response: the same successor tokens and the same `scope`, even when the owner changed permissions in between. Its `scope` parameter is checked with the new row 7 only. A recovered response can therefore report a scope the agent no longer holds. That grants nothing: `/mcp` checks the stored permissions on every call (§1), so a send tool gets `403 INSUFFICIENT_SCOPE`, and the next refresh with the successor token reports the current scopes (`token-refresh-recovered-after-removal`). "Never more than the agent holds" applies when tokens are issued; re-delivery issues nothing.
+
+### 5. Flag and rollout
+
+`ENVOI_OWNER_PERMISSIONS` defaults to off. The Worker forwards it to the container (`CONTAINER_ENV_KEYS`), and it is turned on for staging only. While it is off, §2 and §3 are exactly agent-remote-auth v1. §4 holds either way.
+
+**Rollback:** turn the flag off. Agents keep the permissions they were granted, as stored data. Their renewals keep working through §4. The owner can remove a permission on the Permissions page at any time.
+
+### 6. Validation
+
+- **Lane A:** fixtures replayed against FileStore and PostgreSQL. Tests cover §2–§4 with the flag on and off, plus a refresh after an add and after a remove. The existing tests that expect `invalid_scope` for a different refresh scope, and `OAUTH_RECONSENT_REQUIRED` on widening, are updated to this contract.
+- **Lane B:** consuming tests for the approval page's grantable list and the "didn't ask for" line, and for the Permissions page with and without `OAUTH_RECONSENT_REQUIRED`.
+- **Hosted (owner, staging, flag on; replaces plan §7).** Use the existing Receive-only test Dot:
+  1. Add Send on its Permissions page.
+  2. Ask the Dot to call `envoi_agent_info`, then to send one short message to a test address.
+  3. Wait 20 minutes, then ask it to call `envoi_agent_info` again.
+  4. Remove Send, wait 20 minutes, then ask it to call `envoi_agent_info` again.
+
+  Pass: every step works, step 2's message arrives, and step 4 shows Receive only. If ChatGPT doesn't offer the send tool in step 2, `notifications/tools/list_changed` becomes a follow-up. A new Dot connected through the wizard with Send ticked must also come out with Send.
+- **Fixture checks:** `contract-fixtures.test.js` ("agent-owner-permissions fixtures agree across cases") validates every request and step, refuses a Permissions body or agent without Receive, and checks the recovery sequence.
+
+### 7. Revisions before approval
+
+**Revision 2 (2026-11-13), from Lane B's `MISMATCH` review:**
+1. The Permissions schemas require Receive in `permissions`, `expectedPermissions` and the returned agent, as the route already does. Negative checks are in the fixture test.
+2. Recovery after a permission change has one outcome: the identical earlier response (§4). The new sequence fixture `token-refresh-recovered-after-removal` covers a lost 200, removing Send, the retry, and the successor's refresh.
 
 ## agent-listening-status v1
 

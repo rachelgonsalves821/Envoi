@@ -1,0 +1,53 @@
+{
+  "contract": "agent-owner-permissions",
+  "version": 1,
+  "id": "token-code-owner-choice",
+  "description": "The code exchange reports the granted scopes, which may be wider than the assistant requested (RFC 6749 §5.1: scope is always sent).",
+  "kind": "http",
+  "flags": {
+    "ENVOI_OWNER_PERMISSIONS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "context": {
+    "authorizationRequestScope": "envoi.agent",
+    "effectivePermissions": [
+      "receive_agent_messages",
+      "send_agent_messages"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/oauth/token",
+    "auth": "public_client",
+    "headers": {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    "form": {
+      "grant_type": "authorization_code",
+      "code": "envoi_oauth_code_PLACEHOLDER_1",
+      "redirect_uri": "https://assistant.example.com/oauth/callback",
+      "code_verifier": "iOY_y2JNRsKjN4t_WyVeJiT-YAQVoL6MnFjPW6Ks1hU",
+      "resource": "https://www.envoi-agents.com/mcp",
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "agent-remote-auth/tokenResponse",
+    "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache"
+    },
+    "body": {
+      "access_token": "envoi_agent_access_PLACEHOLDER_oauth_1",
+      "token_type": "Bearer",
+      "expires_in": 900,
+      "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+      "scope": "envoi.agent envoi.send"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Store both tokens. The granted scope is the response's scope."
+  }
+}

@@ -2410,3 +2410,57 @@ test('agent-remote-auth revisions 3 and 4: handle length, and used-code replay u
   assert.equal(ended.steps[2].response.body.error, 'invalid_grant', 'ended: invalid_grant');
   assert.equal(ended.steps.length, 3, 'ended: no further revocation step');
 });
+
+// agent-owner-permissions v1 (revision 2): request bodies and steps match their schemas, Receive stays mandatory on the
+// Permissions route, and a recovery retry re-delivers the identical earlier response while the successor reports current scopes.
+test('agent-owner-permissions fixtures agree across cases', async () => {
+  const index = await readJson(path.join(root, 'index.json'));
+  const entry = index.contracts.find((contract) => contract.id === 'agent-owner-permissions');
+  const dir = path.join(root, entry.dir);
+  const own = await readJson(path.join(dir, 'schemas.json'));
+  const remote = await readJson(path.join(root, 'agent-remote-auth', 'schemas.json'));
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  addFormats(ajv);
+  ajv.addSchema(own);
+  ajv.addSchema(remote);
+  const validator = (name) => {
+    const [owner, definition] = name.includes('/') ? name.split('/') : ['agent-owner-permissions', name];
+    const validate = ajv.getSchema(`${owner === 'agent-owner-permissions' ? own.$id : remote.$id}#/definitions/${definition}`);
+    assert.ok(validate, `no schema ${name}`);
+    return validate;
+  };
+  const valid = (name, value) => validator(name)(value);
+  const fixtures = await Promise.all(entry.fixtures.map((name) => readJson(path.join(dir, name))));
+  for (const fixture of fixtures) {
+    for (const [index, step] of (fixture.steps || [fixture]).entries()) {
+      const label = `${fixture.id}${fixture.steps ? ` step ${index}` : ''}`;
+      if (step.request.schema) assert.equal(valid(step.request.schema, step.request.body), true, `${label} request`);
+      assert.equal(valid(step.response.schema, step.response.body), true, `${label} response`);
+    }
+  }
+
+  // Revision 2, finding 1: both arrays need Receive, and so does the agent the route returns.
+  const add = fixtures.find((fixture) => fixture.id === 'permissions-add-send');
+  for (const key of ['permissions', 'expectedPermissions']) {
+    assert.equal(valid('permissionsUpdateRequest', { ...add.request.body, [key]: ['send_agent_messages'] }), false, `${key} without Receive is refused`);
+  }
+  assert.equal(valid('permissionsUpdated', { agent: { id: 'agent_example', permissions: ['send_agent_messages'] } }), false, 'an agent without Receive is never returned');
+
+  // Revision 2, finding 2: recovery re-delivers; the successor renews with the scopes of the permissions now stored.
+  const recovered = fixtures.find((fixture) => fixture.id === 'token-refresh-recovered-after-removal');
+  const [lost, removal, retry, successor] = recovered.steps;
+  assert.deepEqual(retry.request, lost.request, 'the retry is the identical form');
+  assert.deepEqual(retry.response, lost.response, 'the retry gets the identical response and successor tokens');
+  assert.equal(successor.request.form.refresh_token, lost.response.body.refresh_token, 'the next refresh uses the delivered successor');
+  const scopeOf = (permissions) => remote['x-scopes'] ? remote['x-scopes'].filter((row) => permissions.includes(row.permission)).map((row) => row.scope).join(' ') : null;
+  const expected = scopeOf(removal.response.body.agent.permissions) ?? 'envoi.agent';
+  assert.equal(successor.response.body.scope, expected, 'the successor reports the current scopes');
+  assert.notEqual(successor.response.body.access_token, lost.response.body.access_token, 'the successor refresh issues new tokens');
+
+  // The handoff names exactly the registered fixtures.
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
+  const start = handoff.indexOf('\n## agent-owner-permissions v1');
+  const fixtureLine = handoff.slice(start).split('\n').find((line) => line.startsWith('**Fixtures:**'));
+  const listed = [...fixtureLine.slice(fixtureLine.indexOf(' cases: ')).matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).filter((name) => name !== 'token-refresh-scope-changed.json').sort();
+  assert.deepEqual(listed, [...entry.fixtures].sort(), 'the handoff lists exactly the registered fixtures');
+});
