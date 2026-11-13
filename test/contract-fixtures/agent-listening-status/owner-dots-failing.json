@@ -1,0 +1,98 @@
+{
+  "contract": "agent-listening-status",
+  "version": 1,
+  "id": "owner-dots-failing",
+  "description": "The only active subscription's deliveries are failing. Two messages are waiting.",
+  "kind": "http",
+  "context": {
+    "now": "2026-11-12T19:30:00.000Z",
+    "deliveryMode": "on_demand",
+    "wakeAvailable": true,
+    "subscriptions": [
+      {
+        "id": "wake_sub_example_1",
+        "installationId": "installation_dot_new",
+        "profile": "mcp_events",
+        "status": "active",
+        "createdAt": "2026-11-12T19:00:00.000Z",
+        "activatedAt": "2026-11-12T19:00:05.000Z",
+        "endedAt": null,
+        "endedReason": null,
+        "delivery": {
+          "state": "failing",
+          "lastSuccessAt": "2026-11-12T19:00:06.000Z",
+          "consecutiveFailures": 4
+        }
+      }
+    ],
+    "claimable": {
+      "count": 2,
+      "oldestAt": "2026-11-12T19:10:00.000Z"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentListWithListening",
+    "body": [
+      {
+        "id": "agent_mark",
+        "name": "Mark",
+        "slug": "mark",
+        "address": "mark@envoi-agents.com",
+        "platformAddress": "mark@envoi-agents.com",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "receive_agent_messages",
+          "send_agent_messages"
+        ],
+        "createdAt": "2026-11-12T19:20:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "on_demand",
+          "asOf": "2026-11-12T19:30:00.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-11-12T19:21:00.000Z",
+          "credentialExpiresAt": "2026-12-12T19:20:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-11-12T19:21:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-11-12T19:20:00.000Z",
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        },
+        "backgroundReceiving": {
+          "state": "failing",
+          "since": "2026-11-12T19:00:05.000Z",
+          "lastAlertAt": "2026-11-12T19:00:06.000Z",
+          "endedReason": null,
+          "waiting": {
+            "count": 2,
+            "more": false,
+            "oldestAt": "2026-11-12T19:10:00.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "badge": "Background receiving: Failing",
+    "banner": {
+      "title": "Mark isn't getting alerts",
+      "body": "Envoi can't reach this agent's host. 2 messages are waiting.",
+      "docs": "/docs/fix/#background-receiving-failing",
+      "action": "restore_prompt"
+    },
+    "next": "Show the failing banner and the docs link."
+  }
+}

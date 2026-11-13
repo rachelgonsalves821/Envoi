@@ -1,0 +1,83 @@
+{
+  "contract": "agent-listening-status",
+  "version": 1,
+  "id": "owner-connector-needs-reconnect",
+  "description": "An OpenClaw agent whose connection ended (a5-presence needs_reconnect) with work waiting.",
+  "kind": "http",
+  "context": {
+    "now": "2026-11-12T19:30:00.000Z",
+    "deliveryMode": "envoi_link",
+    "wakeAvailable": true,
+    "connectionState": "needs_reconnect",
+    "subscriptions": [],
+    "claimable": {
+      "count": 1,
+      "oldestAt": "2026-11-12T19:26:00.000Z"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentListWithListening",
+    "body": [
+      {
+        "id": "agent_mark",
+        "name": "Mark",
+        "slug": "mark",
+        "address": "mark@envoi-agents.com",
+        "platformAddress": "mark@envoi-agents.com",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "receive_agent_messages",
+          "send_agent_messages"
+        ],
+        "createdAt": "2026-11-12T19:20:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "needs_reconnect",
+          "asOf": "2026-11-12T19:30:00.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-11-12T19:29:30.000Z",
+          "credentialExpiresAt": "2026-12-12T19:20:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-11-12T19:21:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-11-12T19:20:00.000Z",
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        },
+        "backgroundReceiving": {
+          "state": "connector",
+          "since": null,
+          "lastAlertAt": null,
+          "endedReason": null,
+          "waiting": {
+            "count": 1,
+            "more": false,
+            "oldestAt": "2026-11-12T19:26:00.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "badge": "Needs reconnect",
+    "banner": {
+      "title": "Mark needs to reconnect",
+      "body": "Its connection to Envoi ended, so messages wait. 1 message is waiting.",
+      "docs": "/docs/fix/#agent-not-listening",
+      "action": "reconnect"
+    },
+    "next": "Show the reconnect banner; its button opens the Connect wizard reconnect path for this agent."
+  }
+}

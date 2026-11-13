@@ -1,0 +1,82 @@
+{
+  "contract": "agent-listening-status",
+  "version": 1,
+  "id": "owner-dots-never-set-up",
+  "description": "A Dot that was connected on demand only. A message is waiting.",
+  "kind": "http",
+  "context": {
+    "now": "2026-11-12T19:30:00.000Z",
+    "deliveryMode": "on_demand",
+    "wakeAvailable": true,
+    "subscriptions": [],
+    "claimable": {
+      "count": 1,
+      "oldestAt": "2026-11-12T19:26:00.000Z"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentListWithListening",
+    "body": [
+      {
+        "id": "agent_mark",
+        "name": "Mark",
+        "slug": "mark",
+        "address": "mark@envoi-agents.com",
+        "platformAddress": "mark@envoi-agents.com",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "receive_agent_messages",
+          "send_agent_messages"
+        ],
+        "createdAt": "2026-11-12T19:20:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "on_demand",
+          "asOf": "2026-11-12T19:30:00.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-11-12T19:21:00.000Z",
+          "credentialExpiresAt": "2026-12-12T19:20:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-11-12T19:21:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-11-12T19:20:00.000Z",
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        },
+        "backgroundReceiving": {
+          "state": "off",
+          "since": null,
+          "lastAlertAt": null,
+          "endedReason": null,
+          "waiting": {
+            "count": 1,
+            "more": false,
+            "oldestAt": "2026-11-12T19:26:00.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "badge": "Background receiving: Off",
+    "banner": {
+      "title": "Mark isn't listening",
+      "body": "Background receiving was never turned on for this agent. 1 message is waiting.",
+      "docs": "/docs/fix/#agent-not-listening",
+      "action": "monitoring_prompt"
+    },
+    "next": "Show the never-turned-on banner with Copy fix instructions (the monitoring prompt)."
+  }
+}

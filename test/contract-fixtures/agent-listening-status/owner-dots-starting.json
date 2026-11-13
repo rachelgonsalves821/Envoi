@@ -1,0 +1,89 @@
+{
+  "contract": "agent-listening-status",
+  "version": 1,
+  "id": "owner-dots-starting",
+  "description": "The Dot created a subscription that is waiting for activation.",
+  "kind": "http",
+  "context": {
+    "now": "2026-11-12T19:30:00.000Z",
+    "deliveryMode": "on_demand",
+    "wakeAvailable": true,
+    "subscriptions": [
+      {
+        "id": "wake_sub_example_1",
+        "installationId": "installation_dot_new",
+        "profile": "mcp_events",
+        "status": "pending",
+        "createdAt": "2026-11-12T19:29:00.000Z",
+        "activatedAt": null,
+        "endedAt": null,
+        "endedReason": null,
+        "delivery": null
+      }
+    ],
+    "claimable": {
+      "count": 0,
+      "oldestAt": null
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentListWithListening",
+    "body": [
+      {
+        "id": "agent_mark",
+        "name": "Mark",
+        "slug": "mark",
+        "address": "mark@envoi-agents.com",
+        "platformAddress": "mark@envoi-agents.com",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "receive_agent_messages",
+          "send_agent_messages"
+        ],
+        "createdAt": "2026-11-12T19:20:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "on_demand",
+          "asOf": "2026-11-12T19:30:00.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-11-12T19:21:00.000Z",
+          "credentialExpiresAt": "2026-12-12T19:20:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-11-12T19:21:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-11-12T19:20:00.000Z",
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        },
+        "backgroundReceiving": {
+          "state": "starting",
+          "since": "2026-11-12T19:29:00.000Z",
+          "lastAlertAt": null,
+          "endedReason": null,
+          "waiting": {
+            "count": 0,
+            "more": false,
+            "oldestAt": null
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "badge": "Background receiving: Starting",
+    "banner": null,
+    "next": "Show Starting. No banner unless it stays starting for 10 minutes with work waiting."
+  }
+}
