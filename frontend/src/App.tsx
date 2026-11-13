@@ -23,7 +23,7 @@ import { AuthorizationEntry, AuthorizeAgentPage } from './onboarding/AuthorizeAg
 import { authorizationHandle, authorizationStartError } from './onboarding/consent-state';
 import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
-import { DotsPermissionRecovery, DotsSetupGuide } from './onboarding/DotsSetupGuide';
+import { DotsSetupGuide } from './onboarding/DotsSetupGuide';
 import { SavedSetupProgress } from './onboarding/SavedSetupProgress';
 import { ConnectionMilestones } from './onboarding/ConnectionMilestones';
 import { savedSetupApi, type SavedSetup } from './onboarding/saved-setup';
@@ -1760,7 +1760,6 @@ export function PoliciesPage({ entries, onConnect, onRefresh, notify }: { entrie
     finally { setBusy(false); }
   }
   return <PageFrame eyebrow="" title="Permissions" description="Review and update what each agent can do.">
-    <DotsPermissionRecovery agents={entries.filter(entry => entry.view.canManageInbox).map(entry => entry.agent)} />
     {entries.length === 0 ? <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Connect an agent to see its permissions." action={<button className="button secondary" onClick={onConnect}>Connect an agent</button>} /> : <><div className="permission-editor-actions">{entries.filter(entry => entry.view.canManageInbox && entry.agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(entry.agent.status)).map(entry => <button key={entry.agent.id} type="button" className="button secondary compact" onClick={() => openEditor(entry)}>Edit {entry.agent.name}’s permissions</button>)}</div><div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
       <div className="permission-table-head" role="row"><span role="columnheader">Action</span>{entries.map(({ agent }) => <span role="columnheader" key={agent.id}>{agent.name}</span>)}</div>
       {AGENT_PERMISSION_OPTIONS.map(option => <div className="permission-table-row" role="row" key={option.id}><div role="cell"><strong>{option.label}</strong><small>{option.description}</small></div>{entries.map(entry => {
