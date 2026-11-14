@@ -30,7 +30,13 @@ export function scopedTurnHandler(options: {
       const signal = AbortSignal.any([context.signal, channel.signal, waiting.signal]);
       const modelContext = channel.modelContext();
       const tools = Object.freeze(schema.tools.filter(tool => modelContext.allowedTools.includes(tool.name))
-        .map(tool => Object.freeze({ name: tool.name as CaseToolName, inputSchema: Object.freeze(structuredClone(tool.inputSchema)) })));
+        .map(tool => {
+          const inputSchema: Record<string, any> = structuredClone(tool.inputSchema);
+          // Keep the approved two-party contract on older servers. Group-only
+          // assignment arguments require a canonical group binding.
+          if (tool.name === 'envoi_case_reply' && !modelContext.groupMemberAgentIds) delete inputSchema.properties.assigneeAgentIds;
+          return Object.freeze({ name: tool.name as CaseToolName, inputSchema: Object.freeze(inputSchema) });
+        }));
       const interrupted = new EnvoiError('Turn ended for human input', undefined, 'TURN_END_REQUIRED');
       let pendingTools = 0;
       let toolTail: Promise<unknown> = Promise.resolve();
