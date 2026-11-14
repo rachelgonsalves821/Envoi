@@ -212,3 +212,22 @@ it.each(['environment','private-paths'] as const)('executes the built real child
   expect(JSON.stringify(observed)).not.toContain(secret);expect(stdout+stderr).not.toContain(secret);
  }finally{child.kill();await exited;}
 },15000);
+it('anchors the built child’s native discovery to the reviewed package before the first native import',async()=>{
+ const f=fixture(),nativeRoot=path.join(temporary,'pinned-native'),nonce='b'.repeat(64);
+ const hostSource=`import path from 'node:path';
+ if(process.argv[1]!==path.resolve(${JSON.stringify(nativeRoot)},'openclaw.mjs'))throw Error('EINVAL');
+ throw Error('ENOENT');`;
+ for(const [role,relative] of Object.entries(CLOSED_NATIVE_BOOTSTRAP_FILES)){
+  const file=path.join(nativeRoot,relative),source=role==='host'?hostSource:role;
+  await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,source,{flag:'wx'});
+  f.options.sourceSha256[role]=hash(source);f.binding.nativeSources={...f.binding.nativeSources,[role]:hash(source)};
+ }
+ const child=spawn(process.execPath,[childEntry],{env:{SystemRoot:process.env.SystemRoot,
+  OPENCLAW_STATE_DIR:f.paths.stateDirectory,OPENCLAW_CONFIG_PATH:f.paths.configurationPath},windowsHide:true,stdio:['ignore','ignore','ignore','ipc']});
+ const exited=once(child,'exit');
+ try{
+  const failure=new Promise(resolve=>child.on('message',m=>{if((m as any)?.kind==='failed')resolve(m);}));
+  child.send({kind:'start',nonce,bootstrap:{...f.options,nativeRoot}});
+  expect(await failure).toEqual({kind:'failed',nonce,diagnostic:{version:1,stage:'import-host',reason:'ENOENT'}});
+ }finally{child.kill();await exited;}
+},15000);
