@@ -107,7 +107,7 @@ Run `npm run db:migrate` as a release job before switching traffic. The same che
 
 Cloudflare starts a container near the request that wakes it, so a visit from Asia can start it in Hong Kong. OpenAI blocks chatgpt.com there, so Envoi cannot fetch ChatGPT's OAuth client metadata (`https://chatgpt.com/oauth/client.json`). Every ChatGPT sign-in and token refresh then fails with `invalid_client`. The container log shows `envoi.oauth_client_rejected` with `stage: fetch`, `reason: fetch_failed` and `colo: HKG` (staging, 2026-11-13).
 
-Staging pins its container with `"constraints": { "regions": ["ENAM", "WNAM"] }`. Cloudflare documents this for containers, but some Wrangler versions reject `constraints` for Durable Object-managed containers (cloudflare/workers-sdk#15995). Prove it with a staging deploy first. If Wrangler rejects it, nothing is deployed: remove the field and use the fallback below. Add the same constraint to beta only after staging shows a North American colo in its container logs.
+Staging and beta pin their containers with `"constraints": { "regions": ["ENAM", "WNAM"] }`. Some Wrangler versions reject `constraints` for Durable Object-managed containers (cloudflare/workers-sdk#15995), but the locked Wrangler accepted it. Staging @1749906 deployed with it on 2026-11-13, ran in `iad03` and logged colo `EWR`, and ChatGPT sign-in worked again. Beta takes the same constraint. After a beta deploy, check Containers → sinaloa-beta-release → Instances for a North American location.
 
 Fallback when the container lands outside a region ChatGPT serves: restart it from a US request, then check the container logs' `colo`.
 
