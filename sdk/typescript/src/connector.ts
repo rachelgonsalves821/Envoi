@@ -191,7 +191,11 @@ export interface ScopedWakeWorkDriver {
   /** Trusted opt-in only: at most two exact, distinct case/work pairs. Claims
    * validate serially before either handler is admitted; leases renew while
    * waiting for that admission barrier. Outcomes remain per work. */
-  processWorkBatch(expectations: readonly ScopedWorkExpectation[], signal?: AbortSignal): Promise<readonly ScopedWorkOutcome[]>;
+  processWorkBatch(
+    expectations: readonly ScopedWorkExpectation[],
+    signal?: AbortSignal,
+    options?: { readonly acceptHumanInstructions?: false },
+  ): Promise<readonly ScopedWorkOutcome[]>;
   revalidateLiveLeases(signal?: AbortSignal): Promise<void>;
   nextAvailableInMs(): number | undefined;
 }
@@ -1097,7 +1101,7 @@ export class EnvoiConnector {
     assertScoped();
     const localCancellation = (error: unknown) => error instanceof EnvoiError
       && ['CASE_CONTROLLED', 'WORK_LEASE_STALE', 'WORK_NOT_ELIGIBLE', 'WORK_NOT_FOUND', 'CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED', 'REQUEST_CANCELLED'].includes(error.code ?? '');
-    return Object.freeze({
+    return Object.freeze<ScopedWakeWorkDriver>({
       processWorkOnce: (signal?: AbortSignal) => {
         assertScoped();
         return this.processWorkOnce(signal).catch(error => {
@@ -1106,9 +1110,9 @@ export class EnvoiConnector {
           throw error;
         });
       },
-      processWorkBatch: (expectations: readonly ScopedWorkExpectation[], signal?: AbortSignal) => {
+      processWorkBatch: (expectations, signal, options) => {
         assertScoped();
-        return this.processScopedWorkBatch(expectations, signal);
+        return this.processScopedWorkBatch(expectations, signal, options?.acceptHumanInstructions !== false);
       },
       revalidateLiveLeases: async (signal?: AbortSignal) => {
         assertScoped();
@@ -1146,7 +1150,7 @@ export class EnvoiConnector {
     return this.workInFlight;
   }
 
-  private async processScopedWorkBatch(expectations: readonly ScopedWorkExpectation[], signal?: AbortSignal): Promise<readonly ScopedWorkOutcome[]> {
+  private async processScopedWorkBatch(expectations: readonly ScopedWorkExpectation[], signal: AbortSignal | undefined, acceptHumanInstructions: boolean): Promise<readonly ScopedWorkOutcome[]> {
     if (this.explicitScopedBatch || this.workInFlight) throw new EnvoiError('Work processing is already in flight', undefined, 'SCOPED_BATCH_IN_FLIGHT');
     if (!Array.isArray(expectations) || expectations.length < 1 || expectations.length > 2
       || expectations.some(e => !e || !/^msg_[A-Za-z0-9_-]+$/.test(e.workId) || !/^case_[A-Za-z0-9_-]+$/.test(e.caseId))
@@ -1161,7 +1165,7 @@ export class EnvoiConnector {
     try {
       for (const item of expected) {
         batchSignal.throwIfAborted();
-        const work = await this.claimWorkAttempt(batchSignal);
+        const work = await this.claimWorkAttempt(batchSignal, acceptHumanInstructions);
         if (!work || work.workId !== item.workId || work.message.caseId !== item.caseId)
           throw new EnvoiError('Claim does not match the explicit scoped batch', undefined, 'SCOPED_BATCH_CLAIM_MISMATCH');
         // Start the existing per-work lease lifecycle now, but neither admit nor
@@ -1185,7 +1189,7 @@ export class EnvoiConnector {
     return work ? this.processClaimedWork(work,signal) : false;
   }
 
-  private async claimWorkAttempt(signal?: AbortSignal): Promise<WorkLease | null> {
+  private async claimWorkAttempt(signal?: AbortSignal, acceptHumanInstructions = true): Promise<WorkLease | null> {
     const scoped = this.options.caseSessionHandler;
     const handler = scoped ?? this.options.handler;
     if (!handler) throw new TypeError('A durable work handler is required');
@@ -1199,7 +1203,7 @@ export class EnvoiConnector {
     }
     let claimed: { work: WorkLease | null; state?: string; nextAvailableInMs?: number };
     if (scoped) signal?.throwIfAborted();
-    try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions: true }, undefined, scoped ? signal : undefined); }
+    try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions }, undefined, scoped ? signal : undefined); }
     catch (error) {
       if (error instanceof EnvoiError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError(error.status, error.requestId);
       throw error;
@@ -1215,6 +1219,9 @@ export class EnvoiConnector {
     const work = claimed.work;
     if (!work || typeof work.workId !== 'string' || typeof work.leaseToken !== 'string' || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || typeof work.message?.id !== 'string' || !work.message.id || scoped && work.message.id !== work.workId) {
       throw new EnvoiError('Envoi returned an invalid work claim');
+    }
+    if (!acceptHumanInstructions && isHumanInstructionMessage(work.message)) {
+      throw new EnvoiError('Claim returned an excluded human instruction', undefined, 'SCOPED_BATCH_CLAIM_MISMATCH');
     }
     const session = validSession(await this.store.load());
     if (isHumanDecisionMessage(work.message)) {
