@@ -78,6 +78,41 @@ it('keeps the successful pending-first-harness readiness and cleanup path unchan
  expect(gateway.readiness()).toMatchObject({runtimeObservation:'pending_first_harness'});expect(gateway.snapshot()).toBeUndefined();
  expect(f.start).toHaveBeenCalledOnce();await gateway.close();expect(f.close).toHaveBeenCalledOnce();expect(f.ports.authorizePhysical).not.toHaveBeenCalled();
 });
+it('runs reviewed file reads in parallel and stops before import when the work expires during verification',async()=>{
+ const f=fixture(),read=f.deps.readBytes.getMockImplementation()!,stages:string[]=[];
+ let release!:()=>void,allReadsStarted!:()=>void,expired=false;
+ const blocked=new Promise<void>(resolve=>{release=resolve;});
+ const started=new Promise<void>(resolve=>{allReadsStarted=resolve;});
+ f.deps.readBytes.mockImplementation(async file=>{
+  if(f.deps.readBytes.mock.calls.length===Object.keys(CLOSED_NATIVE_BOOTSTRAP_FILES).length)allReadsStarted();
+  if(file===path.join(f.options.nativeRoot,CLOSED_NATIVE_BOOTSTRAP_FILES.package))await blocked;
+  return read(file);
+ });
+ f.ports.assertLive.mockImplementation(()=>{if(expired)throw Error('NATIVE_DEADLINE_EXPIRED');});
+ const boot=startClosedNativeGateway(f.options,f.deps,stage=>stages.push(stage));
+ await started;
+ expect(f.loadModule).not.toHaveBeenCalled();
+ expired=true;
+ release();
+ await expect(boot).rejects.toThrow('NATIVE_DEADLINE_EXPIRED');
+ expect(stages).toEqual(['authorization','private-paths','source-validation','import-host']);
+ expect(f.loadModule).not.toHaveBeenCalled();
+});
+it('closes the gateway if the work expires before native startup settles',async()=>{
+ const f=fixture();
+ let release!:()=>void,settling!:()=>void,expired=false;
+ const startupSettled=new Promise<void>(resolve=>{release=resolve;});
+ const entered=new Promise<void>(resolve=>{settling=resolve;});
+ f.start.mockResolvedValue({close:f.close,startupSettled});
+ f.ports.assertLive.mockImplementation(()=>{if(expired)throw Error('NATIVE_DEADLINE_EXPIRED');});
+ const boot=startClosedNativeGateway(f.options,f.deps,stage=>{if(stage==='gateway-settle')settling();});
+ await entered;
+ expired=true;
+ release();
+ await expect(boot).rejects.toThrow('NATIVE_DEADLINE_EXPIRED');
+ expect(f.close).toHaveBeenCalledOnce();
+ expect(f.ports.authorizePhysical).not.toHaveBeenCalled();
+});
 class FailedChild extends EventEmitter{
  pid=123;exitCode:number|null=null;connected=true;sent:any[]=[];
  constructor(private diagnostic:unknown,private foreignFirst=false){super();}
@@ -97,6 +132,41 @@ it.each([true,false])('only accepts the owned nonce and sanitized diagnostic, th
  expect(caught.code).toBe('OWNED_NATIVE_CHILD_FAILED');expect(caught.nativeStartupDiagnostic).toEqual(valid?{version:1,stage:'import-config',reason:'ERR_MODULE_NOT_FOUND'}:{version:1,stage:'unknown',reason:'NATIVE_STARTUP_UNCLASSIFIED'});
  expect(caught.message).not.toContain('gateway-start');expect(caught.message).not.toContain(secret);expect(child.exitCode).toBe(1);expect(child.sent.some(message=>message.kind==='stop')).toBe(true);
  expect(()=>assertOwnedClosedNativeAuthority({} as any,pins,signal)).toThrow('OWNED_NATIVE_AUTHORITY_REQUIRED');expect(f.ports.authorizePhysical).not.toHaveBeenCalled();
+});
+it.each([25,120000])('keeps the startup timeout bounded and reports only the last valid owned stage (%d ms remaining)',async remaining=>{
+ vi.useFakeTimers();
+ try{
+  const f=fixture();
+  f.binding.hardStopUnixMs=Date.now()+remaining;
+  const pins={window:f.binding.window,workId:f.binding.workId,caseId:f.binding.caseId,caseSessionId:f.binding.caseSessionId,toolChannelSha256:f.binding.toolChannelSha256,processIdentity:f.binding.processIdentity,
+   clientSource:'a'.repeat(40),nativeSourceSha256:closedNativeManifestDigest(f.binding.nativeSources),capabilitySha256:'c'.repeat(64),ownerSelectionSha256:'d'.repeat(64),targetSha256:'e'.repeat(64)};
+  const child=new FailedChild(null),nonce='a'.repeat(64);
+  child.send=function(message:any){
+   this.sent.push(message);
+   if(message.kind==='start'){
+    this.emit('message',{kind:'startup_stage',nonce,stage:'gateway-start'});
+    this.emit('message',{kind:'startup_stage',nonce:'f'.repeat(64),stage:'readiness'});
+    this.emit('message',{kind:'startup_stage',nonce,stage:'gateway-settle',raw:secret});
+    this.emit('message',{kind:'startup_stage',nonce,stage:secret});
+   }
+   return true;
+  };
+  const signal=new AbortController().signal;
+  const launch=startOwnedClosedNativeProcess({nodeExecutable:'inert',childEntry:'inert',childEntrySha256:hash('entry'),environment:{},bootstrap:f.options,pins,
+   meterBinding:{nativeToken:'inert-token',deadlineUnixMs:f.binding.hardStopUnixMs},authorize:async()=>{},ports:f.ports,signal},
+   {readBytes:async()=>Buffer.from('entry'),spawnChild:()=>child as any,nonce:()=>nonce});
+  const result=launch.catch(error=>error);
+  const limit=Math.min(90000,remaining);
+  await vi.advanceTimersByTimeAsync(limit-1);
+  expect(child.exitCode).toBeNull();
+  await vi.advanceTimersByTimeAsync(1);
+  const error=await result;
+  expect(error).toMatchObject({code:'OWNED_NATIVE_BOOTSTRAP_TIMEOUT',startupElapsedMs:limit,
+   nativeStartupDiagnostic:{version:1,stage:'gateway-start',reason:'OWNED_NATIVE_BOOTSTRAP_TIMEOUT'}});
+  expect(error.message).not.toContain(secret);
+  expect(child.exitCode).toBe(1);
+  expect(f.ports.authorizePhysical).not.toHaveBeenCalled();
+ }finally{vi.useRealTimers();}
 });
 
 let temporary='',childEntry='';
@@ -128,9 +198,17 @@ it.each(['environment','private-paths'] as const)('executes the built real child
  child.stdout!.on('data',data=>{stdout+=data;});child.stderr!.on('data',data=>{stderr+=data;});
  const exited=once(child,'exit');
  try{
-  const message=once(child,'message');child.send({kind:'start',nonce,bootstrap:{...f.options,paths:{...f.paths,stateDirectory:path.resolve(secret)}}});
-  const [failure]=await message;
+  const observed:any[]=[];
+  const message=new Promise<any>(resolve=>child.on('message',(value:any)=>{
+   observed.push(value);
+   if(value.kind==='failed')resolve(value);
+  }));
+  child.send({kind:'start',nonce,bootstrap:{...f.options,paths:{...f.paths,stateDirectory:path.resolve(secret)}}});
+  const failure=await message;
   expect(failure).toEqual({kind:'failed',nonce,diagnostic:{version:1,stage,reason:stage==='environment'?'ACTUAL_RESTRICTED_NATIVE_ENVIRONMENT_REQUIRED':'REVIEWED_NATIVE_PRIVATE_PATH_REQUIRED'}});
-  expect(JSON.stringify(failure)).not.toContain(secret);expect(stdout+stderr).not.toContain(secret);
+  expect(observed.slice(0,-1)).toEqual(stage==='environment'?[]:[
+   {kind:'startup_stage',nonce,stage:'authorization'},{kind:'startup_stage',nonce,stage:'private-paths'},
+  ]);
+  expect(JSON.stringify(observed)).not.toContain(secret);expect(stdout+stderr).not.toContain(secret);
  }finally{child.kill();await exited;}
 },15000);
