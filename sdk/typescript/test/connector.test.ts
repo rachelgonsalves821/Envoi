@@ -418,6 +418,47 @@ describe('Envoi outbound connector', () => {
     expect(paths.some(path => path.endsWith('/work/work_one/complete'))).toBe(false);
   });
 
+  it('uses the work rule from status and refreshes it after 60 seconds', async () => {
+    const memory = memoryStore(session());
+    const start = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+    const process = vi.fn();
+    let statusReads = 0;
+    let claims = 0;
+    let mode: string | undefined = 'ask';
+    const fetcher: typeof fetch = async url => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/api/agent/status') {
+        statusReads++;
+        return Response.json({ state: 'active', inboxId: 'inbox_one', agent: { id: 'agent_one' }, ...(mode ? { workMode: { mode } } : {}) });
+      }
+      if (path.endsWith('/claim')) {
+        const id = 'msg_' + ++claims;
+        return Response.json({ state: 'claimed', work: { workId: id, leaseToken: 'lease',
+          leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+          message: { id, caseId: 'case_one', recipientAgentId: 'agent_one', senderAgentId: 'agent_two', from: { address: 'two@envoi.mail' }, text: 'Hello' } } });
+      }
+      const id = 'msg_' + claims;
+      const state = path.endsWith('/acknowledge') ? 'acknowledged' : 'processed';
+      return Response.json({ workId: id, status: state, receipt: { messageId: id, state } });
+    };
+    const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, readWorkRule: true, handler: { admit: async () => {}, process } });
+    try {
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      mode = 'routine';
+      clock.mockReturnValue(start + 59_999);
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      expect(statusReads).toBe(1);
+      clock.mockReturnValue(start + 60_000);
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      mode = undefined;
+      clock.mockReturnValue(start + 120_000);
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      expect(statusReads).toBe(3);
+      expect(process.mock.calls.map(([, context]) => context.workRule)).toEqual(['ask', 'ask', 'routine', undefined]);
+    } finally { clock.mockRestore(); }
+  });
+
   it('does not invoke the runtime when no canonical work is claimable', async () => {
     const memory = memoryStore(session());
     const admit = vi.fn();
