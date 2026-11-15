@@ -9,6 +9,7 @@ const hash=(v:string|Uint8Array)=>createHash('sha256').update(v).digest('hex');
 declare const factoryBrand:unique symbol;export type OwnedOpenClawFactory=Readonly<{[factoryBrand]:true}>;
 export interface OwnedOpenClawFactoryPins{clientSource:string;nativeSourceSha256:string;factoryPolicySha256:string;}
 export interface NativeFactoryPreparation{sourceNativeRoot:string;destinationNativeRoot:string;workRoot:string;originalProfile:string;nodeExecutable:string;nativeEnvironmentFile?:string;
+ directClientTools?: true;
  childEntry:string;childEntrySha256:string;clientSource:string;factoryPolicySha256:string;authorize():Promise<void>;}
 type Factory={options:NativeFactoryPreparation;pins:Readonly<OwnedOpenClawFactoryPins>;sources:Record<string,string>;prepared:Set<string>};
 const factories=new WeakMap<object,Factory>();
@@ -75,7 +76,7 @@ async function prepareWorkConfiguration(state:Factory,b:Pick<ClosedNativeBinding
  const token=randomBytes(32).toString('hex');config.plugins={enabled:false,allow:[],deny:[],entries:{},load:{paths:[]},slots:{memory:'none',contextEngine:'none'}};
  config.models={mode:'replace',providers:{anthropic:{...provider,api:'anthropic-messages',baseUrl:b.proxyOrigin,agentRuntime:{id:'openclaw'},headers:{...provider.headers,'x-phase-c-meter':input.proxyToken},models:[{...nativeModel,agentRuntime:{id:'openclaw'}}]}}};
  config.agents=perWorkNativeAgents(b,paths);
- config.tools={profile:'minimal',deny:['*']};config.hooks={enabled:false};config.cron={enabled:false};delete config.cloudWorkers;
+ config.tools={profile:'minimal',deny:['*'],...(state.options.directClientTools ? { toolSearch: false } : {})};config.hooks={enabled:false};config.cron={enabled:false};delete config.cloudWorkers;
  config.gateway={...config.gateway,mode:'local',bind:'loopback',port:input.gatewayPort,auth:{...config.gateway?.auth,mode:'token',token},reload:{mode:'off'},http:{...config.gateway?.http,endpoints:{...config.gateway?.http?.endpoints,responses:{...config.gateway?.http?.endpoints?.responses,enabled:true}}}};
  await fs.writeFile(paths.configurationPath,JSON.stringify(config,null,2),{flag:'wx',mode:0o600});
  return{paths,token};
@@ -131,7 +132,11 @@ export async function startOwnedOpenClawWork(factory:OwnedOpenClawFactory,prepar
  // binds. A bind race fails startup; there is never an alternate-port fallback.
  await work.releasePort?.();options.signal.throwIfAborted();work.reservationSignal?.throwIfAborted();
  const handle=await startOwnedClosedNativeProcess({nodeExecutable:state.options.nodeExecutable,nativeEnvironmentFile:state.options.nativeEnvironmentFile,childEntry:state.options.childEntry,childEntrySha256:state.options.childEntrySha256,
-  environment:{...options.environment,OPENCLAW_STATE_DIR:work.paths.stateDirectory,OPENCLAW_CONFIG_PATH:work.paths.configurationPath,OPENCLAW_CONFIG_READONLY:'1',OPENCLAW_GATEWAY_PORT:String(new URL(target.gatewayUrl).port)},
+  environment:{...options.environment,
+   // Direct client tools use the closed built-in harness. Do not discover bundled
+   // plugins or walk up the launcher path looking for a second package root.
+   ...(state.options.directClientTools ? {OPENCLAW_DISABLE_BUNDLED_PLUGINS:'1',OPENCLAW_GATEWAY_STARTUP_TRACE:'1'} : {}),
+   OPENCLAW_STATE_DIR:work.paths.stateDirectory,OPENCLAW_CONFIG_PATH:work.paths.configurationPath,OPENCLAW_CONFIG_READONLY:'1',OPENCLAW_GATEWAY_PORT:String(new URL(target.gatewayUrl).port)},
   bootstrap:{nativeRoot:state.options.destinationNativeRoot,binding:work.binding,paths:work.paths,port:Number(new URL(target.gatewayUrl).port),sourceSha256:state.sources as any},
   pins:{window:work.binding.window,workId:work.binding.workId,caseId:work.binding.caseId,caseSessionId:work.binding.caseSessionId,toolChannelSha256:work.binding.toolChannelSha256,processIdentity:work.binding.processIdentity,
    clientSource:state.pins.clientSource,nativeSourceSha256:state.pins.nativeSourceSha256,capabilitySha256:options.capabilitySha256,ownerSelectionSha256:options.ownerSelectionSha256,targetSha256:openClawTargetDigest(target)},
