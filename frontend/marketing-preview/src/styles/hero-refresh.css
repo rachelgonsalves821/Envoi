@@ -43,7 +43,7 @@
   :where(html[data-page="about"]) .hero-copy { width: 100%; padding-inline: 0; }
 }
 
-:where(html[data-page="about"]) .hero h1 { font-size: clamp(32px, 4vw, 50px); text-wrap: nowrap; }
+:where(html[data-page="about"]) .hero h1 { text-wrap: balance; }
 @media (max-width: 780px) {
   :where(html[data-page="about"]) .hero h1 { font-size: clamp(18px, 5vw, 38px); }
 }

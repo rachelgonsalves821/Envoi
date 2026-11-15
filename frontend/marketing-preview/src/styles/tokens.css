@@ -42,6 +42,10 @@
   --display: var(--site-font);
   --sans: var(--site-font);
   --mono: var(--site-font);
+  --page-title-size: clamp(2rem, 4vw, 3.125rem);
+  --section-title-size: clamp(1.3125rem, 2vw, 1.6875rem);
+  --body-size: 1.0625rem;
+  --intro-size: 1.125rem;
   --radius: 18px;
   --button-radius: 10px;
   --pill: 999px;

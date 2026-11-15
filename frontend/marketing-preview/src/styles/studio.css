@@ -1,5 +1,4 @@
 /* Envoi: independent agents around one shared workspace. */
-:where(html:not([data-page="about"])) body { font-size:17px; font-weight:400; line-height:1.6; }
 :where(html:not([data-page="about"])) h1,:where(html:not([data-page="about"])) h2,:where(html:not([data-page="about"])) h3 { font-weight:500; }
 :where(html:not([data-page="about"])) .container { max-width:1360px; padding-inline:64px; }
 .site-header { background:var(--bg); }
@@ -76,4 +75,24 @@
   .header-inner .header-auth-actions { grid-column: 2; grid-row: 1; }
   .header-inner .theme-switch { grid-column: 3; grid-row: 1; }
   .header-inner .main-nav { grid-column: 1 / -1; grid-row: 2; justify-self: center; gap: 20px; }
+}
+
+/* Use the same typography for equivalent content across public pages. */
+html[data-page] main h1 {
+  font: 600 var(--page-title-size)/1.1 var(--site-font);
+  letter-spacing: -.035em;
+  text-wrap: balance;
+}
+html[data-page] main h2,
+html[data-page] main :is(.benefit, .feature) h3 {
+  font: 600 var(--section-title-size)/1.15 var(--site-font);
+  letter-spacing: normal;
+}
+html[data-page] main :is(.hero-description, .product-caption, .docs-intro > p, .account-panel > p:not(.account-existing):not(.account-status)) {
+  font: 400 var(--intro-size)/1.55 var(--site-font);
+}
+html[data-page] main .button {
+  font-family: var(--site-font);
+  font-size: .9375rem;
+  font-weight: 700;
 }
