@@ -22,7 +22,7 @@ const deferred=()=>{let resolve!:()=>void;const promise=new Promise<void>(r=>{re
 const cleanups:Array<()=>Promise<unknown>>=[];
 beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-17T12:00:06Z'));});
 afterEach(async()=>{for(const fn of cleanups.splice(0).reverse())await fn();vi.useRealTimers();vi.restoreAllMocks();});
-async function setup({role='je1',process,tokenReuse=false,noAction=false,removeAfter=false,tamperAfterEnd=false,expectedCaseState,returnedCaseState='inProgress',decisionOutcome,targetResolver,targetSelection,ownedNative}:{role?:'je1'|'testowner'|'openclaw';process?:(channel:any,context:any)=>Promise<void>;tokenReuse?:boolean;noAction?:boolean;removeAfter?:boolean;tamperAfterEnd?:boolean;expectedCaseState?:'inProgress'|'completed';returnedCaseState?:'inProgress'|'completed';decisionOutcome?:'declined'|null;targetResolver?:OpenClawTargetResolver;targetSelection?:OpenClawTargetSelectionAuthority;ownedNative?:Parameters<typeof createContinuationReceiver>[0]['openClawOwnedNative']}={}){
+async function setup({role='je1',process,tokenReuse=false,noAction=false,removeAfter=false,tamperAfterEnd=false,expectedCaseState,returnedCaseState='inProgress',decisionOutcome,targetResolver,targetSelection,ownedNative,acceptHumanInstructions}:{role?:'je1'|'testowner'|'openclaw';process?:(channel:any,context:any)=>Promise<void>;tokenReuse?:boolean;noAction?:boolean;removeAfter?:boolean;tamperAfterEnd?:boolean;expectedCaseState?:'inProgress'|'completed';returnedCaseState?:'inProgress'|'completed';decisionOutcome?:'declined'|null;targetResolver?:OpenClawTargetResolver;targetSelection?:OpenClawTargetSelectionAuthority;ownedNative?:Parameters<typeof createContinuationReceiver>[0]['openClawOwnedNative'];acceptHumanInstructions?:false}={}){
  const dir=await fs.mkdtemp(path.join(tmpdir(),'envoi-rx-batch-'));cleanups.push(async()=>{const target=path.resolve(dir);if(!target.startsWith(path.resolve(tmpdir())+path.sep)||!path.basename(target).startsWith('envoi-rx-batch-'))throw Error('CLEANUP_REFUSED');await fs.rm(target,{recursive:true,force:true});});
  const expected={address:'example@envoi.mail',agentId:'agent_example',inboxId:'inbox_example',installationId:'installation_example'};
  state.saved={version:1,runtime:role==='openclaw'?'openclaw':'hermes',apiUrl:origin,address:expected.address,configuration:{gatewayUrl:'http://127.0.0.1:19002',agentId:'inert'},activationSetup:{agentId:expected.agentId,inboxId:expected.inboxId,installationId:expected.installationId}};
@@ -57,7 +57,7 @@ async function setup({role='je1',process,tokenReuse=false,noAction=false,removeA
   }}});return{connector,close:async()=>{}};
  };
  const gate={policySha256:'b'.repeat(64),moduleSha256:'c'.repeat(64),factoriesSha256:'d'.repeat(64),profileHash:'e'.repeat(64),window:'a'.repeat(64),role:role==='openclaw'?'je1' as const:role,meterToken:'f'.repeat(64)};
- const receiver=await createContinuationReceiver({controller,role,stateDir:dir,env:{ENVOI_SCOPED_TOOLS:'true',ENVOI_HERMES_GATE_REQUIRED:'1'},meterToken:'f'.repeat(64),nativeGate:role==='openclaw'?undefined:gate,expected,allowedNewSends:[],fetch:fetcher,reserveOperation,record,openClawTargetResolver:targetResolver,openClawTargetSelection:targetSelection,openClawOwnedNative:ownedNative,
+ const receiver=await createContinuationReceiver({controller,role,stateDir:dir,env:{ENVOI_SCOPED_TOOLS:'true',ENVOI_HERMES_GATE_REQUIRED:'1'},meterToken:'f'.repeat(64),nativeGate:role==='openclaw'?undefined:gate,expected,allowedNewSends:[],fetch:fetcher,reserveOperation,record,openClawTargetResolver:targetResolver,openClawTargetSelection:targetSelection,openClawOwnedNative:ownedNative,acceptHumanInstructions,
   observeTransport:async(input,init,next)=>{const end=new URL(String(input)).pathname.match(/\/work\/([^/]+)\/session\/end$/);if(end)fenceOrder.push({kind:'outer_end_observer',workId:end[1]});const response=await next(input,init);if(end&&tamperAfterEnd)await fs.appendFile(path.join(dir,'scoped-runs',end[1]+'.json'),'\n');return response;}});cleanups.push(receiver.close);
  const flows=works.map((w,index)=>({flowId:index?'second':'first',workId:w.workId,caseId:w.message.caseId,evidenceSha256:String(index+1).repeat(64)}));
  return{receiver,controller,native,flows,fetcher,record,reserveOperation,calls,tokens,fenceOrder,claims:()=>claims};
@@ -132,6 +132,14 @@ it('routes a reviewed immutable target using the actual SDK-minted canonical ses
  const p=await s.receiver.runOne(f.flowId,f.workId,f.caseId,f.evidenceSha256);expect(p.canonicalStatus).toBe('processed');expect(s.calls.filter(c=>c.method==='responses')).toHaveLength(1);
  const t=fakeTarget(f.workId),before=s.fetcher.mock.calls.length;await expect(state.context.fetch(t.gatewayUrl+'/v1/responses',{method:'POST',headers:{authorization:'Bearer '+t.gatewayToken},body:JSON.stringify({model:'openclaw/inert',input:[]})})).rejects.toMatchObject({code:'FOREIGN_RUNTIME_REQUEST_REFUSED'});expect(s.fetcher).toHaveBeenCalledTimes(before);
  expect(JSON.stringify(s.record.mock.calls)).not.toMatch(/inert-target|envoi_case_session_|INERT_AGENT/);
+});
+it('excludes queued owner instructions when processing a single reviewed OpenClaw work item',async()=>{
+ const s=await setup({role:'openclaw',targetResolver:async id=>fakeTarget(id),targetSelection:fakeSelection(fakeTarget),acceptHumanInstructions:false});
+ const f=s.flows[0],result=await s.receiver.runOne(f.flowId,f.workId,f.caseId,f.evidenceSha256);
+ expect(result).toMatchObject({workId:f.workId,canonicalStatus:'processed'});
+ const claims=s.fetcher.mock.calls.filter(([url])=>String(url).endsWith('/work/claim'));
+ expect(claims).toHaveLength(1);
+ expect(JSON.parse(String(claims[0][1]?.body))).toEqual({acceptHumanInstructions:false});
 });
 it('rejects a personally reviewed target for a foreign canonical channel before native dispatch',async()=>{
  const wrong=(id:string)=>({...fakeTarget(id),toolChannelSha256:'0'.repeat(64)}),s=await setup({role:'openclaw',targetResolver:async id=>wrong(id),targetSelection:fakeSelection(wrong)}),f=s.flows[0];

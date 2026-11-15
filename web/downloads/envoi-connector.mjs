@@ -7579,7 +7579,7 @@ var ur = class {
 				if (t instanceof L && ["AGENT_PAUSED", "FEATURE_DISABLED"].includes(t.code ?? "") && !e?.aborted) return !1;
 				throw t;
 			})),
-			processWorkBatch: (e, n) => (t(), this.processScopedWorkBatch(e, n)),
+			processWorkBatch: (e, n, r) => (t(), this.processScopedWorkBatch(e, n, r?.acceptHumanInstructions !== !1)),
 			revalidateLiveLeases: async (e) => {
 				t(), e?.throwIfAborted();
 				let r = [...this.activeLeaseChecks], i = r.map(([e]) => e().catch((e) => {
@@ -7609,38 +7609,38 @@ var ur = class {
 			this.workInFlight = null, this.workFollowup = !1;
 		}), this.workInFlight);
 	}
-	async processScopedWorkBatch(e, t) {
+	async processScopedWorkBatch(e, t, n) {
 		if (this.explicitScopedBatch || this.workInFlight) throw new L("Work processing is already in flight", void 0, "SCOPED_BATCH_IN_FLIGHT");
 		if (!Array.isArray(e) || e.length < 1 || e.length > 2 || e.some((e) => !e || !/^msg_[A-Za-z0-9_-]+$/.test(e.workId) || !/^case_[A-Za-z0-9_-]+$/.test(e.caseId)) || new Set(e.map((e) => e.workId)).size !== e.length || new Set(e.map((e) => e.caseId)).size !== e.length) throw TypeError("At most two distinct exact scoped work/case expectations are required");
-		let n = e.map((e) => Object.freeze({
+		let r = e.map((e) => Object.freeze({
 			workId: e.workId,
 			caseId: e.caseId
 		}));
 		this.explicitScopedBatch = !0;
-		let r = new AbortController(), i = AbortSignal.any([r.signal, ...t ? [t] : []]), a, o, s = new Promise((e, t) => {
-			a = e, o = t;
+		let i = new AbortController(), a = AbortSignal.any([i.signal, ...t ? [t] : []]), o, s, c = new Promise((e, t) => {
+			o = e, s = t;
 		});
-		s.catch(() => {});
-		let c = [];
+		c.catch(() => {});
+		let l = [];
 		try {
-			for (let e of n) {
-				i.throwIfAborted();
-				let t = await this.claimWorkAttempt(i);
+			for (let e of r) {
+				a.throwIfAborted();
+				let t = await this.claimWorkAttempt(a, n);
 				if (!t || t.workId !== e.workId || t.message.caseId !== e.caseId) throw new L("Claim does not match the explicit scoped batch", void 0, "SCOPED_BATCH_CLAIM_MISMATCH");
-				let n = this.processClaimedWork(t, i, () => s);
-				n.catch(() => {}), c.push(n);
+				let r = this.processClaimedWork(t, a, () => c);
+				r.catch(() => {}), l.push(r);
 			}
-			return i.throwIfAborted(), a(), (await Promise.allSettled(c)).map((e, t) => e.status === "fulfilled" ? {
-				...n[t],
+			return a.throwIfAborted(), o(), (await Promise.allSettled(l)).map((e, t) => e.status === "fulfilled" ? {
+				...r[t],
 				status: "fulfilled",
 				worked: e.value
 			} : {
-				...n[t],
+				...r[t],
 				status: "rejected",
 				error: e.reason
 			});
 		} catch (e) {
-			throw o(e), r.abort(e), await Promise.allSettled(c), e;
+			throw s(e), i.abort(e), await Promise.allSettled(l), e;
 		} finally {
 			this.explicitScopedBatch = !1;
 		}
@@ -7649,18 +7649,18 @@ var ur = class {
 		let t = await this.claimWorkAttempt(e);
 		return t ? this.processClaimedWork(t, e) : !1;
 	}
-	async claimWorkAttempt(e) {
-		let t = this.options.caseSessionHandler;
-		if (!(t ?? this.options.handler)) throw TypeError("A durable work handler is required");
+	async claimWorkAttempt(e, t = !0) {
+		let n = this.options.caseSessionHandler;
+		if (!(n ?? this.options.handler)) throw TypeError("A durable work handler is required");
 		if (e?.aborted || (await this.guard(), (await this.lifecycle()).paused)) return null;
-		if (t) {
+		if (n) {
 			if (await this.checkStatus(e), !this.caseSessionsAvailable) throw new L("Case sessions are unavailable", 404, "FEATURE_DISABLED");
 			if ((await this.lifecycle()).paused) return null;
 		}
-		let n;
-		t && e?.throwIfAborted();
+		let r;
+		n && e?.throwIfAborted();
 		try {
-			n = await this.postWork("/api/agent/work/claim", { acceptHumanInstructions: !0 }, void 0, t ? e : void 0);
+			r = await this.postWork("/api/agent/work/claim", { acceptHumanInstructions: t }, void 0, n ? e : void 0);
 		} catch (e) {
 			throw e instanceof L && [
 				404,
@@ -7668,19 +7668,20 @@ var ur = class {
 				501
 			].includes(e.status || 0) ? new rr(e.status, e.requestId) : e;
 		}
-		if (this.lastWorkClaimAt = (/* @__PURE__ */ new Date()).toISOString(), n.state === "paused") return await this.observeError(new L("Paused", void 0, "AGENT_PAUSED")), null;
-		if (this.nextClaimAt = Infinity, n.work === null) return n.state === "idle" && Number.isSafeInteger(n.nextAvailableInMs) && n.nextAvailableInMs >= 0 && (this.nextClaimAt = Date.now() + Math.max(1e3, n.nextAvailableInMs)), null;
-		let r = n.work;
-		if (!r || typeof r.workId != "string" || typeof r.leaseToken != "string" || !Number.isFinite(Date.parse(r.leaseExpiresAt)) || typeof r.message?.id != "string" || !r.message.id || t && r.message.id !== r.workId) throw new L("Envoi returned an invalid work claim");
-		let i = q(await this.store.load());
-		if (Zn(r.message)) {
-			if (!t) throw new L("Human decisions require a scoped runtime", void 0, "FEATURE_DISABLED");
-			if (Qn(r.message), r.message.recipientInboxId !== i.inboxId || r.message.id !== r.workId) throw new L("Envoi returned work for the wrong inbox");
-		} else if (K(r.message)) {
-			if ($n(r.message), r.message.recipientInboxId !== i.inboxId) throw new L("Envoi returned work for the wrong inbox");
-		} else if (r.message.senderType === "human" || "senderHumanId" in r.message || r.message.from && "humanId" in r.message.from || !r.message.from?.address) throw new L("Envoi returned an invalid native work sender");
-		if (r.message.recipientAgentId !== i.agentId || r.message.status === "processed") throw new L("Envoi returned work for the wrong recipient");
-		return r;
+		if (this.lastWorkClaimAt = (/* @__PURE__ */ new Date()).toISOString(), r.state === "paused") return await this.observeError(new L("Paused", void 0, "AGENT_PAUSED")), null;
+		if (this.nextClaimAt = Infinity, r.work === null) return r.state === "idle" && Number.isSafeInteger(r.nextAvailableInMs) && r.nextAvailableInMs >= 0 && (this.nextClaimAt = Date.now() + Math.max(1e3, r.nextAvailableInMs)), null;
+		let i = r.work;
+		if (!i || typeof i.workId != "string" || typeof i.leaseToken != "string" || !Number.isFinite(Date.parse(i.leaseExpiresAt)) || typeof i.message?.id != "string" || !i.message.id || n && i.message.id !== i.workId) throw new L("Envoi returned an invalid work claim");
+		if (!t && K(i.message)) throw new L("Claim returned an excluded human instruction", void 0, "SCOPED_BATCH_CLAIM_MISMATCH");
+		let a = q(await this.store.load());
+		if (Zn(i.message)) {
+			if (!n) throw new L("Human decisions require a scoped runtime", void 0, "FEATURE_DISABLED");
+			if (Qn(i.message), i.message.recipientInboxId !== a.inboxId || i.message.id !== i.workId) throw new L("Envoi returned work for the wrong inbox");
+		} else if (K(i.message)) {
+			if ($n(i.message), i.message.recipientInboxId !== a.inboxId) throw new L("Envoi returned work for the wrong inbox");
+		} else if (i.message.senderType === "human" || "senderHumanId" in i.message || i.message.from && "humanId" in i.message.from || !i.message.from?.address) throw new L("Envoi returned an invalid native work sender");
+		if (i.message.recipientAgentId !== a.agentId || i.message.status === "processed") throw new L("Envoi returned work for the wrong recipient");
+		return i;
 	}
 	async processClaimedWork(e, t, n) {
 		let r = this.options.caseSessionHandler, i = r ?? this.options.handler;

@@ -45,6 +45,8 @@ export async function createContinuationReceiver(options:{
   controller:ContinuationController;role:Role;stateDir:string;env:NodeJS.ProcessEnv;meterToken:string;nativeGate?:NativeRequestGateExpectation;
   expected:{address:string;agentId:string;inboxId:string;installationId:string};
   allowedNewSends:readonly HostTaskRequest[];
+  /** Keep queued owner instructions out of explicitly selected work claims. */
+  acceptHumanInstructions?:false;
   reserveOperation(input:{kind:'message'|'tool';caseId?:string;tool?:string;workId?:string}):Promise<void>;
   observeTransport?(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],next:typeof fetch):Promise<Response>;
   beforeScopedControl?(workId:string,signal:AbortSignal):Promise<never>;
@@ -302,8 +304,9 @@ export async function createContinuationReceiver(options:{
       open(flows);
       try{
         for(const state of active.values())if(policy(state.flowId).noAction){const messages=await bridge!.connector.listCaseMessages(state.caseId);if(messages.length>=50)refuse('BOUNDED_CASE_INVENTORY_REQUIRED');state.beforeIds=new Set(messages.map(m=>m.id));}
-        if(flows.length===1){if(!await bridge!.connector.scopedWakeWorkDriver().processWorkOnce(signal))refuse('ACTUAL_WORK_SETTLEMENT_REQUIRED');return[await proof(active.get(flows[0].workId)!)];}
-        const outcomes=await bridge!.connector.scopedWakeWorkDriver().processWorkBatch(flows.map(f=>({workId:f.workId,caseId:f.caseId})),signal);
+        const driver=bridge!.connector.scopedWakeWorkDriver();
+        if(flows.length===1&&options.acceptHumanInstructions!==false){if(!await driver.processWorkOnce(signal))refuse('ACTUAL_WORK_SETTLEMENT_REQUIRED');return[await proof(active.get(flows[0].workId)!)];}
+        const outcomes=await driver.processWorkBatch(flows.map(f=>({workId:f.workId,caseId:f.caseId})),signal,{acceptHumanInstructions:options.acceptHumanInstructions});
         if(outcomes.length!==flows.length)refuse('EXACT_BATCH_OUTCOMES_REQUIRED');
         const results:Awaited<ReturnType<typeof proof>>[]=[],errors:unknown[]=[];
         for(let index=0;index<outcomes.length;index++){
