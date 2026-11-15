@@ -35,7 +35,7 @@ test('the locked website toolchain excludes the reported vulnerable versions', a
 
 
 test('the client deck is the first and default demo without removing other scenarios', async () => {
-  assert.deepEqual(scenarios.map(scenario => scenario.id), ['client-deck', 'bed-frame', 'dinner']);
+  assert.deepEqual(scenarios.map(scenario => scenario.id), ['client-deck', 'partner-handoff', 'client-validation']);
   const thread = await readFile(new URL('../src/components/Thread.astro', import.meta.url), 'utf8');
   assert.match(thread, /aria-selected=\{index === 0/);
   assert.match(thread, /hidden=\{index !== 0\}/);
@@ -177,7 +177,7 @@ test('the hero signup area has a single primary action without an unrelated tagl
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   const hero = page.match(/<div class="hero-copy">([\s\S]*?)<\/section>/)[1];
   assert.equal((hero.match(/class="button primary hero-start"/g) || []).length, 1);
-  assert.match(hero, /href=\{createAccountUrl\}>Start now/);
+  assert.match(hero, /href=\{createAccountUrl\}>Create your account/);
   assert.doesNotMatch(hero, /WaitlistCard|Join the waitlist/);
   assert.doesNotMatch(hero, /data-copy-invite|hero-aside|Agent collaboration across people/);
 });
@@ -185,7 +185,7 @@ test('the hero signup area has a single primary action without an unrelated tagl
 test('About uses the requested headline and workspace description without the old finance example', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   const description = page.match(/<p class="hero-description">([\s\S]*?)<\/p>/)[1];
-  assert.equal(description, 'Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.');
+  assert.equal(description, 'Envoi gives every agent its own address and secure workspace to connect, collaborate, exchange files, schedule and complete tasks with other agents.');
   assert.doesNotMatch(page, /Your finance agent can build a budget|Your recruiting agent can create a hiring plan/);
   assert.doesNotMatch(description, /Native messaging|scoped file access|approval gates|building infrastructure/);
   assert.match(page, /<h1 id="hero-title">Break your agents out of their silos<\/h1>/);
@@ -193,16 +193,11 @@ test('About uses the requested headline and workspace description without the ol
   assert.doesNotMatch(page, /class="plain-columns"|class="comparison-chart"/);
 });
 
-test('all illustrated owner names and initials use John consistently', async () => {
-  const sources = await Promise.all(['../src/components/Website.astro', '../src/components/Handshake.astro'].map(file => readFile(new URL(file, import.meta.url), 'utf8')));
-  assert.doesNotMatch(sources.join('') + JSON.stringify(scenarios), /Rachel|>R</);
-  assert.match(sources[0], /class="owner-avatar">J<\/span><span>John's workspace/);
-  for (const scenario of scenarios) {
-    assert.deepEqual(scenario.agents.find(agent => agent.id === 'a'), { id: 'a', name: "John's agent", platform: 'Muse', logo: '/agents/muse.svg' });
-    assert.equal(scenario.agents.find(agent => agent.id === 'b').platform, 'OpenClaw');
-    assert.equal(scenario.agents.find(agent => agent.id === 'b').logo, '/agents/openclaw.svg');
-  }
-  assert.equal(scenarios.find(scenario => scenario.id === 'client-deck').steps.at(-1).tag, 'Needs John');
+test('the enterprise thread demos identify agents by team role', async () => {
+  const source = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
+  assert.doesNotMatch(source + JSON.stringify(scenarios), /John's|Jordan's|bed frame|Saturday dinner/i);
+  assert.match(source, /Consulting team’s inbox/);
+  for (const scenario of scenarios) assert.equal(scenario.agents.find(agent => agent.id === 'a').name, 'Consulting agent');
 });
 
 test('the collaboration diagram shows only the Envoi solution with named agent artwork', async () => {
@@ -218,33 +213,13 @@ test('the collaboration diagram shows only the Envoi solution with named agent a
   assert.match(diagram, /\{second.name\}/);
 });
 
-test('About has one centered dotted agent orbit and a compact data-request card beside its explanation', async () => {
+test('About has a static row of five agent platforms below its hero copy', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
-  const orbit = await readFile(new URL('../src/components/AgentOrbit.astro', import.meta.url), 'utf8');
-  const layout = await readFile(new URL('../src/styles/hero-refresh.css', import.meta.url), 'utf8');
-  assert.equal((page.match(/<AgentOrbit \/>/g) || []).length, 1);
-  assert.ok(page.indexOf('<AgentOrbit />') < page.indexOf('<Handshake />'));
-  assert.match(page, /class="solution-copy"[\s\S]*class="hero-diagram"><Handshake \/>/);
-  assert.match(orbit, /class="ambient-ring"/);
-  assert.match(orbit, /\.ambient-ring \{[^}]*border: 1px dashed/);
-  assert.match(orbit, /\{agent\.name\}/);
-  assert.match(orbit, /src=\{agent\.logo\}/);
-  assert.match(orbit, /hero-agent-orbit 84s linear infinite/);
-  assert.match(orbit, /\.ambient-agent-6 \{ animation-delay: -70s;/);
-  for (const [name, path] of [['Hermes', 'hermes.png'], ['Anthropic', 'anthropic.svg']]) {
-    assert.ok(orbit.includes(`name: '${name}', logo: '/agents/${path}'`));
-    assert.ok((await readFile(new URL(`../public/agents/${path}`, import.meta.url))).length > 100);
-  }
-  assert.match(layout, /\.hero-ambient \{[^}]*left: 50%; top: calc\(50% \+ 20px\); transform: translate\(-50%, -50%\)/);
-  assert.match(layout, /\.solution-showcase \{ display: grid; grid-template-columns:/);
-  assert.match(layout, /@media \(max-width: 980px\) \{\s*:where\(html\[data-page="about"\]\) \.solution-showcase \{ grid-template-columns: 1fr;/);
-  assert.match(layout, /\.hero-copy \{[^}]*text-align: center/);
-  assert.match(layout, /\.main-nav \{[^}]*justify-self: center/);
-  const flow = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');
-  assert.match(flow, /Request Q4 revenue data/);
-  assert.match(flow, /Q4 figures attached/);
-  assert.match(flow, /request-slide 8s/);
-  assert.match(flow, /reply-slide 8s/);
+  const row = await readFile(new URL('../src/components/AgentRow.astro', import.meta.url), 'utf8');
+  assert.match(page, /class="hero-copy"[\s\S]*<AgentRow \/>[\s\S]*<HomepageWalkthrough \/>/);
+  for (const name of ['Grok Bot', 'OpenClaw', 'Hermes', 'Claude', 'Dots']) assert.ok(row.includes(`name: '${name}'`));
+  assert.match(row, /grid-template-columns: repeat\(5,/);
+  assert.doesNotMatch(row, /animation:|@keyframes/);
 });
 
 test('diagram labels remain readable instead of shrinking to tiny mobile text', async () => {
@@ -276,16 +251,16 @@ test('About and Product have separate static routes and accessible active-page n
 
 test('footer links point to real sections rather than placeholder legal or social pages', async () => {
   const footer = await readFile(new URL('../src/components/Footer.astro', import.meta.url), 'utf8');
-  for (const label of ['Product', 'Agents', 'Company', 'Access']) assert.ok(footer.includes(`<h2>${label}</h2>`));
+  for (const label of ['Product', 'Agent integrations', 'Company', 'Access']) assert.ok(footer.includes(`<h2>${label}</h2>`));
   assert.doesNotMatch(footer, /href="#"|Product Hunt|Launch YC|Twitter|LinkedIn|\/privacy|\/terms/);
-  assert.match(footer, /\/product\/#your-view/);
+  assert.match(footer, /\/docs\//);
   assert.match(footer, /\/#how-it-works/);
 });
 
 test('the header keeps the circle mark and the full logo appears above the About headline', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   const header = page.match(/<header\b[\s\S]*?<\/header>/)[0];
-  const hero = page.match(/<div class="hero-copy">([\s\S]*?)<div class="hero-diagram">/)[1];
+  const hero = page.match(/<div class="hero-copy">([\s\S]*?)<div class="hero-agents">/)[1];
   assert.match(header, /<BrandLogo mark decorative \/>/);
   assert.match(hero, /<div class="hero-brand"><BrandLogo \/><\/div>\s*<h1 id="hero-title">/);
 });
@@ -293,7 +268,7 @@ test('the header keeps the circle mark and the full logo appears above the About
 test('sections keep their main headings without numbered eyebrow labels', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   assert.doesNotMatch(page, /<p\b[^>]*class="eyebrow"[^>]*>\s*\d{2}\s*\//);
-  for (const headingId of ['mechanism-title', 'product-title', 'features-title']) assert.ok(page.includes(`id="${headingId}"`));
+  for (const headingId of ['hero-title', 'product-title', 'features-title']) assert.ok(page.includes(`id="${headingId}"`));
 });
 
 test('Product has one main inbox headline without the duplicate introduction', async () => {
@@ -302,7 +277,7 @@ test('Product has one main inbox headline without the duplicate introduction', a
   assert.match(page, /<h1 id="product-title">Track your agents\u2019 work in different email threads<\/h1>/);
   assert.doesNotMatch(page, /product-intro|product-overview-title|Native messaging between agents with human oversight/);
   assert.doesNotMatch(page, /id="oversight"|Set the terms|<Receipt|import Receipt/);
-  assert.match(footer, /href="\/product\/#feature-4">Permissions & approvals/);
+  assert.match(footer, /href="\/product\/#conversations">Agent conversations/);
   assert.doesNotMatch(footer, /href="\/product\/#oversight"/);
 });
 
@@ -332,17 +307,15 @@ test('conversation and inbox typography stays comfortably sized at every breakpo
   }
 });
 
-test('reading text uses the light system font while action labels are larger and bold', async () => {
+test('public pages share one bundled font family while actions retain emphasis', async () => {
   const fonts = await readFile(new URL('../src/styles/fonts.css', import.meta.url), 'utf8');
   const tokens = await readFile(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../src/styles/site.css', import.meta.url), 'utf8');
   const hero = await readFile(new URL('../src/styles/hero-refresh.css', import.meta.url), 'utf8');
   const handshake = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');
-  assert.match(hero, /local\('Segoe UI Light'\)/);
-  assert.match(hero, /:where\(html\[data-page="about"\]\):root \{\s*--display: 'Envoi UI', 'Segoe UI Light'/);
-  assert.match(tokens, /--display: "Figtree Variable"/);
-  assert.match(tokens, /--sans: var\(--display\)/);
-  assert.match(tokens, /--mono: var\(--display\)/);
+  assert.doesNotMatch(hero, /Segoe UI|--display:/);
+  assert.match(tokens, /--site-font: "Figtree Variable"/);
+  for (const token of ['display', 'sans', 'mono']) assert.ok(tokens.includes(`--${token}: var(--site-font)`));
   assert.match(fonts, /url\('\/fonts\/figtree\.woff2'\)/);
   assert.match(styles, /body \{ font-weight: 300; \}/);
   for (const selector of ['.button', '.header-auth-link']) assert.match(styles, new RegExp(`${selector.replace('.', '\\.') } \\{[^}]*font-weight: 700;`));
