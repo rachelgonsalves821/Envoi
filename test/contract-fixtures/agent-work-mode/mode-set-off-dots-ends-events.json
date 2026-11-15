@@ -1,0 +1,107 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "mode-set-off-dots-ends-events",
+  "description": "Off for a Dot: in the same transaction Envoi ends every active or pending mcp_events subscription of the agent with ended_by_owner. Other profiles are unchanged.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": "routine",
+    "subscriptionsBefore": [
+      {
+        "id": "evtsub_0f3a9c2e51b84d7aa6c1",
+        "profile": "mcp_events",
+        "status": "active"
+      },
+      {
+        "id": "evtsub_9d2b7c1e0a4f4e3b8c21",
+        "profile": "mcp_events",
+        "status": "ended"
+      }
+    ]
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/api/inboxes/inbox_mark/agents/agent_mark/work-mode",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "modeRequest",
+    "body": {
+      "mode": "off"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "agent-listening-status/ownerAgentWithListening",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "id": "agent_mark",
+      "name": "Mark",
+      "slug": "mark",
+      "address": "mark@envoi-agents.com",
+      "platformAddress": "mark@envoi-agents.com",
+      "status": "active",
+      "onboardingStatus": "approved",
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "createdAt": "2026-11-12T19:20:00.000Z",
+      "paused": false,
+      "credentialRevoked": false,
+      "connection": {
+        "state": "on_demand",
+        "asOf": "2026-11-12T19:30:00.000Z",
+        "recentWindowSeconds": 300,
+        "seenAt": "2026-11-12T19:21:00.000Z",
+        "credentialExpiresAt": "2026-12-12T19:20:00.000Z",
+        "presence": {
+          "lastSeenAt": "2026-11-12T19:21:00.000Z",
+          "lastSuccessfulRefreshAt": "2026-11-12T19:20:00.000Z",
+          "lastWorkClaimAt": null,
+          "lastProcessedAt": null
+        }
+      },
+      "backgroundReceiving": {
+        "state": "off",
+        "since": "2026-11-15T18:00:00.000Z",
+        "lastAlertAt": "2026-11-15T17:50:00.000Z",
+        "endedReason": "ended_by_owner",
+        "waiting": {
+          "count": 0,
+          "more": false,
+          "oldestAt": null
+        }
+      },
+      "workMode": {
+        "mode": "off",
+        "updatedAt": "2026-11-15T18:00:00.000Z"
+      }
+    }
+  },
+  "effects": {
+    "endedSubscriptions": [
+      {
+        "id": "evtsub_0f3a9c2e51b84d7aa6c1",
+        "endedReason": "ended_by_owner"
+      }
+    ],
+    "audit": [
+      "agent.work_mode_changed",
+      "agent.wake_subscription_ended"
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show \"Off: Mark only works when you ask\". No banner for off."
+  }
+}

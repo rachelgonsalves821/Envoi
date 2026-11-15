@@ -1,0 +1,64 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "subscribe-allowed-after-on",
+  "description": "After the owner switches back to routine, subscribe works as provider-event-wake v1 plus provider-event-wake-activation v1 (one activation hint for a new subscription).",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": "routine",
+    "subscriptionsBefore": [
+      {
+        "id": "evtsub_0f3a9c2e51b84d7aa6c1",
+        "profile": "mcp_events",
+        "status": "ended"
+      }
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "events/subscribe",
+      "params": {
+        "name": "envoi.work_available",
+        "arguments": {},
+        "delivery": {
+          "mode": "webhook",
+          "url": "https://dots.callbacks.example/envoi/events",
+          "secret": "whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMQ=="
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpResult",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "id": "evtsub_0f3a9c2e51b84d7aa6c1",
+        "refreshBefore": "2026-11-22T18:00:00.000Z",
+        "cursor": "00000000000000000104",
+        "truncated": false
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Wait for the activation alert, then confirm lastAlertAt."
+  }
+}
