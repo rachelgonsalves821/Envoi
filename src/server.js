@@ -456,6 +456,8 @@ const publicAgent = agent => {
     publicEmailTransport: publicEmailTransportStatus()
   };
   delete value.credentialHash;
+  // agent-work-mode v1 §4 and §7: the stored mode is added only by the approved surfaces, and only while the flag is on.
+  delete value.workMode;
   return value;
 };
 const publicCalendarConnector = connector => {

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import { send, waitForMessageStatus } from './a3-harness.js';
-import { api, assertTokenResponse, backends, connect, documents, exchange, freshOwner, remoteServer, stored } from './agent-remote-auth-token-harness.js';
+import { api, assertTokenResponse, backends, connect, documents, exchange, freshOwner, remoteServer, restart, stored } from './agent-remote-auth-token-harness.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'contract-fixtures');
 const listeningSchemas = JSON.parse(await readFile(path.join(fixtures, 'agent-listening-status', 'schemas.json'), 'utf8'));
@@ -137,4 +137,35 @@ for (const backend of backends) {
     const view = await api(server.baseUrl, `/api/inboxes/${registration.agentInboxId}/agents`, { session: who.session });
     assert.equal('workMode' in view.payload.find(agent => agent.id === registration.agentId), false);
   });
+
+  test(`[${backend.name}] agent-work-mode: rollback after a stored mode omits workMode everywhere and stops filtering`, { timeout: 240000 }, async t => {
+    const server = await remoteServer(t, backend, { env: env({ ENVOI_WORK_MODE: 'true' }) });
+    const own = await freshOwner(server);
+    const peer = await freshOwner(server);
+    assert.equal((await putMode(server, own, own.inbox.id, own.agent.id, { mode: 'off' })).status, 200);
+
+    // Restart on the same data with the flag removed (§7).
+    const after = await restart(t, server, { ENVOI_WORK_MODE: undefined });
+    const ownerView = await api(after.baseUrl, `/api/inboxes/${own.inbox.id}/agents`, { session: own.session });
+    assert.equal(ownerView.status, 200, ownerView.text);
+    assert.equal('workMode' in ownerView.payload.find(agent => agent.id === own.agent.id), false, 'the owner view omits the stored mode');
+    const status = await api(after.baseUrl, '/api/agent/status', { token: own.agentApiToken });
+    assert.equal('workMode' in status.payload, false);
+    const disabled = await putMode(after, own, own.inbox.id, own.agent.id, { mode: 'routine' });
+    assert.equal(disabled.status, 404, disabled.text);
+    // Pause and resume answer with the owner view built from the stored agent; it too omits the stored mode.
+    for (const action of ['pause', 'resume']) {
+      const control = await api(after.baseUrl, `/api/inboxes/${own.inbox.id}/agents/${own.agent.id}/${action}`, { session: own.session, body: {} });
+      assert.equal(control.status, 200, control.text);
+      assert.equal('workMode' in control.payload, false, `${action} omits the stored mode`);
+    }
+
+    // The stored off no longer holds back peer work.
+    const sent = await send(after.baseUrl, peer, own, { text: 'Work mode rollback check' });
+    assert.equal(sent.status, 202, sent.text);
+    await waitForMessageStatus(after.baseUrl, own, sent.payload.id, 'delivered');
+    const claimed = await api(after.baseUrl, '/api/agent/work/claim', { token: own.agentApiToken, body: {} });
+    assert.equal(claimed.payload.work?.workId, sent.payload.id, claimed.text);
+  });
+
 }
