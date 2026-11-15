@@ -33,13 +33,12 @@ const statusOf = (server, who, setupId) => api(server.baseUrl, `${setupsRoute(wh
 const setupParts = (who, setupId) => ['saved-setups', who.human.id, `${setupId}.json`];
 
 // The assistant's authorization request, without approving it: returns its handle and PKCE pair.
-async function authorize(server, scope) {
+async function authorize(server, scope, client = publicClient, redirectUri = 'http://127.0.0.1:53682/callback') {
   const { verifier, challenge } = pkce();
-  const redirectUri = 'http://127.0.0.1:53682/callback';
-  const query = new URLSearchParams({ response_type: 'code', client_id: publicClient.clientId, redirect_uri: redirectUri, code_challenge: challenge, code_challenge_method: 'S256', resource: server.resource, scope, state: 'saved-setup-state' });
+  const query = new URLSearchParams({ response_type: 'code', client_id: client.clientId, redirect_uri: redirectUri, code_challenge: challenge, code_challenge_method: 'S256', resource: server.resource, scope, state: 'saved-setup-state' });
   const authorized = await fetch(`${server.baseUrl}/oauth/authorize?${query}`, { redirect: 'manual' });
   assert.equal(authorized.status, 302);
-  return { handle: new URL(authorized.headers.get('location')).searchParams.get('request'), verifier, redirectUri, client: publicClient };
+  return { handle: new URL(authorized.headers.get('location')).searchParams.get('request'), verifier, redirectUri, client };
 }
 const consentRoute = request => `/api/oauth/authorization-requests/${encodeURIComponent(request.handle)}`;
 const approve = (server, who, request, body) => api(server.baseUrl, `${consentRoute(request)}/approve`, { session: who.session, body });
@@ -47,6 +46,38 @@ const approveBody = (who, saved, savedSetupId) => ({ target: { kind: 'new_agent'
   grantedPermissions: ['receive_agent_messages'], policyProfile: 'default', ...(savedSetupId ? { savedSetupId } : {}) });
 
 for (const backend of backends) {
+  test(`[${backend.name}] Grok consent pre-fills the owner’s Grok setup and links it through exchange`, { timeout: 120000 }, async t => {
+    const callback = 'https://www.cursor.com/agents/mcp/oauth/callback';
+    const grokClient = { ...publicClient, clientId: 'client_envoi-grok-bot', clientName: 'Grok Bot', redirectUris: [callback], provider: 'Grok Bot' };
+    const server = await remoteServer(t, backend, { clients: [publicClient, grokClient], env: enabled });
+    const who = await freshOwner(server);
+    const other = await freshOwner(server);
+    const grok = await save(server, who, { runtime: 'grok', name: 'Gabe', localPart: localPart(), permissions: [] });
+    assert.equal(grok.status, 201, grok.text);
+    assertShape('savedSetup', grok.payload);
+    const dots = await save(server, who, { runtime: 'dots', name: 'Dot', localPart: localPart(), permissions: [] });
+    assert.equal(dots.status, 201, dots.text);
+    const request = await authorize(server, 'envoi.agent envoi.send', grokClient, callback);
+    assert.ok(request.handle);
+    const view = await api(server.baseUrl, consentRoute(request), { session: who.session });
+    assert.equal(view.status, 200, view.text);
+    assertShape('consentViewWithSavedSetup', view.payload);
+    assert.equal(view.payload.savedSetup.setupId, grok.payload.setupId);
+    assert.equal(view.payload.savedSetup.name, 'Gabe');
+    assert.equal(view.payload.savedSetup.localPart, grok.payload.localPart);
+    assert.deepEqual(view.payload.savedSetup.permissions, ['receive_agent_messages', 'send_agent_messages']);
+    const otherView = await api(server.baseUrl, consentRoute(request), { session: other.session });
+    assert.equal('savedSetup' in otherView.payload, false);
+    const dotsView = await api(server.baseUrl, consentRoute(await authorize(server, 'envoi.agent')), { session: who.session });
+    assert.equal(dotsView.payload.savedSetup.setupId, dots.payload.setupId);
+    const approval = await approve(server, who, request, approveBody(who, grok.payload, grok.payload.setupId));
+    assert.equal(approval.status, 200, approval.text);
+    assert.equal(approval.payload.savedSetup.linked, true);
+    const code = new URL(approval.payload.redirectTo).searchParams.get('code');
+    assertTokenResponse(await exchange(server, { ...request, code }), 'envoi.agent');
+    assert.equal((await statusOf(server, who, grok.payload.setupId)).payload.status, 'connected');
+  });
+
   test(`[${backend.name}] flag off: routes are FEATURE_DISABLED, the consent view is unchanged and savedSetupId never links`, { timeout: 120000 }, async t => {
     const server = await remoteServer(t, backend);
     const who = await freshOwner(server);

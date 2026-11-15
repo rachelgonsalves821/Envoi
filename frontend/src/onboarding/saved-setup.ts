@@ -18,7 +18,8 @@ export interface ConsentSavedSetup extends SavedSetupPreferences {
   addressAvailable: boolean;
 }
 type SetupAgent = { name: string; address: string };
-export type SavedSetup = SavedSetupPreferences & { runtime: 'dots'; createdAt: string } & (
+type SavedSetupRuntime = 'dots' | 'grok';
+export type SavedSetup = SavedSetupPreferences & { runtime: SavedSetupRuntime; createdAt: string } & (
   | { status: 'waiting' | 'replaced' }
   | { status: 'approved'; agent: SetupAgent }
   | { status: 'connected'; agent: SetupAgent & { id: string; lastSeenAt: string | null }; effectivePermissions: SavedPermission[] }
@@ -36,11 +37,11 @@ function readSetup(raw: unknown, workspaceInboxId: string): SavedSetup {
 }
 
 export const savedSetupApi = {
-  async create(workspaceInboxId: string, input: SavedSetupInput, signal?: AbortSignal) {
+  async create(workspaceInboxId: string, input: SavedSetupInput, signal?: AbortSignal, runtime: SavedSetupRuntime = 'dots') {
     const setup = readSetup(await request(collection(workspaceInboxId), {
-      method: 'POST', body: JSON.stringify({ runtime: 'dots', ...input }), signal
+      method: 'POST', body: JSON.stringify({ runtime, ...input }), signal
     }), workspaceInboxId);
-    if (setup.status !== 'waiting') throw new Error('Envoi did not return a new setup.');
+    if (setup.status !== 'waiting' || setup.runtime !== runtime) throw new Error('Envoi did not return a new setup for this platform.');
     return setup;
   },
   async status(workspaceInboxId: string, setupId: string, signal?: AbortSignal) {
