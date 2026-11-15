@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { remoteAuthScopes } from './agent-remote-auth.js';
+import { caseSubjectSchema } from './agent-interface.js';
 
 // The handshake-era Streamable HTTP protocol permits stateless JSON responses.
 // No MCP session is issued; the active agent credential is checked on every call.
@@ -10,6 +11,11 @@ const identifier = { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$
 const idempotencyKey = { type: 'string', minLength: 1, maxLength: 200, pattern: '^[^\\x00-\\x1f\\x7f]+$' };
 const address = { type: 'string', minLength: 3, maxLength: 254, pattern: '^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$' };
 const text = { type: 'string', minLength: 1, maxLength: 60000 };
+const subject = {
+  ...caseSubjectSchema,
+  description: 'Write a short email-style subject (aim for 4–10 words) naming the specific project, deliverable, or decision. Example: Marketing plan for creator fees and reach. Keep greetings and the full request in the message body.'
+};
+const startCaseGuidance = 'Supply a specific email-style subject when opening a conversation. For follow-ups on the same work, reply in the existing case.';
 const empty = { type: 'object', additionalProperties: false };
 const schema = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const sendFields = {
@@ -27,9 +33,9 @@ export const agentMcpTools = Object.freeze([
   { name: 'envoi_list_cases', description: 'List cases in this agent’s own inbox.', inputSchema: schema({ limit: { type: 'integer', minimum: 1, maximum: 100 }, before: { type: 'string', minLength: 1, maxLength: 256 } }), permission: 'read' },
   { name: 'envoi_read_case', description: 'Read one case in this agent’s own inbox.', inputSchema: schema({ caseId: identifier }, ['caseId']), permission: 'read' },
   { name: 'envoi_list_messages', description: 'List messages in this agent’s own inbox, optionally for a case.', inputSchema: schema({ caseId: identifier, limit: { type: 'integer', minimum: 1, maximum: 100 }, before: { type: 'string', minLength: 1, maxLength: 256 } }), permission: 'read' },
-  { name: 'envoi_start_case', description: 'Start a new case and send its first native agent message to an exact known Envoi address. Retries with the same idempotency key reuse the same case.', inputSchema: schema(sendFields, ['recipientAddress', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_start_case', description: `Start a new case and send its first native agent message to an exact known Envoi address. ${startCaseGuidance} Retries with the same idempotency key reuse the same case.`, inputSchema: schema({ ...sendFields, subject }, ['recipientAddress', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_send_message', description: 'Send a native message in an existing case. Attach clean uploads from that case using attachmentIds.', inputSchema: schema({ ...sendFields, caseId: identifier, attachmentIds }, ['recipientAddress', 'text', 'caseId', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'envoi_start_group_case', description: 'Create a shared case with at least two other Envoi agents.', inputSchema: schema({ memberAddresses: distinctArray(address, 2), idempotencyKey }, ['memberAddresses', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_start_group_case', description: `Create a shared case with at least two other Envoi agents. ${startCaseGuidance}`, inputSchema: schema({ memberAddresses: distinctArray(address, 2), subject, idempotencyKey }, ['memberAddresses', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_read_group_case', description: 'Read the roster and shared conversation of a group case you belong to.', inputSchema: schema({ caseId: identifier }, ['caseId']), permission: 'read' },
   { name: 'envoi_send_group_message', description: 'Post to an existing group case. Use attachmentIds for clean uploads from that case. Set inReplyTo to reply and assigneeAgentIds to request work.', inputSchema: schema({ caseId: identifier, text, inReplyTo: identifier, assigneeAgentIds: distinctArray(identifier, 0), attachmentIds, idempotencyKey }, ['caseId', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_send_proposal', description: 'Send a structured, agent-authored proposal in an existing shared case. This is a native collaboration message, not a server-attested approval.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, proposal: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'proposal', 'idempotencyKey']), permission: 'send_agent_messages' },
@@ -139,7 +145,7 @@ async function invokeTool(name, args, identity, callRest) {
   if (name === 'envoi_grant_asset') return callRest('POST', `${base}/assets/${args.assetId}/grants`, { caseId: args.caseId, recipientAgentId: args.recipientAgentId }, args.idempotencyKey);
   if (name === 'envoi_asset_download') return callRest('GET', `${base}/assets/${args.assetId}/download?transport=signed`);
   const groupCases = '/api/agent/group-cases';
-  if (name === 'envoi_start_group_case') return callRest('POST', groupCases, { memberAddresses: args.memberAddresses }, args.idempotencyKey);
+  if (name === 'envoi_start_group_case') return callRest('POST', groupCases, { memberAddresses: args.memberAddresses, subject: args.subject }, args.idempotencyKey);
   if (name === 'envoi_read_group_case') return callRest('GET', `${groupCases}/${args.caseId}`);
   if (name === 'envoi_send_group_message') {
     const { caseId, idempotencyKey: key, ...post } = args;
@@ -160,7 +166,7 @@ async function invokeTool(name, args, identity, callRest) {
       intent: name === 'envoi_start_case' ? args.intent || 'request' : isProposal ? 'offer' : isDecision ? args.decision : isCompletion ? 'receipt' : args.intent || 'message',
       caseId,
       ...(args.attachmentIds ? { attachmentIds: args.attachmentIds } : {}),
-      ...(name === 'envoi_start_case' ? { type: 'request' } : {}),
+      ...(name === 'envoi_start_case' ? { type: 'request', subject: args.subject } : {}),
       ...(isProposal ? { type: 'proposal', payload: { proposal: args.proposal } } : {}),
       ...(isCounterproposal ? { type: 'counterproposal', payload: { counterproposal: { ...(args.details || {}), proposalMessageId: args.proposalMessageId || null } } } : {}),
       ...(isDecision && !isCounterproposal ? { type: 'decision', payload: { decision: { kind: args.decision, proposalMessageId: args.proposalMessageId || null, details: args.details || null } } } : {}),

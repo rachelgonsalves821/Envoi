@@ -24,6 +24,10 @@ const baseCase = (overrides: Partial<WorkCase> = {}): WorkCase => ({
 });
 
 describe('conversation subjects', () => {
+  it.each([undefined, 'group'] as const)('shows the saved subject verbatim for case mode %s', caseMode => {
+    expect(caseSubject(baseCase({ caseMode, subject: 'Q4 planning: Acme’s decision' }))).toBe('Q4 planning: Acme’s decision');
+  });
+
   it('keeps a clear goal supplied by the agent', () => {
     expect(caseSubject(baseCase())).toBe('Schedule Q4 planning with Acme');
   });

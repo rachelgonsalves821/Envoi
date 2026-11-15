@@ -7,6 +7,8 @@ const schema = JSON.parse(readFileSync(new URL('./agent-interface.schema.json', 
 const ajv = new Ajv({ allErrors: true, strict: true });
 addFormats(ajv);
 const validateCaseSchema = ajv.compile(schema);
+export const caseSubjectSchema = schema.properties.subject;
+const validateSubject = ajv.compile(caseSubjectSchema);
 const validateActionSchema = ajv.compile({ $ref: `${schema.$id}#/definitions/Action` });
 
 export const CASE_STATES = Object.freeze(schema.definitions.caseState.enum);
@@ -35,6 +37,12 @@ export const isActiveCase = value => Boolean(value?.schemaVersion && CASE_STATES
 const domainError = (message, statusCode = 400, details) => Object.assign(new Error(message), { statusCode, details });
 const clone = value => structuredClone(value);
 
+export function normalizeCaseSubject(value) {
+  if (value === undefined) return undefined;
+  if (!validateSubject(value)) throw domainError('Subject must be a nonblank, single line of at most 90 characters.');
+  return value.trim();
+}
+
 export function assertValidCase(value) {
   if (!validateCaseSchema(value)) throw domainError('Case does not satisfy the Agent Interface schema', 422, validateCaseSchema.errors);
   return value;
@@ -45,11 +53,12 @@ export function assertValidAction(value) {
   return value;
 }
 
-export function createCase({ id, objective, collaborationMode = 'collaboration', principal, actingAgent, participants = [], constraints = {}, deadline = null, createdAt }) {
+export function createCase({ id, objective, subject, collaborationMode = 'collaboration', principal, actingAgent, participants = [], constraints = {}, deadline = null, createdAt }) {
   const value = {
     id,
     schemaVersion: '1.0',
     objective: String(objective || '').trim(),
+    ...(subject !== undefined ? { subject } : {}),
     collaborationMode,
     state: 'new',
     principal,

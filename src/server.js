@@ -53,6 +53,7 @@ import {
   completeCase,
   counterProposal,
   createCase as createAgentCase,
+  normalizeCaseSubject,
   isActiveCase,
   transitionCase,
   verifiedHumanCaseDecision
@@ -1724,6 +1725,7 @@ const groupMember = (binding, identity) => binding?.mode === 'group'
 const groupMemberView = ({ agentId, address }) => ({ agentId, address });
 const groupCaseView = value => ({
   id: value.id, caseId: value.id, caseMode: 'group', objective: value.objective,
+  ...(value.subject !== undefined ? { subject: value.subject } : {}),
   members: value.members, messages: value.events.filter(event => event.type === 'message')
     .map(({ payload: { messageId, messageType, deliveryState, ...message } }) => message)
 });
@@ -1902,8 +1904,9 @@ async function handleGroupCaseRoute(req, res, route) {
     throw codedError(400, 'GROUP_CASE_INVALID', 'Group members must be distinct and exclude the creating agent.');
   }
   const objective = input.objective?.trim() || 'Group collaboration';
+  const subject = normalizeCaseSubject(input.subject);
   const id = `case_${hashSecret(JSON.stringify(['group', identity.agent.id, key])).slice(0, 32)}`;
-  const requestHash = semanticDigest({ addresses, objective });
+  const requestHash = semanticDigest({ addresses, objective, ...(subject !== undefined ? { subject } : {}) });
   const resolveMembers = async () => Promise.all(addresses.map(async address => {
     const entry = await store.getJson(nativeAddressDirectoryPath(address));
     if (!entry?.verified || entry.address !== address) throw codedError(404, 'GROUP_MEMBER_NOT_FOUND', 'A group member was not found.');
@@ -1926,7 +1929,7 @@ async function handleGroupCaseRoute(req, res, route) {
     const at = store.now();
     const agentIds = pairIds(members.map(member => member.agentId));
     if (agentIds.length !== members.length) throw codedError(400, 'GROUP_CASE_INVALID', 'Group members must be distinct.');
-    const value = transitionCase(createAgentCase({ id, objective, principal: inbox.ownerHumanId,
+    const value = transitionCase(createAgentCase({ id, objective, subject, principal: inbox.ownerHumanId,
       actingAgent: identity.agent.id, participants: agentIds, createdAt: at }),
     'inProgress', { actor: identity.agent.id, at, reasonCode: 'caseStarted' });
     value.caseMode = 'group';
@@ -2193,6 +2196,7 @@ async function nativeCaseDocuments(message, state, at, { revealRecipient = false
     current = legacy || createAgentCase({
       id: message.caseId,
       objective: message.text?.slice(0, 160) || 'Agent communication',
+      subject: message.subject,
       collaborationMode: ['proposal', 'counterproposal', 'decision'].includes(message.type) ? 'negotiation' : 'collaboration',
       principal: senderInbox.ownerHumanId,
       actingAgent: message.senderAgentId,
@@ -6892,8 +6896,9 @@ async function route(req, res) {
     if (recipient.id === sender.id) return fail(res, 400, 'Sender and recipient must be different agents');
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
     const requestedCaseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
+    const subject = normalizeCaseSubject(input.subject);
     const ids = attachmentIds(input.attachmentIds);
-    const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, proposal: input.proposal || null, authority: input.authority || null, signature: input.signature || null, artifactRefs: input.artifactRefs || [], ...(ids.length ? { attachmentIds: ids } : {}) }));
+    const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, proposal: input.proposal || null, authority: input.authority || null, signature: input.signature || null, artifactRefs: input.artifactRefs || [], ...(ids.length ? { attachmentIds: ids } : {}), ...(subject !== undefined ? { subject } : {}) }));
     const priorMessage = await store.getJson(messagePath(inboxId, messageId));
     const candidateCaseId = requestedCaseId || priorMessage?.caseId || store.id('case');
     const response = await withInboxMutation(inboxId, async writeAudit => {
@@ -6982,6 +6987,7 @@ async function route(req, res) {
         unverifiedSignatureClaim: input.signature || null,
         text: input.text,
         payload: input.payload || null,
+        ...(subject !== undefined ? { subject } : {}),
         requestHash,
         createdAt,
         queuedAt: createdAt,

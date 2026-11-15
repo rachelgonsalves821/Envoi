@@ -204,13 +204,17 @@ test('MCP tools start two distinct cases, preserve send idempotency, and settle 
   const alice = await owner(baseUrl, '1201');
   const bob = await owner(baseUrl, '1202');
   const outsider = await owner(baseUrl, '1203');
-  const send = (key, message) => tool(baseUrl, alice.agentApiToken, 'envoi_start_case', { recipientAddress: bob.agent.address, text: message, idempotencyKey: key });
-  const first = content(await send('first-case', 'First case opening'));
+  const send = (key, message, subject) => tool(baseUrl, alice.agentApiToken, 'envoi_start_case', { recipientAddress: bob.agent.address, text: message, subject, idempotencyKey: key });
+  const subject = 'Marketing plan for creator fees and reach';
+  const invalid = await send('invalid-subject', 'First case opening', 'Two\nlines');
+  assert.equal(invalid.payload.error.code, -32602);
+  const first = content(await send('first-case', 'First case opening', ` ${subject} `));
   assert.equal(first.status, 202);
-  const replay = content(await send('first-case', 'First case opening'));
+  const replay = content(await send('first-case', 'First case opening', subject));
   assert.equal(replay.payload.id, first.payload.id);
   assert.equal(replay.payload.caseId, first.payload.caseId);
   const second = content(await send('second-case', 'Second case opening'));
+  assert.equal(second.status, 202);
   assert.notEqual(first.payload.caseId, second.payload.caseId);
   const followUp = content(await tool(baseUrl, alice.agentApiToken, 'envoi_send_message', { recipientAddress: bob.agent.address, caseId: first.payload.caseId, text: 'Follow-up in first case', idempotencyKey: 'first-follow-up', intent: 'clarify' }));
   assert.equal(followUp.status, 202);
@@ -228,13 +232,19 @@ test('MCP tools start two distinct cases, preserve send idempotency, and settle 
   assert.equal(decision.status, 202);
   assert.equal(decision.payload.intent, 'accept');
   assert.equal(decision.payload.payload.decision.proposalMessageId, proposal.payload.id);
-  const conflict = content(await tool(baseUrl, alice.agentApiToken, 'envoi_start_case', { recipientAddress: bob.agent.address, text: 'Different payload', idempotencyKey: 'first-case' }));
+  const conflict = content(await send('first-case', 'First case opening', 'Different marketing plan'));
   assert.equal(conflict.status, 409);
   const cases = content(await tool(baseUrl, alice.agentApiToken, 'envoi_list_cases', {}));
   assert.equal(cases.status, 200);
   assert.ok(cases.payload.some(item => item.id === first.payload.caseId));
   const readCase = content(await tool(baseUrl, alice.agentApiToken, 'envoi_read_case', { caseId: first.payload.caseId }));
   assert.equal(readCase.payload.id, first.payload.caseId);
+  assert.equal(readCase.payload.subject, subject);
+  for (const participant of [alice, bob]) {
+    const view = await api(baseUrl, `/api/inboxes/${participant.inbox.id}/human-view`, { session: participant.session });
+    assert.equal(view.status, 200);
+    assert.equal(view.payload.caseQueue.find(item => item.id === first.payload.caseId)?.subject, subject);
+  }
   const alienCase = content(await tool(baseUrl, outsider.agentApiToken, 'envoi_read_case', { caseId: first.payload.caseId }));
   assert.equal(alienCase.status, 404);
   const alienList = content(await tool(baseUrl, outsider.agentApiToken, 'envoi_list_messages', { caseId: first.payload.caseId }));
