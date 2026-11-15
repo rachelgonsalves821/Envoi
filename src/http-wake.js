@@ -322,6 +322,8 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     async ownerRevoke(inboxId,agentId,id){available();return {subscription:publicSub(await endRecord(await owned({inboxId,agentId},id),'revoked_by_owner'))};},
     async list(identity){available();return {installationId:identity.installationId,subscriptions:(await listFor(identity)).map(publicSub)};},
     async ownerList(inboxId,agentId){available();return {agentId,subscriptions:(await listFor({inboxId,agentId})).map(publicSub)};},
+    // agent-work-mode v1 §3: end every live subscription of one profile for the agent. Runs inside the caller's inbox mutation.
+    async ownerEndProfile(inboxId,agentId,profile,reason='ended_by_owner'){if(!enabled)return [];const ended=[];for(const raw of await agentSubs(agentId)){if(raw.inboxId!==inboxId||raw.profile!==profile||raw.status==='ended')continue;const sub=await derive(raw);if(sub.status==='ended')continue;await endRecord(sub,reason);ended.push(sub.id);}return ended;},
     // agent-listening-status v1 §1: every installation and every profile; null when wake subscriptions are off here.
     async listening(inboxId,agentId){if(!enabled)return null;return (await listFor({inboxId,agentId},true)).map(publicSub);},
     async status(identity){if(!enabled)return {available:false,version:1,subscription:null};const records=await listFor(identity);const sub=records.find(s=>s.status==='active') || records.find(s=>s.status==='pending') || records[0];return {available:true,version:1,subscription:sub?{id:sub.id,status:sub.status,endedReason:sub.endedReason,expiresAt:sub.expiresAt}:null};},

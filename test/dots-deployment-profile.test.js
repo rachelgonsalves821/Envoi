@@ -25,6 +25,11 @@ test('staging and beta both turn on saved setup and owner\'s choice wins',()=>{
   for(const env of ['staging','beta'])for(const name of ['ENVOI_SAVED_SETUP','ENVOI_OWNER_PERMISSIONS'])
     assert.equal(config.env[env].vars[name],'true',`${env} ${name}`);
 });
+// agent-work-mode v1 §7: the work mode setting is on for staging only until its hosted check passes; the container must receive it.
+test('staging turns on the work mode setting; beta leaves it unset',()=>{
+  assert.equal(config.env.staging.vars.ENVOI_WORK_MODE,'true');
+  assert.equal(config.env.beta.vars.ENVOI_WORK_MODE,undefined);
+});
 // A container starts near the request that wakes it. From Asia it can start in Hong Kong, where chatgpt.com is blocked,
 // so Envoi cannot fetch ChatGPT's client metadata and every ChatGPT Dot fails (staging, 2026-11-13: colo HKG, fetch_failed).
 test('the staging and beta containers are pinned to North American regions',()=>{
