@@ -13,17 +13,15 @@ const legacyTeam = await readFile(new URL('../dist/team/index.html', import.meta
 assert.match(legacyTeam, /\/#team/);
 assert.doesNotMatch(legacyTeam, /class="team-grid"/);
 assert.match(about, /id="team"/);
-assert.match(about, /Rachel Gonsalves/);
-assert.match(about, /Je Sai Kailash Pulipati/);
 assert.doesNotMatch(product, /id="team"|Rachel Gonsalves|Je Sai Kailash Pulipati/);
 assert.match(about, /data-page="about"/);
 assert.match(product, /data-page="product"/);
 assert.match(account, /<h1 id="account-title">Create your account<\/h1>/);
 assert.match(account, /href="(?:https:\/\/www\.envoi-agents\.com)?\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"/);
-assert.match(about, /href="\/create-account\/"[^>]*>Start now/);
+assert.match(about, /href="\/create-account\/"[^>]*>Create your account/);
 assert.match(product, /href="\/create-account\/"[^>]*>Create your account/);
 assert.match(about, /id="how-it-works"/);
-assert.match(about, /id="collaboration"/);
+assert.match(about, /data-benefit-grid/);
 assert.doesNotMatch(about, /data-thread|id="your-view"|id="oversight"/);
 assert.match(product, /data-thread/);
 assert.match(product, /id="your-view"/);
@@ -33,12 +31,12 @@ assert.doesNotMatch(product, /Native messaging between agents with human oversig
 assert.doesNotMatch(product, /id="how-it-works"|id="collaboration"/);
 const aboutMain = about.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)[1];
 assert.doesNotMatch(aboutMain, /Native messaging|scoped file access|approval gates|Shared audit trails|Marketplace policy|data-inbox-row|comparison-chart|plain-columns/i);
-assert.match(aboutMain, /Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run\./);
-const aboutOverview = aboutMain.replace(/<section id="team"[\s\S]*?<\/section>/, '');
-const aboutWords = aboutOverview.replace(/<[^>]*>/g, ' ').trim().split(/\s+/);
-assert.ok(aboutWords.length < 200, `About must stay concise, received ${aboutWords.length} words`);
-assert.match(about, /data-collaboration-flow/);
-assert.doesNotMatch(product, /data-collaboration-flow/);
+assert.match(aboutMain, /Break your agents out of their silos/);
+for (const heading of ['Connect your agents', 'Work across agent harnesses', 'Set and verify permissions', 'Compare agent performance']) {
+  assert.ok(aboutMain.includes(heading), heading);
+}
+assert.doesNotMatch(about + product, /bed frame|Saturday dinner|monad-logo-mark\.png/i);
+assert.equal((product.match(/data-handoff-timeline/g) || []).length, 3);
 assert.doesNotMatch(about, /class="relay-track"|class="message-burst"|Illustrative · not measured time/);
 for (const phrase of ['Shared audit trails and approval gates', 'who can access, edit, approve, and share']) {
   assert.equal(product.split(phrase).length - 1, 1, `Explain ${phrase} once, then demonstrate it`);
@@ -53,7 +51,7 @@ for (const [pathname, html] of pages) {
   assert.match(html, /data-theme-control/);
   assert.match(html, /class="header-auth-link" href="(?:https:\/\/www\.envoi-agents\.com)?\/api\/auth\/workos\/sign-in\?returnTo=%2Fapp"[^>]*>Log in<\/a>/);
   assert.match(html, /class="header-auth-link header-auth-create" href="(?:https:\/\/www\.envoi-agents\.com)?\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"[^>]*>Create your account/);
-  if (pathname !== '/create-account/') assert.match(html, /href="\/#team"/);
+  assert.match(html, /href="\/docs\/"/);
   assert.doesNotMatch(html, /href="\/team\/"/);
   const bootstrapIndex = html.indexOf('envoi-theme');
   assert.ok(bootstrapIndex >= 0 && bootstrapIndex < html.indexOf('<body'), `${pathname} must initialize theme before paint`);
@@ -71,9 +69,10 @@ for (const [pathname, html] of pages) {
     if (target) {
       if (url.hash) assert.ok(target.includes(`id="${decodeURIComponent(url.hash.slice(1))}"`), `Broken section: ${pathname} → ${match[1]}`);
     } else {
-      assert.equal(url.hash, '', `Unknown page: ${match[1]}`);
-      await access(new URL(`../dist${url.pathname}`, import.meta.url));
+      const destination = new URL(`../dist${url.pathname}${url.pathname.endsWith('/') ? 'index.html' : ''}`, import.meta.url);
+      await access(destination);
+      if (url.hash) assert.ok((await readFile(destination, 'utf8')).includes(`id="${decodeURIComponent(url.hash.slice(1))}"`), `Broken section: ${pathname} → ${match[1]}`);
     }
   }
 }
-console.log('About/Product separation, About team section, legacy redirect, themes, headings, IDs and links passed.');
+console.log('About/Product separation, enterprise benefits, legacy redirect, themes, headings, IDs and links passed.');

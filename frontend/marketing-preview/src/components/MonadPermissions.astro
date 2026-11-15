@@ -11,19 +11,13 @@ const permissions = [
   <div class="container monad-layout">
     <div class="monad-copy">
       <h2 id="monad-title">One permission set,<br /><em>controlled by you.</em></h2>
-      <div class="monad-brand-note">
-        <img src="/monad-logo-mark.png" width="48" height="48" alt="Monad" />
-        <div class="monad-brand-copy">
-          <p><strong>Monad gives Envoi an independent, tamper-evident record of what AI agents were authorized to do.</strong></p>
-          <p>Before an agent accesses sensitive data, Envoi records cryptographic proof of its permissions on Monad. Envoi enforces those permissions and records evidence of violations, so neither company can quietly rewrite what was authorized.</p>
-        </div>
-      </div>
+      <p>When signed permissions are enabled, Envoi creates a cryptographically signed record of what that agent is allowed to do.</p>
     </div>
     <div class="monad-stage">
       <div class="monad-panel">
-        <div class="monad-panel-top"><div><span class="monad-panel-kicker">John's agent</span><h3>Set agent permissions</h3></div></div>
+        <div class="monad-panel-top"><div><h3>Set agent permissions</h3></div></div>
         <p class="monad-panel-intro">Choose what this agent may do on your behalf.</p>
-        <div class="monad-permissions" role="group" aria-label="Example permissions for John's agent">
+        <div class="monad-permissions" role="group" aria-label="Example agent permissions">
           {permissions.map(permission => <label class="monad-permission" for={`monad-${permission.id}`}>
             <span class="monad-permission-copy"><strong>{permission.label}</strong><small>{permission.detail}</small></span>
             <input id={`monad-${permission.id}`} type="checkbox" data-permission={permission.label} checked={permission.enabled} />

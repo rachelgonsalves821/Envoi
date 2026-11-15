@@ -1,14 +1,3 @@
-@font-face {
-  font-family: 'Envoi UI';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 300;
-  src: local('Segoe UI Light'), local('SegoeUI-Light');
-}
-
-:where(html[data-page="about"]):root {
-  --display: 'Envoi UI', 'Segoe UI Light', 'Segoe UI', system-ui, sans-serif;
-}
 :where(html[data-page="about"]) .site-header { background: var(--header-bg); backdrop-filter: blur(16px); border-bottom: 1px solid var(--line); }
 :where(html[data-page="about"]) .header-inner { display: grid; grid-template-columns: minmax(80px, 1fr) auto minmax(80px, 1fr) auto; column-gap: 22px; }
 :where(html[data-page="about"]) .header-inner > .wordmark { justify-self: start; width: 50px; }
@@ -24,7 +13,6 @@
 :where(html[data-page="about"]) .hero h1 { max-width: none; margin: 0 auto; font-size: clamp(38px, 3.5vw, 50px); font-weight: 300; line-height: 1.1; letter-spacing: -.04em; }
 :where(html[data-page="about"]) .hero-description { max-width: 840px; margin: 18px auto 0; font-size: clamp(16px, 1.4vw, 18px); line-height: 1.5; }
 :where(html[data-page="about"]) .hero-start { margin-top: 22px; min-width: 150px; }
-:where(html[data-page="about"]) .hero-ambient { position: absolute; z-index: -1; width: min(1120px, calc(100% - 60px)); height: min(600px, calc(100% - 40px)); left: 50%; top: calc(50% + 20px); transform: translate(-50%, -50%); }
 :where(html[data-page="about"]) .solution-showcase { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); align-items: center; gap: clamp(28px, 4vw, 64px); padding-top: 48px; padding-bottom: 72px; scroll-margin-top: 110px; }
 :where(html[data-page="about"]) .solution-copy h2 { font-size: clamp(30px, 3vw, 42px); line-height: 1.15; }
 :where(html[data-page="about"]) .solution-copy .overview-link { margin-top: 28px; }
@@ -50,7 +38,6 @@
   :where(html[data-page="about"]) .hero h1 { font-size: clamp(31px, 8.5vw, 39px); }
   :where(html[data-page="about"]) .hero-description { max-width: 510px; margin-top: 18px; font-size: 16px; }
   :where(html[data-page="about"]) .hero-start { margin-top: 24px; }
-  :where(html[data-page="about"]) .hero-ambient { width: calc(100% - 48px); height: min(560px, calc(100% - 70px)); top: calc(50% + 38px); }
   :where(html[data-page="about"]) .hero::before { inset: 15% -20% 8%; }
   :where(html[data-page="about"]) .solution-showcase { padding-top: 24px; padding-bottom: 52px; }
 }
@@ -61,3 +48,21 @@
   :where(html[data-page="about"]) .hero-copy { padding-inline: 30px; }
   :where(html[data-page="about"]) .hero h1 { font-size: 31px; }
 }
+
+:where(html[data-page="about"]) .hero { min-height: clamp(440px, 51vw, 600px); padding-top: 100px; padding-bottom: 80px; }
+@media (max-width: 680px) { :where(html[data-page="about"]) .hero { min-height: 0; padding-top: 130px; padding-bottom: 64px; } }
+
+:where(html[data-page="about"]) .hero { min-height: clamp(540px, 52vw, 650px); padding-top: 155px; padding-bottom: 95px; }
+:where(html[data-page="about"]) .hero-copy { width: min(100% - 230px, 740px); }
+@media (max-width: 780px) {
+  :where(html[data-page="about"]) .hero { min-height: auto; padding: 135px 16px 30px; gap: 24px; }
+  :where(html[data-page="about"]) .hero-copy { width: 100%; padding-inline: 0; }
+}
+
+:where(html[data-page="about"]) .hero h1 { font-size: clamp(32px, 4vw, 50px); text-wrap: nowrap; }
+@media (max-width: 780px) {
+  :where(html[data-page="about"]) .hero h1 { font-size: clamp(18px, 5vw, 38px); }
+}
+
+:where(html[data-page="about"]) .hero { min-height: auto; padding-bottom: 42px; gap: 26px; }
+:where(html[data-page="about"]) .hero-agents { width: min(100%, 460px); margin-inline: auto; }
