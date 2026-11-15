@@ -1,0 +1,55 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "agent-info-default",
+  "description": "An agent whose owner never chose gets the default routine with updatedAt null.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": null
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_agent_info",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpResult",
+    "toolResult": "agentInfo",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"agentId\":\"agent_mark\",\"inboxId\":\"inbox_mark\",\"address\":\"mark@envoi-agents.com\",\"permissions\":[\"receive_agent_messages\",\"send_agent_messages\"],\"workMode\":{\"mode\":\"routine\",\"updatedAt\":null}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Use the routine rule."
+  }
+}

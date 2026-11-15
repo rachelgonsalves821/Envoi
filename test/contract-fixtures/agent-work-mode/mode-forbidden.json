@@ -1,0 +1,45 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "mode-forbidden",
+  "description": "A human who does not manage the workspace gets the existing owner-route refusal.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": "routine"
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/api/inboxes/inbox_mark/agents/agent_mark/work-mode",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "modeRequest",
+    "body": {
+      "mode": "off"
+    }
+  },
+  "response": {
+    "status": 403,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REQUEST_FAILED",
+      "error": "REQUEST_FAILED",
+      "message": "Workspace administrator required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "choose_workspace",
+    "next": "Hide the setting for this human."
+  }
+}
