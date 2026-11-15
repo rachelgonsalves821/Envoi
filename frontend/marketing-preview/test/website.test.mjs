@@ -317,7 +317,7 @@ test('public pages share one bundled font family while actions retain emphasis',
   assert.match(tokens, /--site-font: "Figtree Variable"/);
   for (const token of ['display', 'sans', 'mono']) assert.ok(tokens.includes(`--${token}: var(--site-font)`));
   assert.match(fonts, /url\('\/fonts\/figtree\.woff2'\)/);
-  assert.match(styles, /body \{ font-weight: 300; \}/);
+  assert.match(styles, /body \{[^}]*font-size: var\(--body-size\); font-weight: 400;/);
   for (const selector of ['.button', '.header-auth-link']) assert.match(styles, new RegExp(`${selector.replace('.', '\\.') } \\{[^}]*font-weight: 700;`));
   for (const source of [hero, handshake]) assert.doesNotMatch(source, /font-weight:\s*(?!300\b)\d+/);
 });

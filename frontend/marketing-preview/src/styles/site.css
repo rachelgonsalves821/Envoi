@@ -1,6 +1,6 @@
 * { box-sizing: border-box; }
 html { scroll-padding-top: 96px; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: var(--body-size); font-weight: 400; line-height: 1.6; -webkit-font-smoothing: antialiased; }
 html[data-page="product"] body { background: var(--porcelain); }
 ::selection { background: var(--accent); color: var(--on-accent); }
 [hidden] { display: none !important; }
@@ -295,7 +295,6 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .product-features .feature-number { margin-bottom: 0; }
 .product-features .feature h3 { font-size: 22px; margin-bottom: 8px; }
 .product-features .feature p { font-size: 17px; line-height: 1.5; }
-body { font-weight: 300; }
 strong, b, input, button { font-weight: 300; }
 @media (prefers-reduced-motion: no-preference) {
   @media (min-width: 1151px) {
