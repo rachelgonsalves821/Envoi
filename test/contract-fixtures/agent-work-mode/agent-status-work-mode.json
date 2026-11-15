@@ -1,0 +1,50 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "agent-status-work-mode",
+  "description": "GET /api/agent/status (a3 agentStatus with a5 presence) gains workMode, so connectors pick the rule without MCP. Connectors re-read it at most every 60 s.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "envoi_link",
+    "modeBefore": "ask"
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/status",
+    "auth": "bearer",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_link_1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "agentStatus",
+    "body": {
+      "state": "active",
+      "agent": {
+        "id": "agent_mark",
+        "address": "mark@envoi-agents.com",
+        "status": "active"
+      },
+      "inboxId": "inbox_mark",
+      "asOf": "2026-11-15T18:00:00.000Z",
+      "presence": {
+        "lastSeenAt": "2026-11-15T18:00:00.000Z",
+        "lastSuccessfulRefreshAt": "2026-11-15T18:00:00.000Z",
+        "lastWorkClaimAt": "2026-11-15T18:00:00.000Z",
+        "lastProcessedAt": null
+      },
+      "workMode": {
+        "mode": "ask",
+        "updatedAt": "2026-11-15T18:00:00.000Z"
+      }
+    }
+  },
+  "client": {
+    "surface": "connector",
+    "next": "Use the ask rule text in the bridge prompt for the next work item."
+  }
+}

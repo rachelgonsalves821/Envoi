@@ -1,0 +1,44 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "claim-off-connector-offers-instruction",
+  "description": "Off still offers owner instructions to a connector agent.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "envoi_link",
+    "modeBefore": "off",
+    "claimable": [
+      "peer",
+      "instruction"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "auth": "bearer",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_link_1",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimResponse",
+    "body": {
+      "work": {
+        "message": {
+          "kind": "humanInstruction"
+        }
+      },
+      "state": "active"
+    }
+  },
+  "client": {
+    "surface": "connector",
+    "next": "Process the owner instruction as today."
+  }
+}

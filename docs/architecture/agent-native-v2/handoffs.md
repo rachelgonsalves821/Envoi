@@ -5826,3 +5826,118 @@ When the host acknowledges the hint (2xx), http-wake records `delivery.lastSucce
 - Lane B: the B1 Ready wording relies on it.
 - Hosted: plan §7 step 1 with a real Dot.
 - **Rollback:** revert the server change. Hosts then fall back to "on, not yet proven" until real work arrives (agent-listening-status `agent-info-not-proven`).
+
+## agent-work-mode v1
+
+**Contract:** `agent-work-mode`, version 1 (plan: `docs/architecture/agent-native-v2/work-mode-setting.md`). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+
+**Fixtures:** [`test/contract-fixtures/agent-work-mode/`](../../../test/contract-fixtures/agent-work-mode/): `schemas.json` (`x-flags`, `x-modes`, `x-codes`, `x-rpc-errors`) and 14 cases. `test/contract-agent-work-mode.test.js` checks every case against §2–§5.
+
+**Owner:** Lane A. **Consumers:** Lane B:
+- the agent page setting;
+- the Dots skill and its "Sync with Envoi" line;
+- the connector bridge (OpenClaw, Hermes).
+
+**Why.** On 2026-11-15 the owner had to paste two long prompts into a Dot before background receiving came on, and Envoi had no way to switch it off. The owner wants the choice made once, on the agent's page in Envoi.
+
+**What Envoi can and cannot do.**
+- **Off:** Envoi can do this by itself for every agent.
+- **On, for connector agents (OpenClaw, Hermes):** Envoi can do this by itself, because the connector already runs.
+- **On, for a Dot:** Envoi cannot. ChatGPT owns the monitor and its callback secret, and nothing runs in ChatGPT until something wakes it. Envoi stores the choice, and the Dot applies it the next time it runs. The owner wakes it once with a single line.
+
+**Not in v1:**
+- Grok targets (`grok_trigger`, `grok_bot`). Their owner settings are unchanged.
+- Notifications outside Envoi and the Dot.
+- Per-contact or per-case modes.
+
+### 1. Modes (`x-modes`)
+
+| `mode` | Meaning |
+| --- | --- |
+| `routine` (default) | Handle routine work, tell the owner about new contacts, ask only for important decisions. The rule text is proactive-agents plan §6 `routine`. |
+| `ask` | Tell the owner about every new message and ask before replying. Acknowledgements and status updates may be completed. Plan §6 `ask`. |
+| `off` | Only when the owner asks. See §3 for what Envoi enforces. |
+
+An agent whose owner never chose has `{ mode: "routine", updatedAt: null }`. The rule texts stay in Lane B (prompt, skill, bridge); the server stores only the mode.
+
+### 2. Set the mode
+
+`PUT /api/inboxes/{inboxId}/agents/{agentId}/work-mode`, human session and CSRF. Authorization is the existing owner-agent rule: the human manages the inbox, and the agent is that inbox's agent. The body is `{ mode }`.
+
+Precedence:
+1. `404 FEATURE_DISABLED` (flag off);
+2. session and CSRF;
+3. `403 REQUEST_FAILED`;
+4. `400 WORK_MODE_INVALID`.
+
+**`200`** is the owner agent view (a5-presence `ownerAgent`, with `backgroundReceiving` from agent-listening-status) plus `workMode`, sent with `cache-control: no-store`. Audit: `agent.work_mode_changed` with `agentId`, `from` and `to`. Setting the current mode again is a no-op that still answers `200`.
+
+### 3. What Off does (same transaction as the change)
+
+| Agent's reported installation | Effect of `off` |
+| --- | --- |
+| `on_demand` (Dots, remote MCP) | Every `active` or `pending` `mcp_events` subscription of the agent ends with `endedReason: "ended_by_owner"` (`mode-set-off-dots-ends-events`). Its queued hints are cancelled as on any end. Other profiles are unchanged. |
+| anything else (connectors) | Nothing ends. Claims change as §5 says. |
+
+Switching back to `routine` or `ask` changes nothing by itself:
+- **Dots:** the Dot must subscribe again. The agent page shows "Waiting for {name} to turn it on" with the sync line.
+- **Connectors:** they apply the mode on their next status read (§4).
+
+### 4. Where the mode is read, and the subscribe guard
+
+| Surface | Change |
+| --- | --- |
+| Owner agent views (`GET /api/inboxes/{inboxId}/agents`, workspace overview, pause/resume, this route) | Each agent gains `workMode`. |
+| `envoi_agent_info` (full credentials; case-scoped reads unchanged) | Gains `workMode` (`agent-info-work-mode`, `agent-info-default`). |
+| `GET /api/agent/status` (a3 agentStatus with a5 presence) | Gains `workMode` (`agent-status-work-mode`). Connectors re-read it at most every 60 seconds. |
+| MCP Events `events/subscribe` for `envoi.work_available` | While the mode is `off`, the call is refused with JSON-RPC error `-32016` `BackgroundReceivingOff`, `data: { reason: "owner_turned_off" }`, before verification or storage (`subscribe-refused-while-off`). This keeps a host renewal from silently undoing Off. In any other mode it is unchanged: provider-event-wake v1 plus provider-event-wake-activation v1 (`subscribe-allowed-after-on`). |
+
+### 5. Claims while Off
+
+`POST /api/agent/work/claim` (a3), for an agent in `off` mode:
+
+| Installation | Offered |
+| --- | --- |
+| `on_demand` | Unchanged (`claim-off-on-demand-unaffected`). Off means no background receiving, not no access. The owner can still ask the Dot to check Envoi. |
+| anything else | Owner instructions and decisions only (`claim-off-connector-offers-instruction`). Peer work is skipped, and with nothing else claimable the answer is the ordinary `{ "work": null, "state": "idle" }` (`claim-off-connector-hides-peer-work`). Skipped peer work stays waiting and counts in agent-listening-status `waiting`. |
+
+No new claim state, code or work shape.
+
+### 6. Consumers (Lane B, informative)
+
+- **Agent page.** A "When messages arrive" control with the three modes and an explanation of each.
+  - For a Dot not listening in `routine` or `ask`: "Waiting for {name} to turn it on", with **Copy sync message**. The message is one line, "Sync with Envoi", plus the agent address.
+  - For `off`: no listening banner.
+- **Dots skill (1.0.9).** On "Sync with Envoi" and at the start of every run, call `envoi_agent_info`:
+  - `off`: disable its own monitor task, with no unsubscribe required, because Envoi already ended the subscription.
+  - `routine` or `ask`, not listening: create exactly one monitor with that mode's rule. A task that Envoi shows no subscription for is never treated as a match or restored. If ChatGPT exposes no unsubscribe, it never blocks creation.
+  - Ready only when `state: on` and `lastAlertAt` is set.
+- **Bridge.** Choose the rule text by `workMode.mode` from the status read.
+
+### 7. Flag and rollback
+
+`ENVOI_WORK_MODE` defaults off and is server-only. While it is off:
+- the route answers `404 FEATURE_DISABLED`;
+- `workMode` is absent everywhere;
+- the subscribe guard and the claim filter do nothing.
+
+Consumers treat a missing `workMode` as unknown and keep today's flow (Copy fix instructions). **Rollback:** turn the flag off. A stored mode is kept but ignored. A Dot whose subscription Off ended must subscribe again.
+
+### 8. Cases
+
+| Fixture | What it shows |
+| --- | --- |
+| `mode-set-routine.json` | Owner picks routine; Dot not listening yet |
+| `mode-set-off-dots-ends-events.json` | Off for a Dot ends its live MCP Events subscription |
+| `mode-set-off-connector.json` | Off for OpenClaw ends nothing |
+| `mode-invalid.json` | Unknown mode: `400 WORK_MODE_INVALID` |
+| `mode-forbidden.json` | Not a workspace manager: `403` |
+| `mode-flag-off.json` | Flag off: `404 FEATURE_DISABLED` |
+| `agent-info-work-mode.json` | `envoi_agent_info` carries `workMode` |
+| `agent-info-default.json` | Never chosen: `routine`, `updatedAt: null` |
+| `agent-status-work-mode.json` | `GET /api/agent/status` carries `workMode` |
+| `subscribe-refused-while-off.json` | Subscribe refused with `-32016` while off |
+| `subscribe-allowed-after-on.json` | Subscribe works again after switching on |
+| `claim-off-connector-hides-peer-work.json` | Connector in off: peer work hidden, ordinary idle |
+| `claim-off-connector-offers-instruction.json` | Connector in off: owner instruction still offered |
+| `claim-off-on-demand-unaffected.json` | Dot in off: claims unchanged |

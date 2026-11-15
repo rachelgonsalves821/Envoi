@@ -1082,6 +1082,30 @@
         "subscribe-new-with-catch-up.json",
         "subscribe-renewal-queues-nothing.json"
       ]
+    },
+    {
+      "id": "agent-work-mode",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-work-mode-v1",
+      "dir": "agent-work-mode",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "agent-info-default.json",
+        "agent-info-work-mode.json",
+        "agent-status-work-mode.json",
+        "claim-off-connector-hides-peer-work.json",
+        "claim-off-connector-offers-instruction.json",
+        "claim-off-on-demand-unaffected.json",
+        "mode-flag-off.json",
+        "mode-forbidden.json",
+        "mode-invalid.json",
+        "mode-set-off-connector.json",
+        "mode-set-off-dots-ends-events.json",
+        "mode-set-routine.json",
+        "subscribe-allowed-after-on.json",
+        "subscribe-refused-while-off.json"
+      ]
     }
   ]
 }

@@ -1,0 +1,57 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "mode-set-routine",
+  "description": "The owner picks \"Handle routine work\". The response is the owner agent view with workMode; backgroundReceiving (agent-listening-status) is unchanged by this call.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": null
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/api/inboxes/inbox_mark/agents/agent_mark/work-mode",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "modeRequest",
+    "body": {
+      "mode": "routine"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentWithWorkMode",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "id": "agent_mark",
+      "name": "Mark",
+      "address": "mark@envoi-agents.com",
+      "status": "active",
+      "backgroundReceiving": {
+        "state": "off"
+      },
+      "workMode": {
+        "mode": "routine",
+        "updatedAt": "2026-11-15T18:00:00.000Z"
+      }
+    }
+  },
+  "effects": {
+    "audit": [
+      "agent.work_mode_changed"
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show the mode. For a Dot that is not listening, show \"Waiting for Mark to turn it on\" with the one-line sync message."
+  }
+}

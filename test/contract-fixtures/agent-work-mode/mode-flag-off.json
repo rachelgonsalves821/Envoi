@@ -1,0 +1,45 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "mode-flag-off",
+  "description": "With ENVOI_WORK_MODE off the route does not exist and nothing is enforced.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": false
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": null
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/api/inboxes/inbox_mark/agents/agent_mark/work-mode",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "modeRequest",
+    "body": {
+      "mode": "off"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "Work mode is not available on this deployment.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "Hide the setting; keep the Copy fix instructions flow."
+  }
+}

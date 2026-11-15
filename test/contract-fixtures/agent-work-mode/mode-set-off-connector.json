@@ -1,0 +1,56 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "mode-set-off-connector",
+  "description": "Off for a connector agent (OpenClaw): no subscription is ended; claims start offering owner instructions only (§5).",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "envoi_link",
+    "modeBefore": "routine",
+    "subscriptionsBefore": []
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/api/inboxes/inbox_mark/agents/agent_mark/work-mode",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "modeRequest",
+    "body": {
+      "mode": "off"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentWithWorkMode",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "id": "agent_mark",
+      "name": "Mark",
+      "address": "mark@envoi-agents.com",
+      "status": "active",
+      "workMode": {
+        "mode": "off",
+        "updatedAt": "2026-11-15T18:00:00.000Z"
+      }
+    }
+  },
+  "effects": {
+    "endedSubscriptions": [],
+    "audit": [
+      "agent.work_mode_changed"
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show \"Off: Mark only handles your instructions\". Messages from other agents wait in the inbox."
+  }
+}
