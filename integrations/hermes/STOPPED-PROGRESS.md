@@ -19,6 +19,20 @@ Required evidence includes:
 
 Previously started or bound flows cannot be released again. Their canonical work hashes cannot be reused under an alias. Completed flows and controls remain separate historical proofs with their original source/window; they are never marked newly completed by this API.
 
+## Exact staging server adoption
+
+Controlled recovery normally requires the historical server source unchanged. An already accepted checkpoint may adopt one separately reviewed, tested staging server through `ControlledProgressRecovery.serverAdoption`. Complete checkpoint-history and canonical-work validation still runs first. An unaccepted follow-up cannot use this exception.
+
+The pinned `ControlledServerAdoption` descriptor names the prior server, exact replacement server and current client source, with `environment: staging`. Its pinned `ControlledServerVerification` names those same server sources, an exact successful CI head for the replacement, successful compatibility/restoration results, and one to eight hash-pinned evidence files. The verifier reads those bounded files; the release owner must independently establish their actual test provenance and human authority. A file declaring success grants neither release nor execution permission.
+
+The target packet contains the same `serverAdoption` pin. The actual human recovery decision must additionally bind `serverAdoptionSha256` along with the existing target packet, client, server, runner, history, scope and cumulative bounds. The descriptor does not contain the target packet hash, avoiding a circular digest. Unknown descriptor/report fields, missing or changed evidence, wrong sources, or an unbound approval are refused. An unchanged server must omit the extra descriptor and approval field.
+
+Preparation remains read-only; startup revalidates the evidence before consuming the existing one-use decision. Old receipts retain their original server sources and bytes. New receipts name the adopted server. This exception changes no onboarding, accepted send, failed original, journal, scope, budget, completed control or time policy. The operator must separately verify that the actual hosted release, image, Worker and settings match the reviewed replacement; this client receipt does not perform deployment or authorize drift.
+
+### Checkpoint session retention
+
+Current ended session rows remain the usual proof. For a fully inspected persistent-workflow bootstrap stop, its existing pinned canonical owner read may instead prove the checkpoint's ended sessions after cleanup. Current identity and retryability, attempt count, failure, message state and lack of live lease/session authority must still match. Each archived session must have a valid identity, fence, observed end and original expiry; the current read must be at least 24 hours after every original expiry. The descriptor's verified canonical pin is selected by history inspection, never supplied as an unverified current-row substitute. Missing, changed, early or uncertain evidence is refused. Current rows remain empty and the original task, journal, attempts, expiry, budgets and time policy are not changed. The hosted server adoption review must confirm this same documented retention rule for the exact selected server.
+
 ## Unused allocations
 
 A separately approved graph may mark an existing flow `retired: true` only if it has never had a binding, phase or attempt. Its original role, work hash, quota, policy and case remain in history. Retirement is irreversible and is checked on ledger replay and every admission path.
