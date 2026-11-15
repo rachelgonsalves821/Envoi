@@ -5575,7 +5575,7 @@ It works on FileStore and PostgreSQL through the existing documents table, with 
 - `consentView` never carries `savedSetup`;
 - `savedSetupId` is ignored, and the response's `savedSetup.linked` is `false`.
 
-The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". **Rollback:** turn the flag off. No grant, registration or token depends on a saved setup.
+The wizard treats `FEATURE_DISABLED` as "use the Phase 1 Dots step". Staging turned it on 2026-11-12 and beta (live) on 2026-11-14. **Rollback:** turn the flag off. No grant, registration or token depends on a saved setup.
 
 ### 8. Validation
 
@@ -5642,7 +5642,7 @@ This part is **not** behind the flag, so turning the flag off never strands an a
 
 ### 5. Flag and rollout
 
-`ENVOI_OWNER_PERMISSIONS` defaults to off. The Worker forwards it to the container (`CONTAINER_ENV_KEYS`), and it is turned on for staging only. While it is off, §2 and §3 are exactly agent-remote-auth v1. §4 holds either way.
+`ENVOI_OWNER_PERMISSIONS` defaults to off. The Worker forwards it to the container (`CONTAINER_ENV_KEYS`), and it is turned on for staging (2026-11-13) and, after the staging hosted test passed, for beta (live, 2026-11-14). While it is off, §2 and §3 are exactly agent-remote-auth v1. §4 holds either way.
 
 **Rollback:** turn the flag off. Agents keep the permissions they were granted, as stored data. Their renewals keep working through §4. The owner can remove a permission on the Permissions page at any time.
 
