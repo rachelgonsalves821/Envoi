@@ -23,18 +23,39 @@
       "authorization": "Bearer envoi_agent_access_PLACEHOLDER_link_1",
       "content-type": "application/json"
     },
-    "body": {}
+    "body": {
+      "acceptHumanInstructions": true
+    }
   },
   "response": {
     "status": 200,
-    "schema": "claimResponse",
+    "schema": "a3-pause-auth/claimClaimed",
     "body": {
       "work": {
+        "workId": "msg_instruction_example",
         "message": {
-          "kind": "humanInstruction"
-        }
+          "id": "msg_instruction_example",
+          "kind": "humanInstruction",
+          "inboxId": "inbox_mark",
+          "caseId": "case_example",
+          "senderType": "human",
+          "senderHumanId": "human_example",
+          "recipientInboxId": "inbox_mark",
+          "recipientAgentId": "agent_mark",
+          "from": {
+            "humanId": "human_example"
+          },
+          "type": "instruction",
+          "text": "Summarize the requests waiting for me.",
+          "status": "delivered",
+          "createdAt": "2026-11-15T17:59:00.000Z",
+          "deliveredAt": "2026-11-15T17:59:00.000Z",
+          "updatedAt": "2026-11-15T17:59:00.000Z"
+        },
+        "leaseToken": "lease_PLACEHOLDER",
+        "leaseExpiresAt": "2026-11-15T18:05:00.000Z"
       },
-      "state": "active"
+      "state": "claimed"
     }
   },
   "client": {

@@ -5829,9 +5829,15 @@ When the host acknowledges the hint (2xx), http-wake records `delivery.lastSucce
 
 ## agent-work-mode v1
 
-**Contract:** `agent-work-mode`, version 1 (plan: `docs/architecture/agent-native-v2/work-mode-setting.md`). **Status:** published, awaiting `CONTRACT-ACK` (Lane B) and `CONTRACT-APPROVED` (human).
+**Contract:** `agent-work-mode`, version 1 (plan: `docs/architecture/agent-native-v2/work-mode-setting.md`). **Status:** published, correction at the same version answering Lane B `MISMATCH` (board #34 comment 6899736343). The owner's `CONTRACT-APPROVED` @769dc6a came before that review, so this correction needs Lane B's re-review `CONTRACT-ACK` and a new `CONTRACT-APPROVED` at the corrected SHA.
 
 **Fixtures:** [`test/contract-fixtures/agent-work-mode/`](../../../test/contract-fixtures/agent-work-mode/): `schemas.json` (`x-flags`, `x-modes`, `x-codes`, `x-rpc-errors`) and 14 cases. `test/contract-agent-work-mode.test.js` checks every case against §2–§5.
+
+*Correction 2026-11-15, same version.*
+- The three successful PUT fixtures now carry the complete owner agent view, validated against `agent-listening-status#/definitions/ownerAgentWithListening`: the a5 `connection`, the full `backgroundReceiving`, and `workMode`.
+- Both claimed-work fixtures use a3's own `claimClaimed`: `state: "claimed"`, `workId`, `leaseToken`, `leaseExpiresAt`.
+- The instruction case sends a3's `acceptHumanInstructions: true`.
+- Rules, routes, codes and the other fixtures are unchanged.
 
 **Owner:** Lane A. **Consumers:** Lane B:
 - the agent page setting;
@@ -5870,7 +5876,7 @@ Precedence:
 3. `403 REQUEST_FAILED`;
 4. `400 WORK_MODE_INVALID`.
 
-**`200`** is the owner agent view (a5-presence `ownerAgent`, with `backgroundReceiving` from agent-listening-status) plus `workMode`, sent with `cache-control: no-store`. Audit: `agent.work_mode_changed` with `agentId`, `from` and `to`. Setting the current mode again is a no-op that still answers `200`.
+**`200`** is the complete owner agent view, the same object the owner agent list returns for this agent. It has a5-presence's `ownerAgent` fields with `connection`, agent-listening-status `backgroundReceiving`, and `workMode`, and it validates against `agent-listening-status#/definitions/ownerAgentWithListening`. It is sent with `cache-control: no-store`. Audit: `agent.work_mode_changed` with `agentId`, `from` and `to`. Setting the current mode again is a no-op that still answers `200`.
 
 ### 3. What Off does (same transaction as the change)
 
@@ -5899,7 +5905,7 @@ Switching back to `routine` or `ask` changes nothing by itself:
 | Installation | Offered |
 | --- | --- |
 | `on_demand` | Unchanged (`claim-off-on-demand-unaffected`). Off means no background receiving, not no access. The owner can still ask the Dot to check Envoi. |
-| anything else | Owner instructions and decisions only (`claim-off-connector-offers-instruction`). Peer work is skipped, and with nothing else claimable the answer is the ordinary `{ "work": null, "state": "idle" }` (`claim-off-connector-hides-peer-work`). Skipped peer work stays waiting and counts in agent-listening-status `waiting`. |
+| anything else | Owner instructions and decisions only, offered as today. That means a3's claim with `acceptHumanInstructions: true` and the unchanged `claimClaimed` envelope with lease fields, so the connector settles it as usual (`claim-off-connector-offers-instruction`). Peer work is skipped, and with nothing else claimable the answer is the ordinary `{ "work": null, "state": "idle" }` (`claim-off-connector-hides-peer-work`). Skipped peer work stays waiting and counts in agent-listening-status `waiting`. |
 
 No new claim state, code or work shape.
 

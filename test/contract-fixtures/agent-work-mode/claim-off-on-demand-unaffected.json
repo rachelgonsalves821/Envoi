@@ -26,7 +26,7 @@
   },
   "response": {
     "status": 200,
-    "schema": "claimResponse",
+    "schema": "a3-pause-auth/claimClaimed",
     "body": {
       "work": {
         "workId": "msg_example",

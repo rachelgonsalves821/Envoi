@@ -39,18 +39,48 @@
   },
   "response": {
     "status": 200,
-    "schema": "ownerAgentWithWorkMode",
+    "schema": "agent-listening-status/ownerAgentWithListening",
     "headers": {
       "cache-control": "no-store"
     },
     "body": {
       "id": "agent_mark",
       "name": "Mark",
+      "slug": "mark",
       "address": "mark@envoi-agents.com",
+      "platformAddress": "mark@envoi-agents.com",
       "status": "active",
+      "onboardingStatus": "approved",
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "createdAt": "2026-11-12T19:20:00.000Z",
+      "paused": false,
+      "credentialRevoked": false,
+      "connection": {
+        "state": "on_demand",
+        "asOf": "2026-11-12T19:30:00.000Z",
+        "recentWindowSeconds": 300,
+        "seenAt": "2026-11-12T19:21:00.000Z",
+        "credentialExpiresAt": "2026-12-12T19:20:00.000Z",
+        "presence": {
+          "lastSeenAt": "2026-11-12T19:21:00.000Z",
+          "lastSuccessfulRefreshAt": "2026-11-12T19:20:00.000Z",
+          "lastWorkClaimAt": null,
+          "lastProcessedAt": null
+        }
+      },
       "backgroundReceiving": {
         "state": "off",
-        "endedReason": "ended_by_owner"
+        "since": "2026-11-15T18:00:00.000Z",
+        "lastAlertAt": "2026-11-15T17:50:00.000Z",
+        "endedReason": "ended_by_owner",
+        "waiting": {
+          "count": 0,
+          "more": false,
+          "oldestAt": null
+        }
       },
       "workMode": {
         "mode": "off",

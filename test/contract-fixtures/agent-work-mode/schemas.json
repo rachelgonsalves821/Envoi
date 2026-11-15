@@ -103,28 +103,6 @@
         }
       }
     },
-    "ownerAgentWithWorkMode": {
-      "type": "object",
-      "required": [
-        "id",
-        "address",
-        "workMode"
-      ],
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "address": {
-          "type": "string"
-        },
-        "workMode": {
-          "$ref": "#/definitions/workMode"
-        },
-        "backgroundReceiving": {
-          "type": "object"
-        }
-      }
-    },
     "agentInfo": {
       "type": "object",
       "required": [
@@ -182,35 +160,6 @@
         },
         "workMode": {
           "$ref": "#/definitions/workMode"
-        }
-      }
-    },
-    "claimResponse": {
-      "type": "object",
-      "required": [
-        "work"
-      ],
-      "properties": {
-        "work": {
-          "anyOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "object",
-              "required": [
-                "message"
-              ],
-              "properties": {
-                "message": {
-                  "type": "object"
-                }
-              }
-            }
-          ]
-        },
-        "state": {
-          "type": "string"
         }
       }
     },
