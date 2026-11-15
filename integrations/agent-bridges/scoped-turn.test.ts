@@ -57,6 +57,17 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:
 afterEach(() => { channels.splice(0).forEach(channel => channel.invalidate()); vi.useRealTimers(); });
 
 describe('trusted scoped adapter turn boundary', () => {
+  it('preserves the two-party reply schema and refuses group-only arguments before transport', async () => {
+    const test = harness(async turn => {
+      const reply = turn.tools.find(tool => tool.name === 'envoi_case_reply')!;
+      expect(reply.inputSchema.properties).not.toHaveProperty('assigneeAgentIds');
+      await expect(turn.callTool('envoi_case_reply', {text:'Bound reply',idempotencyKey:'two-party',assigneeAgentIds:['agent_third']}))
+        .rejects.toMatchObject({code:'TOOL_ARGUMENTS_INVALID'});
+    });
+    await test.process();
+    expect(test.requests.map(request=>request.params.name)).toEqual(['envoi_case_snapshot']);
+  });
+
   it('takes a canonical snapshot before giving a runtime only scoped tools and safe context', async () => {
     const test = harness(async turn => {
       expect(test.requests).toHaveLength(1);

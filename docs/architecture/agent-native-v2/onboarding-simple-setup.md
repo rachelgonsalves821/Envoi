@@ -155,7 +155,7 @@ If either lane needs a file in the other column, post `REQUEST lane-a` or `REQUE
 | Lane A (Claude) | Lane B (Codex) |
 |---|---|
 | Saved setup: the wizard stores name, address and permissions for about 30 minutes, for the signed-in owner only and for one use. A contract is needed. | The wizard saves the setup; the approval page opens pre-filled; Dots status row |
-| Owner's choice wins: contract `agent-owner-permissions v1` (handoffs.md). The approval page grants the owner's pick within workspace limits, even when the plugin asked for less; the Permissions page can add Send; renewals accept the scope the plugin first asked for. Flag `ENVOI_OWNER_PERMISSIONS`, staging only. Branch `lane-a/onb-p2b2-owner-permissions-server` after approval. | `lane-b/onb-p2b2-owner-permissions-ui`: approval page offers every grantable permission and says which the assistant didn't ask for; Permissions page sends the change and shows the reconnect guide only on `OAUTH_RECONSENT_REQUIRED` |
+| Owner's choice wins: contract `agent-owner-permissions v1` (handoffs.md). The approval page grants the owner's pick within workspace limits, even when the plugin asked for less; the Permissions page can add Send; renewals accept the scope the plugin first asked for. Flag `ENVOI_OWNER_PERMISSIONS`: staging, then beta (live) on 2026-11-14 after the hosted test passed. Branch `lane-a/onb-p2b2-owner-permissions-server` after approval. | `lane-b/onb-p2b2-owner-permissions-ui`: approval page offers every grantable permission and says which the assistant didn't ask for; Permissions page sends the change and shows the reconnect guide only on `OAUTH_RECONSENT_REQUIRED` |
 
 Part 1 (saved setup, `agent-saved-setup v1`) is done and verified on staging @a216107.
 

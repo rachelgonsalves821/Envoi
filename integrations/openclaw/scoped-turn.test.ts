@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ScopedModelTurn } from '../agent-bridges/scoped-turn';
+import caseToolSchema from '../../sdk/typescript/src/case-tools-schema.json';
+import { CaseToolsClient } from '../../sdk/typescript/src/case-tools';
 import { FileScopedRunStore, type ScopedRunRecord, type ScopedRunStore } from '../grok/scoped-store';
 import { EnvoiError } from '../../sdk/typescript/src/index';
 import { FileBridgeStore } from '../agent-bridges/file-store';
@@ -56,6 +58,33 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
     expect(bodies[1].input.at(-1)).toMatchObject({ type: 'function_call_output', call_id: 'call_one' });
     expect(test.effect).toHaveBeenCalledExactlyOnceWith('envoi_case_reply', { text: 'Hello', idempotencyKey: 'call_one' });
     expect(test.saved()?.completed).toBe(true);
+  });
+
+  it('sends Anthropic-compatible tool definitions while rejecting invalid calls against the canonical schema', async () => {
+    const test = harness();
+    const tools = caseToolSchema.tools.map(tool => ({ name: tool.name, inputSchema: tool.inputSchema })) as ScopedModelTurn['tools'];
+    const original = structuredClone(tools);
+    const forward = vi.fn();
+    const client = new CaseToolsClient({ forward, signal: test.controller.signal } as never);
+    const invalidAssetCall = { ...call(), name: 'envoi_case_list_assets', arguments: JSON.stringify({ includeContent: true }) };
+    let requests = 0;
+    const fetcher = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init!.body));
+      for (const tool of body.tools) {
+        expect(tool.parameters.type).toBe('object');
+        for (const key of ['allOf', 'anyOf', 'oneOf']) expect(tool.parameters).not.toHaveProperty(key);
+        const canonical = original.find(row => row.name === tool.name)!;
+        expect(tool.parameters.properties).toEqual(canonical.inputSchema.properties);
+        expect(tool.parameters.additionalProperties).toBe(false);
+      }
+      if (++requests === 1) return response(invalidAssetCall);
+      expect(JSON.parse(body.input.at(-1).output)).toEqual({ ok: false, code: 'TOOL_ARGUMENTS_INVALID', retryable: false });
+      return done();
+    });
+    await openClawScopedTurn({ ...test.config, fetch: fetcher })({ ...test.turn, tools, callTool: client.call.bind(client) }, { workId: 'schema-work' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(forward).not.toHaveBeenCalled();
+    expect(tools).toEqual(original);
   });
 
   it('serializes a batch in output order and recovers only its uncertain remaining call', async () => {

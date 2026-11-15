@@ -12,7 +12,7 @@ const view = {
   agents: [{ id: 'agent_mine', displayName: 'Milo' }],
   requester: { id: 'human_owner', auth: { provider: 'local', assurance: 'totp' } },
   participantDirectory: {
-    agent_mine: { id: 'agent_mine', type: 'localAgent', displayName: 'Milo', accessState: 'active' },
+    agent_mine: { id: 'agent_mine', type: 'internalAgent', displayName: 'Milo', accessState: 'active' },
     agent_other: { id: 'agent_other', type: 'externalAgent', displayName: 'Ledger Co billing agent', accessState: 'active' }
   }
 } as unknown as HumanView;
@@ -28,13 +28,27 @@ it('groups consecutive messages from one sender within ten minutes', () => {
   expect(render(message('e3', 'agent_other', '2026-10-06T12:20:00Z'), first)).not.toContain('continued');
 });
 
-it('labels the own agent and omits the role chip for owner instructions', () => {
+it('labels own-agent messages and human instructions with distinct roles and avatars', () => {
   const own = render(message('e4', 'agent_mine', '2026-10-06T12:00:00Z'));
-  expect(own).toContain('meta-role');
+  expect(own).toContain('conversation-message mine own-agent');
   expect(own).toContain('>Your agent<');
+  expect(own).toContain('lucide-bot');
   const instruction = render({ ...message('e5', 'human_owner', '2026-10-06T12:00:00Z'), payload: { senderHumanId: 'human_owner', messageType: 'instruction', text: 'Pay it', deliveryState: 'delivered' } } as unknown as CaseEvent);
-  expect(instruction).not.toContain('meta-role');
+  expect(instruction).not.toContain('own-agent');
+  expect(instruction).toContain('lucide-user-round');
+  expect(instruction).toContain('>Human<');
   expect(instruction).toContain('>Owner instruction<');
+});
+
+it('labels peer agents in direct and group chats without giving them the own-agent styling', () => {
+  const event = message('peer', 'agent_other', '2026-10-06T12:00:00Z');
+  expect(render(event)).toContain('>External agent<');
+  const group = renderToStaticMarkup(createElement(ConversationEntry, {
+    event, workCase: { ...workCase, caseMode: 'group', members: [] }, view
+  }));
+  expect(group).toContain('>Agent<');
+  expect(group).toContain('lucide-bot');
+  expect(group).not.toContain('own-agent');
 });
 
 it.each([
@@ -50,18 +64,21 @@ it.each([
       policyEvaluationId: null, payload: { action: { actionKey, outcome: 'ok' } }
     }]
   }, []);
-  expect(render(event)).toContain(`<strong>${actorDisplayName || 'A workspace member'}</strong> ${verb} the agent proposal`);
+  const markup = render(event);
+  expect(markup).toContain(`<strong>${actorDisplayName || 'A workspace member'}</strong><span class="meta-role">Human</span>`);
+  expect(markup).toContain('lucide-user-round');
+  expect(markup).toContain(`${verb[0].toUpperCase()}${verb.slice(1)} the agent proposal`);
 });
 
 it('keeps failed actions and agent messages out of the human decision history', () => {
   const agentEvent = message('agent-event', 'agent_other', '2026-10-06T12:00:00Z', {
     action: { actionKey: 'approveOnce', outcome: 'ok' }
   });
-  expect(render(agentEvent)).not.toContain('approved the agent proposal');
+  expect(render(agentEvent)).not.toContain('proposal-decision');
   expect(render({
     ...agentEvent, type: 'humanAction',
     payload: { action: { actionKey: 'decline', outcome: 'failed' } }
-  })).not.toContain('rejected the agent proposal');
+  })).not.toContain('proposal-decision');
 });
 
 it.each(['direct', 'group'])('renders a download in the viewing inbox for a %s chat attachment', mode => {

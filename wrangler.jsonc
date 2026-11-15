@@ -103,6 +103,8 @@
         "ENVOI_INSTALLATIONS_V2": "true",
         "ENVOI_AGENT_REGISTRATION_V2": "true",
         "ENVOI_AUTHENTICATED_REST_ROUTE": "false",
+        "ENVOI_SAVED_SETUP": "true",
+        "ENVOI_OWNER_PERMISSIONS": "true",
         "ENVOI_CASE_SESSIONS_V1": "true",
         "ENVOI_HTTP_WAKE_V1": "true",
         "ENVOI_PROVIDER_BROWSER_POLL": "false",
