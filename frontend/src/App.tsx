@@ -2154,9 +2154,11 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   return <Modal className="enrollment-dialog" title={title} onClose={onClose}>
     <EnrollmentSteps currentStep={currentStep} />
     {hostedGrok && currentStep === 2 ? <section className="quick-connect">
+      {savedSetup && <p className="enroll-note">The Envoi approval window fills in your workspace, agent name and address. Sign in there with the same Envoi account and review the details.</p>}
       <GrokBotSetup address={reconnectAgent?.address} newIdentity={reconnectAgent ? undefined : { workspaceName: workspace.name, name: name.trim(), localPart, address: requestedAddress }} />
       <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => {
         setHostedGrokSelected(true);
+        setSavedSetup(null);
         setResult(null);
         setStep(1);
       }}>Back</button></div>
@@ -2242,13 +2244,9 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       event.preventDefault();
       if (busy || saveRequest.current) return;
       if (step === 0) { setStep(1); return; }
-      if (hostedGrok) {
-        if (!reconnectAgent && (!name.trim() || availability !== 'available')) return;
-        setStep(2);
-        return;
-      }
-      if (dotsSelected) {
-        if (reconnectAgent || workspace.id === previewWorkspace.id) { setDotsGuideOpen(true); return; }
+      if (hostedGrok || dotsSelected) {
+        const showSetup = () => { if (hostedGrok) setStep(2); else setDotsGuideOpen(true); };
+        if (reconnectAgent || workspace.id === previewWorkspace.id) { showSetup(); return; }
         if (!name.trim() || !validAgentLocalPart(localPart) || availability !== 'available') return;
         const controller = new AbortController();
         saveRequest.current = controller;
@@ -2257,16 +2255,16 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
         setSavedSetupDisabled(false);
         try {
           const setup = await savedSetupApi.create(workspace.id, {
-            name: name.trim(), localPart, permissions: selectedAgentPermissions(selectedPermissions)
-          }, controller.signal);
+            name: name.trim(), localPart, permissions: hostedGrok ? [] : selectedAgentPermissions(selectedPermissions)
+          }, controller.signal, hostedGrok ? 'grok' : 'dots');
           if (controller.signal.aborted) return;
           setSavedSetup(setup);
-          setDotsGuideOpen(true);
+          showSetup();
         } catch (caught) {
           if (controller.signal.aborted) return;
           if (caught instanceof ApiError && caught.code === 'FEATURE_DISABLED') {
             setSavedSetupDisabled(true);
-            setDotsGuideOpen(true);
+            showSetup();
           }
           else {
             if (caught instanceof ApiError && caught.code === 'ADDRESS_TAKEN') setAddressCheck({ inboxId: workspace.id, localPart, state: 'taken' });

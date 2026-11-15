@@ -62,7 +62,7 @@ import { attachInboxPreferencesToView, createInboxPreferencesHttp } from './inbo
 import { getPrefsForCases } from './inbox-preferences.js';
 import { createProviderMembershipCache, streamRecheckMs } from './provider-membership.js';
 import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenceRecorder, ownerConnection, presenceOf, reportedFamily } from './agent-presence.js';
-import { createSavedSetups, validSavedSetupId } from './agent-saved-setup.js';
+import { createSavedSetups, savedSetupRuntimeForConsent, validSavedSetupId } from './agent-saved-setup.js';
 import { createAgentSlots, legacyApprovalPermissions } from './agent-approval.js';
 import { createInstallationReader, installationSummary, ownerInstallationList, publicInstallation } from './agent-installations.js';
 import { readOnboardingFlags, routeAvailability } from './onboarding-flags.js';
@@ -1114,7 +1114,8 @@ async function handleConsentRoute(req, res, route) {
     const savedSetupId = body && typeof body === 'object' && !Array.isArray(body) && validSavedSetupId(body.savedSetupId) ? body.savedSetupId : null;
     let linked = false;
     if (savedSetupId) { const { savedSetupId: _omitted, ...rest } = body; body = rest; }
-    const extraDocuments = savedSetupId ? async context => { const link = await savedSetups.linkDocuments(human, savedSetupId, context); linked = link.linked; return link.documents; } : null;
+    const setupRuntime = savedSetupRuntimeForConsent(opened);
+    const extraDocuments = savedSetupId ? async context => { const link = await savedSetups.linkDocuments(human, savedSetupId, context, setupRuntime); linked = link.linked; return link.documents; } : null;
     const outcome = await registrations.approveConsent(human, consentRequest(opened), handleDigest, body, { extraDocuments });
     if (outcome.decided) return json(res, 200, outcome.decided);
     return json(res, 200, { redirectTo: consentRedirect(opened, origin, { code: outcome.code }), ...outcome.approved, ...(savedSetupId ? { savedSetup: { setupId: savedSetupId, linked } } : {}) });
@@ -1132,8 +1133,7 @@ async function handleConsentRoute(req, res, route) {
   if (!client && !decision) throw invalid();
   const requestedPermissions = permissionsForScopes(sealed.scopes);
   const maximum = organizationMaximumPermissions();
-  // agent-saved-setup v1 §4: only an undecided remote_mcp_oauth request, and only this human's live Dots setup.
-  const savedSetup = savedSetups.enabled && !decision && sealed.connectionRoute === 'remote_mcp_oauth' ? await savedSetups.forConsent(human, requestedPermissions) : null;
+  const savedSetup = !decision ? await savedSetups.forConsent(human, requestedPermissions, savedSetupRuntimeForConsent(sealed)) : null;
   return json(res, 200, {
     client: consentClient(client, sealed), connectionRoute: sealed.connectionRoute,
     requestedPermissions, grantablePermissions: (ownerPermissionsEnabled ? oauthScopedPermissions : requestedPermissions).filter(permission => maximum.includes(permission)),
@@ -1207,7 +1207,7 @@ const registrations = createAgentRegistrations({
   normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest,
   memberOf: async (human, organizationId) => Boolean(organizationId && await getMembership(organizationId, human.id))
 });
-// agent-saved-setup v1: owner-only saved Dots setups that pre-fill the approval page. Flag ENVOI_SAVED_SETUP, off by default.
+// Owner-only saved Dots and Grok Bot setups that pre-fill the approval page.
 const savedSetups = createSavedSetups({
   store, enabled: process.env.ENVOI_SAVED_SETUP === 'true', coded: codedError, now: () => new Date(store.now()), newId: prefix => store.id(prefix),
   normalizeLocalPart: normalizeAgentLocalPart, addressFor: agentAddressForLocalPart, addressTaken: address => registrations.addressTaken(address),
