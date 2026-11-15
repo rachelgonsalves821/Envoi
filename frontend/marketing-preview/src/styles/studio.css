@@ -96,3 +96,12 @@ html[data-page] main .button {
   font-size: .9375rem;
   font-weight: 700;
 }
+
+@media (min-width: 681px) {
+  .product-heading { container-type: inline-size; }
+  html[data-page="product"] main .product-heading h1 {
+    max-width: none;
+    font-size: min(var(--page-title-size), 3.55cqi);
+    text-wrap: nowrap;
+  }
+}
