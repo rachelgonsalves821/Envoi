@@ -25,7 +25,6 @@ svg { flex: none; vertical-align: middle; }
 .skip-link:focus { transform: none; }
 .site-header { position: fixed; inset: 0 0 auto; z-index: 30; border-bottom: 1px solid transparent; }
 .site-header.scrolled { background: var(--header-bg); backdrop-filter: blur(12px); border-color: var(--line); }
-html[data-page="product"] .site-header.scrolled { background: var(--porcelain); }
 .header-inner { height: 84px; display: flex; align-items: center; gap: 40px; }
 .wordmark { font: 300 38px/1 var(--display); letter-spacing: -.04em; color: var(--accent); }
 .wordmark-period { margin-left: -2px; }
