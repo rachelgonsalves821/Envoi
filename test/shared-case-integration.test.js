@@ -342,13 +342,17 @@ test('three agents chat and settle independent assignments in one native case', 
     assert.ok(!envelope.result.isError, JSON.stringify(envelope.result));
     return JSON.parse(envelope.result.content[0].text);
   };
-  const create = await call(alice, '/api/agent/group-cases', createInput);
+  const subject = 'Review the partner launch proposal';
+  const create = await tool(alice.agentApiToken, 'envoi_start_group_case', { ...createInput, subject });
   assert.equal(create.status, 201, JSON.stringify(create.payload));
+  assert.equal(create.payload.subject, subject);
   const { caseId } = create.payload;
   assert.ok(caseId);
-  const replayedCreate = await tool(alice.agentApiToken, 'envoi_start_group_case', createInput);
+  const replayedCreate = await tool(alice.agentApiToken, 'envoi_start_group_case', { ...createInput, subject });
   assert.equal(replayedCreate.status, 200);
   assert.equal(replayedCreate.payload.caseId, caseId);
+  assert.equal(replayedCreate.payload.subject, subject);
+  assert.equal((await call(alice, '/api/agent/group-cases', { ...createInput, subject: 'Different launch proposal' })).status, 409);
   assert.deepEqual(new Set(create.payload.members.map(member => member.agentId)),
     new Set([alice.agent.id, bob.agent.id, carol.agent.id]));
   const route = `/api/agent/group-cases/${caseId}`;
@@ -456,10 +460,12 @@ test('three agents chat and settle independent assignments in one native case', 
     assert.equal(humanView.status, 200, JSON.stringify(humanView.payload));
     const projected = humanView.payload.caseQueue.find(item => item.id === caseId);
     assert.equal(projected?.caseMode, 'group');
+    assert.equal(projected.subject, subject);
     assert.equal(projected.members.length, 3);
     assert.equal(projected.assignments.length, 4);
     assert.ok(projected.assignments.every(assignment => assignment.status === 'completed'));
   }
   const mcpTimeline = await tool(carol.agentApiToken, 'envoi_read_group_case', { caseId });
+  assert.equal(mcpTimeline.payload.subject, subject);
   assert.equal(mcpTimeline.payload.messages.length, 5);
 });

@@ -161,8 +161,9 @@ function goalFromClause(clause: string): string | null {
   return !INTRODUCTION.test(clause) && TASK_VERB.test(clause) ? shortSubject(clause) : null;
 }
 
-/** A local, conservative subject derived from the stated goal and the agents' messages. */
+/** Use the saved subject, with a local fallback for conversations created without one. */
 export function caseSubject(workCase: WorkCase, messages: Message[] = []): string {
+  if (workCase.subject) return workCase.subject;
   const objective = titleClauses(workCase.objective || '');
   if (objective.length === 1 && objective[0].length <= 90 && objective[0].split(/\s+/).length >= 2
     && !GENERIC_SUBJECT.test(objective[0]) && !INTRODUCTION.test(objective[0])) return goalFromClause(objective[0]) || shortSubject(objective[0]);

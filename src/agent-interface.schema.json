@@ -9,6 +9,7 @@
     "id": { "$ref": "#/definitions/ref" },
     "schemaVersion": { "const": "1.0" },
     "objective": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "subject": { "type": "string", "minLength": 1, "maxLength": 90, "pattern": "^(?![\\s\\S]*[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029])(?=[\\s\\S]*\\S)" },
     "collaborationMode": { "$ref": "#/definitions/collaborationMode" },
     "state": { "$ref": "#/definitions/caseState" },
     "principal": { "$ref": "#/definitions/ref" },
