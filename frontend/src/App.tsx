@@ -2170,6 +2170,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       {savedSetup && <p className="enroll-note">Envoi opens with these filled in. Just approve.</p>}
       {savedSetupDisabled && <p className="enroll-note">You'll confirm these on Envoi's approval page.</p>}
       <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} savedSetup={Boolean(savedSetup)} selectedMode={dotsWorkMode} onModeChange={setDotsWorkMode} modeLocked={dotsConnected} />
+      <p className="enroll-note">You can change this any time on {dotsName}’s page.</p>
       {savedSetup && <SavedSetupProgress setup={savedSetup} dotsWorkMode={dotsWorkMode} organizationId={workspace.organizationId} onConnected={async () => { setDotsConnected(true); await onRefresh?.(); }} onStartAgain={() => {
         setDotsConnected(false);
         setSavedSetup(null);

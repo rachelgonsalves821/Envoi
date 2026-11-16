@@ -60,6 +60,7 @@ afterEach(() => vi.unstubAllGlobals());
 it('offers owner settings only when workMode is known and keeps the older banner otherwise', () => {
   const current: Agent = { ...agent, workMode: { mode: 'routine', updatedAt: null } };
   expect(render(current)).toContain('When messages arrive');
+  expect(render(current)).toContain('Pause holds all work until you resume. Off still lets the agent work when you ask.');
   expect(render(current)).toContain('Waiting for Mark to turn it on');
   expect(render(current)).toContain('Copy sync message');
   expect(syncMessageFor(current)).toBe('Sync with Envoi for mark@envoi-agents.com');

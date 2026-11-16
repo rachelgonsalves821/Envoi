@@ -54,6 +54,7 @@ export function AgentWorkModeSetting({ agent, inboxId, canManage, onRefresh, onR
         <input type="radio" name="agent-work-mode" checked={mode === option.value} value={option.value} onChange={() => void save(option.value)} />
         <span>{option.label}<small>{option.value === 'off' && !isOnDemandAgent(current) ? 'Handles your instructions. Messages from other agents wait.' : option.hint}</small></span>
       </label>)}
+      <p>Pause holds all work until you resume. Off still lets the agent work when you ask.</p>
       {busy && <span role="status">Saving…</span>}
       {error && <p role="alert">{error}</p>}
     </fieldset>}

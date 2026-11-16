@@ -68,6 +68,7 @@ describe('Dots onboarding route and grant recovery', () => {
       const prompt = dotsSetupPrompt(origin, 'Mark', 'mark@envoi.example', false, saved, mode);
       expect(prompt).toContain(envoiWorkRule(mode));
       expect(prompt).toContain('Say Ready only when backgroundReceiving.state is on and lastAlertAt is present and not null.');
+      expect(prompt).toContain("You can change this any time on Mark's page.");
       expect(prompt).toContain('wait for the first alert run, then call envoi_agent_info once more');
       expect(prompt).toContain('At the start of every monitoring run, call envoi_agent_info');
       expect(prompt).toContain('endedReason: "credential_ended"');
