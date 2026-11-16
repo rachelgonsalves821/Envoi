@@ -505,4 +505,12 @@
 .app-shell .dots-work-mode { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .app-shell .dots-work-mode label { display: flex; align-items: baseline; gap: 8px; }
 .app-shell .agent-work-mode, .app-shell .agent-work-mode-status { margin: 0 12px 10px; }
-.app-shell .agent-work-mode small { display: block; color: var(--ink2); }
+.app-shell .agent-work-mode > p { margin: 0; color: var(--ink2); font-size: 12px; }
+.app-shell .work-mode-option, .app-shell .agent-pause-action { display: flex; align-items: center; gap: 8px; }
+.app-shell .work-mode-option { justify-content: space-between; }
+.app-shell .work-mode-help { position: relative; display: inline-flex; flex: none; }
+.app-shell .work-mode-help .work-mode-help-trigger { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--fill); color: var(--ink2); font-size: 12px; cursor: help; }
+.app-shell .work-mode-help-tooltip { display: none; position: absolute; inset-block-start: 100%; inset-inline-end: -12px; z-index: 4; width: min(225px, 55vw); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); box-shadow: 0 4px 12px #0002; font-size: 12px; line-height: 1.45; }
+.app-shell .agent-pause-action .work-mode-help-tooltip { inset-inline: 0 auto; }
+.app-shell .work-mode-help[data-dismissed="false"]:is(:hover, :focus-within) .work-mode-help-tooltip { display: block; }
+.app-shell .dot-sync-message { display: block; width: fit-content; max-width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--fill); overflow-wrap: anywhere; user-select: all; }

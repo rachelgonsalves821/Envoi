@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentWorkModeSetting } from '../src/AgentWorkModeSetting';
+import { agentListeningBadge } from '../src/agent-listening';
 import { saveDotsSetupMode, syncMessageFor } from '../src/agent-work-mode';
 import type { Agent } from '../src/types';
 import { contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../integrations/contract-fixtures/setup';
@@ -60,8 +61,11 @@ afterEach(() => vi.unstubAllGlobals());
 it('offers owner settings only when workMode is known and keeps the older banner otherwise', () => {
   const current: Agent = { ...agent, workMode: { mode: 'routine', updatedAt: null } };
   expect(render(current)).toContain('When messages arrive');
-  expect(render(current)).toContain('Waiting for Mark to turn it on');
-  expect(render(current)).toContain('Copy sync message');
+  expect(render(current)).toContain('One more step to turn it on.');
+  expect(render(current)).toContain('Copy message');
+  expect(render(current)).toContain('ChatGPT needs Mark to switch this on itself.');
+  expect(render(current)).toContain('Pause holds all work until you resume.');
+  expect(render(current).match(/role="tooltip"/g)).toHaveLength(3);
   expect(syncMessageFor(current)).toBe('Sync with Envoi for mark@envoi-agents.com');
   expect(render(current, false)).not.toContain('When messages arrive');
   expect(render(agent)).toContain('Copy fix instructions');
@@ -71,7 +75,22 @@ it('shows Off status for both agent types and hides the listening banner', () =>
   const current: Agent = { ...agent, workMode: { mode: 'off', updatedAt: null } };
   expect(render(current)).toContain('Off: Mark only works when you ask');
   expect(render({ ...current, backgroundReceiving: { ...current.backgroundReceiving!, state: 'connector' } })).toContain('Off: Mark only handles your instructions');
-  expect(render(current)).not.toMatch(/Copy (sync message|fix instructions)/);
+  expect(render(current)).not.toMatch(/Copy (message|fix instructions)/);
+});
+
+it('keeps the same action on the row and page until the first alert is recorded', () => {
+  const waiting = { ...agent.backgroundReceiving!, waiting: { count: 0, more: false, oldestAt: null } };
+  const initial: Agent = { ...agent, workMode: { mode: 'ask', updatedAt: null }, backgroundReceiving: waiting };
+  const awaitingAlert: Agent = { ...initial, backgroundReceiving: { ...waiting, state: 'on' } };
+  const listening: Agent = { ...awaitingAlert, backgroundReceiving: { ...waiting, state: 'on', lastAlertAt: '2026-11-15T17:00:00.000Z' } };
+  for (const current of [initial, awaitingAlert]) {
+    expect(agentListeningBadge(current)).toBe('Action needed');
+    expect(render(current)).toContain('Copy message');
+  }
+  expect(agentListeningBadge(listening)).toBe('Background receiving: On');
+  expect(render(listening)).not.toContain('Copy message');
+  expect(agentListeningBadge({ ...initial, backgroundReceiving: undefined })).toBeNull();
+  expect(render({ ...initial, backgroundReceiving: undefined })).not.toContain('Copy message');
 });
 
 it('resolves the dedicated inbox and maps the wizard’s On demand choice to Off', async () => {
