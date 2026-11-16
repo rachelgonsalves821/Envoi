@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';import path from 'node:path';import {tmpdir} from 'node:os';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {FileBridgeStore} from '../agent-bridges/file-store';
+import {createHash} from 'node:crypto';
 import {createOpenClawBridge} from './runtime';
 import {openClawTargetDigest,type OpenClawWorkTarget,type OpenClawTargetSelectionAuthority} from './scoped-target';
 const captured=vi.hoisted(()=>({handler:undefined as any}));
@@ -42,3 +43,42 @@ it('refuses new target dispatch when a resolver lacks a personal selection autho
  const resolver=vi.fn(async(id:string)=>target(id)),s=await setup({openClawTargetResolver:resolver});await expect(s.run(s.turn,{workId:'msg_a'})).rejects.toMatchObject({code:'PERSONAL_OPENCLAW_TARGET_REVIEW_REQUIRED'});
  expect(resolver).not.toHaveBeenCalled();expect(s.fetcher).not.toHaveBeenCalled();expect(await fs.readFile(path.join(s.directory,'session.json'))).toEqual(s.baseline);
 });
+
+it.each(['exact', 'changed', 'missing', 'foreign-work', 'unreviewed'] as const)(
+ 'continues the saved journal across a new port only for the exact reviewed work (%s)', async variant => {
+  const workId = 'msg_a';
+  const journal = {
+   version:1, workId, model:'openclaw:http://127.0.0.1:19000:main', providerCalls:1,
+   input:[{role:'system',content:'Retained input'}], pending:[], completed:false
+  };
+  const raw = JSON.stringify(journal);
+  const retained = {workId:variant === 'foreign-work' ? 'msg_b' : workId, model:journal.model,
+   sha256:createHash('sha256').update(raw).digest('hex')};
+  const s = await setup({openClawTargetResolver:async id=>target(id),
+   openClawTargetSelection:variant === 'unreviewed' ? undefined : authority(),
+   openClawRetainedJournal:() => retained});
+  const filename = path.join(s.directory,'scoped-runs',workId+'.json');
+  const saved = variant === 'changed' ? raw + '\n' : raw;
+  if (variant !== 'missing') {
+   await fs.mkdir(path.dirname(filename));
+   await fs.writeFile(filename, saved);
+  }
+  if (variant !== 'exact') {
+   await expect(s.run(s.turn,{workId})).rejects.toMatchObject({
+    code:variant === 'unreviewed' ? 'PERSONAL_OPENCLAW_TARGET_REVIEW_REQUIRED' : 'SCOPED_RETAINED_JOURNAL_MISMATCH'
+   });
+   expect(s.fetcher).not.toHaveBeenCalled();
+   if (variant === 'missing') await expect(fs.stat(filename)).rejects.toMatchObject({code:'ENOENT'});
+   else expect(await fs.readFile(filename,'utf8')).toBe(saved);
+   return;
+  }
+  await s.run(s.turn,{workId});
+  expect(s.calls).toHaveLength(2);
+  expect(s.calls.every(call=>call.url===target(workId).gatewayUrl+'/v1/responses')).toBe(true);
+  expect(JSON.parse(String(s.calls[0].init.body)).input[0]).toMatchObject(journal.input[0]);
+  const completed = JSON.parse(await fs.readFile(filename,'utf8'));
+  expect(completed).toMatchObject({workId,model:journal.model,completed:true,providerCalls:3});
+  expect(completed.input.slice(0,1)).toEqual(journal.input);
+  expect(await fs.readFile(path.join(s.directory,'session.json'))).toEqual(s.baseline);
+ }
+);

@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, realpath, rename, rm } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { EnvoiError } from '../../sdk/typescript/src/index';
 import path from 'node:path';
 
 export interface ScopedCall {
@@ -45,7 +46,7 @@ export function validAdmissionCheckpoint(value: unknown): value is ScopedAdmissi
 }
 
 export interface ScopedRunStore {
-  load(workId: string): Promise<ScopedRunRecord | null>;
+  load(workId: string, expectedSha256?: string): Promise<ScopedRunRecord | null>;
   save(record: ScopedRunRecord): Promise<void>;
   exclusive<Value>(workId: string, action: () => Promise<Value>): Promise<Value>;
 }
@@ -72,10 +73,12 @@ export class FileScopedRunStore implements ScopedRunStore {
     finally { if (running.get(filename) === current) running.delete(filename); }
   }
 
-  async load(workId: string): Promise<ScopedRunRecord | null> {
+  async load(workId: string, expectedSha256?: string): Promise<ScopedRunRecord | null> {
     try {
       const bytes = await readFile(this.filename(workId));
       if (bytes.byteLength > 1_000_000) throw new Error('Scoped run record exceeds its limit');
+      if (expectedSha256 !== undefined && createHash('sha256').update(bytes).digest('hex') !== expectedSha256)
+        throw new EnvoiError('Retained scoped journal changed', undefined, 'SCOPED_RETAINED_JOURNAL_MISMATCH');
       const record = JSON.parse(bytes.toString('utf8')) as ScopedRunRecord;
       if (record?.version !== 1 || record.workId !== workId || typeof record.model !== 'string'
         || !Array.isArray(record.input) || !Array.isArray(record.pending) || record.pending.length > 16
