@@ -1,4 +1,4 @@
-import type { WorkMessage } from '../../sdk/typescript/src/connector';
+import type { ConnectorWorkRule, WorkMessage } from '../../sdk/typescript/src/connector';
 import { parseAgentReply, workPrompt, type AgentTurn } from '../agent-bridges/bridge';
 export { mcpReplyMessageId, withRecordedMcpReply } from '../agent-bridges/bridge';
 
@@ -36,7 +36,7 @@ export function openClawTurn(options: OpenClawTurnOptions): AgentTurn {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 1_800_000) throw new RangeError('timeoutMs must be from 1 to 1800000');
   const fetcher = options.fetch || fetch;
 
-  return async (message: WorkMessage, signal: AbortSignal) => {
+  return async (message: WorkMessage, signal: AbortSignal, workRule?: ConnectorWorkRule) => {
     const history = message.caseId && options.history ? await options.history(message.caseId, Boolean(message.groupCase)) : [];
     if (signal.aborted) throw new Error('OpenClaw turn was canceled');
     const controller = new AbortController();
@@ -56,7 +56,7 @@ export function openClawTurn(options: OpenClawTurnOptions): AgentTurn {
           model: `openclaw/${options.agentId}`,
           user: `envoi:${message.caseId || message.id}`,
           stream: false,
-          messages: [{ role: 'user', content: workPrompt(message, history, { allowEnvoiMcpWrites: options.allowEnvoiMcpWrites, assetHandles: options.assetHandles }) }]
+          messages: [{ role: 'user', content: workPrompt(message, history, { workRule, allowEnvoiMcpWrites: options.allowEnvoiMcpWrites, assetHandles: options.assetHandles }) }]
         })
       });
       if (!response.ok) throw new Error(`OpenClaw turn failed with HTTP ${response.status}`);

@@ -1,0 +1,45 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "mode-invalid",
+  "description": "An unknown mode is refused before any change.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": "routine"
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/api/inboxes/inbox_mark/agents/agent_mark/work-mode",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "modeRequest",
+    "body": {
+      "mode": "always"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "WORK_MODE_INVALID",
+      "error": "WORK_MODE_INVALID",
+      "message": "Choose routine, ask or off.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "fix_input",
+    "next": "Keep the current mode."
+  }
+}

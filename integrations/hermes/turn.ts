@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isHumanInstructionMessage, type WorkMessage } from '../../sdk/typescript/src/connector';
+import { isHumanInstructionMessage, type ConnectorWorkRule, type WorkMessage } from '../../sdk/typescript/src/connector';
 import { retryDelay } from '../../sdk/typescript/src/lifecycle';
 import { parseAgentReply, workPrompt, type AgentTurn, type BridgeLedger } from '../agent-bridges/bridge';
 import { HermesRunStore } from './run-store';
@@ -54,7 +54,7 @@ export function hermesTurn(options: HermesTurnOptions): AgentTurn {
     }); } catch { /* Best effort; the same run remains recorded for recovery. */ }
   }
 
-  return async (message: WorkMessage, signal: AbortSignal) => {
+  return async (message: WorkMessage, signal: AbortSignal, workRule?: ConnectorWorkRule) => {
     if (signal.aborted) throw new Error('Hermes turn was interrupted');
     options.onActive?.(message, signal);
     let runId: string | undefined;
@@ -62,6 +62,7 @@ export function hermesTurn(options: HermesTurnOptions): AgentTurn {
       const history = message.caseId && options.history ? await options.history(message.caseId, Boolean(message.groupCase)) : [];
       const request = {
         input: workPrompt(message, history, {
+          workRule,
           allowEnvoiMcpWrites: options.allowEnvoiMcpWrites,
           assetHandles: options.assetHandles
         }),

@@ -1,17 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
+import { saveDotsSetupMode } from '../agent-work-mode';
+import type { DotsWorkMode } from '../quick-connect';
 import { ConnectionMilestones } from './ConnectionMilestones';
 import { savedSetupApi, savedSetupStage, watchSavedSetup, type SavedSetup } from './saved-setup';
 
 const stages = ['waiting', 'approved', 'connected', 'ready'] as const;
 const milestones = ['Saved', 'Approved', 'Connected', 'Checked in'];
 
-export function SavedSetupProgress({ setup, onConnected, onStartAgain }: {
+export function SavedSetupProgress({ setup, onConnected, onStartAgain, organizationId, dotsWorkMode }: {
   setup: SavedSetup;
   onConnected?: () => Promise<unknown>;
   onStartAgain: () => void;
+  organizationId?: string;
+  dotsWorkMode?: DotsWorkMode;
 }) {
   const [status, setStatus] = useState(setup);
   const [unavailable, setUnavailable] = useState<'temporary' | 'ended' | null>(null);
+  const [modeSaveError, setModeSaveError] = useState(false);
+  const [retryModeSave, setRetryModeSave] = useState(0);
+  const savedMode = useRef<{ agentId: string; mode: DotsWorkMode } | null>(null);
   const refresh = useRef(onConnected);
   refresh.current = onConnected;
   useEffect(() => {
@@ -29,6 +36,19 @@ export function SavedSetupProgress({ setup, onConnected, onStartAgain }: {
       onUnavailable: terminal => setUnavailable(terminal ? 'ended' : 'temporary')
     });
   }, [setup.workspaceInboxId, setup.setupId]);
+
+  const agentId = status.status === 'connected' && status.runtime === 'dots' ? status.agent.id : undefined;
+  useEffect(() => {
+    if (!agentId || !organizationId || !dotsWorkMode || (savedMode.current?.agentId === agentId && savedMode.current.mode === dotsWorkMode)) return;
+    const pending = new AbortController();
+    setModeSaveError(false);
+    void saveDotsSetupMode(organizationId, setup.workspaceInboxId, agentId, dotsWorkMode, pending.signal).then(() => {
+      if (pending.signal.aborted) return;
+      savedMode.current = { agentId, mode: dotsWorkMode };
+      void refresh.current?.().catch(() => {});
+    }).catch(() => { if (!pending.signal.aborted) setModeSaveError(true); });
+    return () => pending.abort();
+  }, [agentId, organizationId, setup.workspaceInboxId, dotsWorkMode, retryModeSave]);
 
   const stage = savedSetupStage(status);
   const reached = stages.findIndex(name => stage === name) + 1;
@@ -49,6 +69,7 @@ export function SavedSetupProgress({ setup, onConnected, onStartAgain }: {
       <strong>{message}</strong>
       <p>{hint}</p>
     </div>
+    {modeSaveError && <div role="alert"><p>Could not save when the Dot should receive messages.</p><button type="button" className="button secondary compact" onClick={() => setRetryModeSave(value => value + 1)}>Try again</button></div>}
     {canRestart && <button type="button" className="button secondary compact" onClick={onStartAgain}>Start again</button>}
   </div>;
 }
