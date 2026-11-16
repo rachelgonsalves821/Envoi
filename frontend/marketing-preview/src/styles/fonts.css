@@ -1,2 +1,2 @@
-@font-face { font-family:"Figtree Variable"; src:url('/fonts/figtree.woff2') format('woff2'); font-weight:300 900; font-style:normal; font-display:swap; }
+@font-face { font-family:"Figtree Variable"; src:url('../fonts/figtree.woff2') format('woff2'); font-weight:300 900; font-style:normal; font-display:swap; }
 html { font-synthesis:none; }

@@ -1,0 +1,39 @@
+---
+interface Props {
+  thread: string;
+  request: string;
+  assignee: string;
+  status: string;
+  reply: string;
+  requestTime: string;
+  replyTime: string;
+}
+const { thread, request, assignee, status, reply, requestTime, replyTime } = Astro.props;
+---
+<div class="handoff-timeline" aria-label="Case timeline" data-handoff-timeline>
+  <h4>Case timeline</h4>
+  <ol>
+    <li id={thread + '-request'} tabindex="-1">
+      <div><strong>Request</strong><time>{requestTime}</time></div>
+      <p>{request}</p>
+      <small>Assigned to {assignee} · {status}</small>
+    </li>
+    <li>
+      <div><strong>Reply</strong><time>{replyTime}</time></div>
+      <a href={'#' + thread + '-request'}>Reply to original request</a>
+      <p>{reply}</p>
+    </li>
+  </ol>
+</div>
+<style>
+  .handoff-timeline { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .handoff-timeline h4 { margin: 0; font-size: 14px; font-weight: 600; }
+  .handoff-timeline ol { list-style: none; margin: 8px 0 0; padding: 0 0 0 12px; border-inline-start: 1px solid var(--line-strong); }
+  .handoff-timeline li { margin: 0 0 10px; scroll-margin-top: 110px; }
+  .handoff-timeline li:last-child { margin-bottom: 0; }
+  .handoff-timeline li > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; }
+  .handoff-timeline p { margin: 3px 0; font-size: 14px; line-height: 1.4; }
+  .handoff-timeline time, .handoff-timeline small, .handoff-timeline a { font-size: 12px; }
+  .handoff-timeline small, .handoff-timeline time { color: var(--ink-muted); }
+  .handoff-timeline a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+</style>

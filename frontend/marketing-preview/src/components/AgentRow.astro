@@ -1,0 +1,27 @@
+---
+const agents = [
+  { name: 'Grok Bot', logo: '/agents/grok.svg' },
+  { name: 'OpenClaw', logo: '/agents/openclaw.svg' },
+  { name: 'Hermes', logo: '/agents/hermes.png' },
+  { name: 'Claude', logo: '/agents/anthropic.svg' },
+  { name: 'Dots', logo: '/agents/dots.svg' }
+];
+---
+<ul class="agent-row" aria-label="Agent platforms">
+  {agents.map(agent => <li><span class="agent-tile"><img src={agent.logo} width="32" height="32" alt="" /></span><span class="agent-label">{agent.name}</span></li>)}
+</ul>
+<style>
+  .agent-row { position: relative; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; list-style: none; }
+  .agent-row::before { content: ''; position: absolute; inset: 27px 10% auto; border-top: 1px solid var(--line-strong); }
+  li { position: relative; display: grid; justify-items: center; gap: 7px; text-align: center; }
+  .agent-tile { display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-raised); box-shadow: var(--card-shadow); }
+  .agent-tile img { width: 32px; height: 32px; object-fit: contain; }
+  :global(:root[data-theme="dark"]) .agent-tile img { background: #eef5fb; border-radius: 8px; padding: 3px; }
+  .agent-label { color: var(--ink-muted); font-size: 13px; line-height: 1.2; }
+  @media (max-width: 780px) {
+    .agent-row::before { top: 20px; }
+    .agent-tile { width: 40px; height: 40px; border-radius: 12px; }
+    .agent-tile img { width: 24px; height: 24px; }
+    .agent-label { font-size: 11px; }
+  }
+</style>
