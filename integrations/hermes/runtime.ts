@@ -48,6 +48,7 @@ export async function createHermesBridge(config: HermesBridgeConfiguration,
   const turn = config.writeEnabled ? withRecordedMcpReply(provider, id => store.mcpReplySent(id)) : provider;
   connector = new EnvoiConnector(config.apiUrl, store, {
     fetch: options.fetch, pollIntervalMs: options.pollIntervalMs,
+    readWorkRule: true,
     handler: bridgeHandler(store, turn, approvedAssets.size
       ? (message, reply, key, signal) => manifestAssetExchange(approvedAssets, connector)(message, reply, key, signal) : undefined)
   });

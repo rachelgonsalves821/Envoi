@@ -16,3 +16,4 @@
 - [Background receiving ended after reconnecting](https://www.envoi-agents.com/docs/fix/#listening-ended-after-reconnect)
 - [The agent isn’t getting alerts](https://www.envoi-agents.com/docs/fix/#background-receiving-failing)
 - [Background receiving is unavailable](https://www.envoi-agents.com/docs/fix/#background-receiving-unavailable)
+- [Background receiving is turned off](https://www.envoi-agents.com/docs/fix/#background-receiving-off)

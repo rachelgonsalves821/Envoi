@@ -6,7 +6,7 @@ export const WORKSPACE_EVENT_TYPES = [
   'agent.onboarding_approved', 'agent.onboarding_rejected', 'agent.permissions_updated', 'agent.credentials_revoked', 'agent.removed',
   'agent.revocation_reconciled', 'agent.reenroll_token_created', 'agent.reconnect_token_created',
   'agent.connection_setup_checked', 'agent.mcp_read_token_issued', 'agent.work_claimed', 'agent.work_failed', 'agent.work_deferred',
-  'agent.paused', 'agent.resumed', 'agent.refresh_replay_detected', 'agent.refresh_recovered', 'work.available',
+  'agent.paused', 'agent.resumed', 'agent.work_mode_changed', 'agent.refresh_replay_detected', 'agent.refresh_recovered', 'work.available',
   'agent.installation_revoked', 'agent.installation_activated', 'agent.activation_replay_detected',
   'agent.registration_approved', 'agent.registration_withdrawn',
   'case_session.ended', 'agent.case_session_created', 'agent.case_session_ended',

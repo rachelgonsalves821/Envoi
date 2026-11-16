@@ -504,3 +504,5 @@
 .app-shell .listening-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .app-shell .dots-work-mode { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .app-shell .dots-work-mode label { display: flex; align-items: baseline; gap: 8px; }
+.app-shell .agent-work-mode, .app-shell .agent-work-mode-status { margin: 0 12px 10px; }
+.app-shell .agent-work-mode small { display: block; color: var(--ink2); }

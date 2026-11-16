@@ -10,7 +10,8 @@ const listeningFixes = [
   'agent-not-listening',
   'listening-ended-after-reconnect',
   'background-receiving-failing',
-  'background-receiving-unavailable'
+  'background-receiving-unavailable',
+  'background-receiving-off'
 ];
 const llms = readFileSync(new URL('../public/llms.txt', import.meta.url), 'utf8');
 const codePattern = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;

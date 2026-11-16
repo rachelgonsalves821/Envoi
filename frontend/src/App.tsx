@@ -44,12 +44,12 @@ import { HighlightedText, HighlightLegend } from './HighlightedText';
 import { findHighlights } from './highlights';
 import { agentLabel, connectionLabel } from './agent-presence';
 import { listeningBadge } from './agent-listening';
-import { AgentListeningNotice } from './AgentListeningNotice';
+import { AgentWorkModeSetting } from './AgentWorkModeSetting';
 import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, cachedWorkspaceView, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
-import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, enrollmentStatusGraceMs, isLoopbackOrigin, runtimeLabel, setupHelpLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, enrollmentStatusGraceMs, isLoopbackOrigin, runtimeLabel, setupHelpLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type DotsWorkMode, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
@@ -946,9 +946,9 @@ export function AppShell(props: ShellProps) {
   const selectedCase = selectedCaseEntry?.workCase || null;
   const selectedCaseView = selectedCaseEntry?.sourceView || view;
   const currentAgent = workspace.kind === 'agent' ? view.agents.find(item => item.id === workspace.ownerAgentId) || null : null;
-  const listeningNotice = currentAgent && section === 'inbox' && <AgentListeningNotice
-    key={`${workspace.id}:${currentAgent.id}:${currentAgent.backgroundReceiving?.state}:${currentAgent.backgroundReceiving?.endedReason}:${currentAgent.connection?.state}`}
-    agent={currentAgent} inboxId={workspace.id} onReconnect={canManageInbox ? runtime => {
+  const listeningNotice = currentAgent && section === 'inbox' && <AgentWorkModeSetting
+    key={`${human.id}:${workspace.id}:${currentAgent.id}`}
+    agent={currentAgent} inboxId={workspace.id} canManage={canManageInbox} onRefresh={onRefresh} onReconnect={canManageInbox ? runtime => {
       setConnectResult(null);
       setListeningReconnect({ ...currentAgent, runtime });
     } : undefined} />;
@@ -2041,6 +2041,8 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
     return () => stop.abort();
   }, []);
   const [dotsGuideOpen, setDotsGuideOpen] = useState(false);
+  const [dotsWorkMode, setDotsWorkMode] = useState<DotsWorkMode>('routine');
+  const [dotsConnected, setDotsConnected] = useState(false);
   const [savedSetupDisabled, setSavedSetupDisabled] = useState(false);
   const [savedSetup, setSavedSetup] = useState<SavedSetup | null>(null);
   const saveRequest = useRef<AbortController | null>(null);
@@ -2154,9 +2156,11 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
   return <Modal className="enrollment-dialog" title={title} onClose={onClose}>
     <EnrollmentSteps currentStep={currentStep} />
     {hostedGrok && currentStep === 2 ? <section className="quick-connect">
+      {savedSetup && <p className="enroll-note">The Envoi approval window fills in your workspace, agent name and address. Sign in there with the same Envoi account and review the details.</p>}
       <GrokBotSetup address={reconnectAgent?.address} newIdentity={reconnectAgent ? undefined : { workspaceName: workspace.name, name: name.trim(), localPart, address: requestedAddress }} />
       <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => {
         setHostedGrokSelected(true);
+        setSavedSetup(null);
         setResult(null);
         setStep(1);
       }}>Back</button></div>
@@ -2165,8 +2169,9 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       <div className="setup-identity"><small>{reconnectAgent ? 'Agent email address' : 'Requested agent email address'}</small><strong>{requestedAddress}</strong></div>
       {savedSetup && <p className="enroll-note">Envoi opens with these filled in. Just approve.</p>}
       {savedSetupDisabled && <p className="enroll-note">You'll confirm these on Envoi's approval page.</p>}
-      <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} savedSetup={Boolean(savedSetup)} />
-      {savedSetup && <SavedSetupProgress setup={savedSetup} onConnected={onRefresh} onStartAgain={() => {
+      <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} savedSetup={Boolean(savedSetup)} selectedMode={dotsWorkMode} onModeChange={setDotsWorkMode} modeLocked={dotsConnected} />
+      {savedSetup && <SavedSetupProgress setup={savedSetup} dotsWorkMode={dotsWorkMode} organizationId={workspace.organizationId} onConnected={async () => { setDotsConnected(true); await onRefresh?.(); }} onStartAgain={() => {
+        setDotsConnected(false);
         setSavedSetup(null);
         setDotsGuideOpen(false);
       }} />}
@@ -2242,13 +2247,9 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       event.preventDefault();
       if (busy || saveRequest.current) return;
       if (step === 0) { setStep(1); return; }
-      if (hostedGrok) {
-        if (!reconnectAgent && (!name.trim() || availability !== 'available')) return;
-        setStep(2);
-        return;
-      }
-      if (dotsSelected) {
-        if (reconnectAgent || workspace.id === previewWorkspace.id) { setDotsGuideOpen(true); return; }
+      if (hostedGrok || dotsSelected) {
+        const showSetup = () => { if (hostedGrok) setStep(2); else setDotsGuideOpen(true); };
+        if (reconnectAgent || workspace.id === previewWorkspace.id) { showSetup(); return; }
         if (!name.trim() || !validAgentLocalPart(localPart) || availability !== 'available') return;
         const controller = new AbortController();
         saveRequest.current = controller;
@@ -2257,16 +2258,16 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
         setSavedSetupDisabled(false);
         try {
           const setup = await savedSetupApi.create(workspace.id, {
-            name: name.trim(), localPart, permissions: selectedAgentPermissions(selectedPermissions)
-          }, controller.signal);
+            name: name.trim(), localPart, permissions: hostedGrok ? [] : selectedAgentPermissions(selectedPermissions)
+          }, controller.signal, hostedGrok ? 'grok' : 'dots');
           if (controller.signal.aborted) return;
           setSavedSetup(setup);
-          setDotsGuideOpen(true);
+          showSetup();
         } catch (caught) {
           if (controller.signal.aborted) return;
           if (caught instanceof ApiError && caught.code === 'FEATURE_DISABLED') {
             setSavedSetupDisabled(true);
-            setDotsGuideOpen(true);
+            showSetup();
           }
           else {
             if (caught instanceof ApiError && caught.code === 'ADDRESS_TAKEN') setAddressCheck({ inboxId: workspace.id, localPart, state: 'taken' });
