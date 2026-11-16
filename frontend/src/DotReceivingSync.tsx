@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { syncMessageFor } from './agent-work-mode';
 import type { Agent } from './types';
 
-export const dotReceivingSyncTitle = 'One more step to turn it on.';
+export const dotReceivingSyncTitle = 'One more step to turn it on';
 
 export function DotReceivingSync({ agent, showChatGPTLink = false }: {
   agent: Pick<Agent, 'name' | 'address'>;

@@ -512,5 +512,6 @@
 .app-shell .work-mode-help .work-mode-help-trigger { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--fill); color: var(--ink2); font-size: 12px; cursor: help; }
 .app-shell .work-mode-help-tooltip { display: none; position: absolute; inset-block-start: 100%; inset-inline-end: -12px; z-index: 4; width: min(225px, 55vw); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); box-shadow: 0 4px 12px #0002; font-size: 12px; line-height: 1.45; }
 .app-shell .agent-pause-action .work-mode-help-tooltip { inset-inline: 0 auto; }
-.app-shell .work-mode-help[data-dismissed="false"]:is(:hover, :focus-within) .work-mode-help-tooltip { display: block; }
+.app-shell .work-mode-help[data-visibility="open"] .work-mode-help-tooltip,
+.app-shell .work-mode-help[data-visibility="auto"]:is(:hover, :focus-within) .work-mode-help-tooltip { display: block; }
 .app-shell .dot-sync-message { display: block; width: fit-content; max-width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--fill); overflow-wrap: anywhere; user-select: all; }
