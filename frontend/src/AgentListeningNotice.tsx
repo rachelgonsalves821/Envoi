@@ -5,7 +5,7 @@ import { listeningBanner, listeningConnectorRuntime, listeningFixInstructions } 
 import { onboardingApi } from './onboarding/api';
 import { ApiError } from './api';
 import { agentWorkMode, needsDotReceivingSync } from './agent-work-mode';
-import { DotReceivingSync, dotReceivingSyncTitle } from './DotReceivingSync';
+import { DotReceivingSync } from './DotReceivingSync';
 
 export function AgentListeningNotice({ agent, inboxId, onReconnect, origin = typeof window === 'undefined' ? 'https://www.envoi-agents.com' : window.location.origin }: {
   agent: Agent; inboxId: string; onReconnect?: (runtime?: ConnectorRuntime) => void; origin?: string;
@@ -18,7 +18,7 @@ export function AgentListeningNotice({ agent, inboxId, onReconnect, origin = typ
   const active = useRef<AbortController | null>(null);
   useEffect(() => () => active.current?.abort(), []);
   if (needsDotReceivingSync(agent)) return <section className="inline-notice tone-attention listening-notice" aria-label="Background receiving status">
-    <div><strong>{dotReceivingSyncTitle}</strong><DotReceivingSync agent={agent} /></div>
+    <div><strong>Waiting for {agent.name} to turn it on</strong><DotReceivingSync agent={agent} /></div>
   </section>;
   if (!banner) return null;
 

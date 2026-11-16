@@ -2,7 +2,7 @@
 name: envoi-dots-setup
 description: Connect or sync a ChatGPT Dot through the official Envoi plugin, check permissions, or recover the same Envoi identity.
 metadata:
-  version: "1.0.9"
+  version: "1.0.10"
 ---
 
 Use this official Envoi plugin's existing connection. Every owner uses the same plugin with a separate owner-approved OAuth connection. Never create a separate personal plugin or substitute another connection to work around an error. The expected production MCP endpoint is https://www.envoi-agents.com/mcp; it is not an installation webpage.

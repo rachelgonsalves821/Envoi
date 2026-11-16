@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AgentWorkModeSetting } from '../src/AgentWorkModeSetting';
 import { DotReceivingSync } from '../src/DotReceivingSync';
 import { Modal } from '../src/Modal';
+import { WorkModeHelp, workModeHelp } from '../src/WorkModeHelp';
 import { api } from '../src/api';
 import type { Agent, AgentWorkMode } from '../src/types';
 
@@ -22,6 +23,7 @@ vi.mock('react', async importOriginal => {
       if (!hooks.values.has(index)) hooks.values.set(index, { current: initial });
       return hooks.values.get(index);
     },
+    useId: () => 'work-mode-help',
     useEffect: () => {}
   };
 });
@@ -65,7 +67,7 @@ it.each(['routine', 'ask'] as const)('opens the Dot dialog after Envoi confirms 
   confirm(enabled(dot, mode));
   await Promise.resolve();
   const dialog = draw().find(item => item.type === Modal);
-  expect(dialog?.props.title).toBe('One more step to turn it on.');
+  expect(dialog?.props.title).toBe('One more step to turn it on');
   expect(dialog?.props.children.props).toMatchObject({ agent: enabled(dot, mode), showChatGPTLink: true });
   expect(refresh).toHaveBeenCalledOnce();
   dialog?.props.onClose();
@@ -100,4 +102,17 @@ it('copies only the sync line and links to ChatGPT in the dialog', async () => {
   content.find(item => item.type === 'button' && item.props.children === 'Copy message')!.props.onClick();
   await Promise.resolve();
   expect(writeText).toHaveBeenCalledExactlyOnceWith('Sync with Envoi for mark@example.com');
+});
+
+it('opens help on tap and closes it on Escape without changing the work mode', () => {
+  const draw = () => {
+    hooks.cursor = 0;
+    return WorkModeHelp({ label: 'Off', description: workModeHelp.off });
+  };
+  const trigger = () => elements(draw()).find(item => item.type === 'button')!;
+  expect(trigger().props['aria-describedby']).toBe('work-mode-help');
+  trigger().props.onClick();
+  expect(draw().props['data-visibility']).toBe('open');
+  trigger().props.onKeyDown({ key: 'Escape' });
+  expect(draw().props['data-visibility']).toBe('dismissed');
 });

@@ -61,7 +61,7 @@ afterEach(() => vi.unstubAllGlobals());
 it('offers owner settings only when workMode is known and keeps the older banner otherwise', () => {
   const current: Agent = { ...agent, workMode: { mode: 'routine', updatedAt: null } };
   expect(render(current)).toContain('When messages arrive');
-  expect(render(current)).toContain('One more step to turn it on.');
+  expect(render(current)).toContain('Waiting for Mark to turn it on');
   expect(render(current)).toContain('Copy message');
   expect(render(current)).toContain('ChatGPT needs Mark to switch this on itself.');
   expect(render(current)).toContain('Pause holds all work until you resume.');
@@ -78,15 +78,12 @@ it('shows Off status for both agent types and hides the listening banner', () =>
   expect(render(current)).not.toMatch(/Copy (message|fix instructions)/);
 });
 
-it('keeps the same action on the row and page until the first alert is recorded', () => {
+it('keeps the same action on the row and page until Envoi reports that the Dot is on', () => {
   const waiting = { ...agent.backgroundReceiving!, waiting: { count: 0, more: false, oldestAt: null } };
   const initial: Agent = { ...agent, workMode: { mode: 'ask', updatedAt: null }, backgroundReceiving: waiting };
-  const awaitingAlert: Agent = { ...initial, backgroundReceiving: { ...waiting, state: 'on' } };
-  const listening: Agent = { ...awaitingAlert, backgroundReceiving: { ...waiting, state: 'on', lastAlertAt: '2026-11-15T17:00:00.000Z' } };
-  for (const current of [initial, awaitingAlert]) {
-    expect(agentListeningBadge(current)).toBe('Action needed');
-    expect(render(current)).toContain('Copy message');
-  }
+  const listening: Agent = { ...initial, backgroundReceiving: { ...waiting, state: 'on' } };
+  expect(agentListeningBadge(initial)).toBe('Action needed');
+  expect(render(initial)).toContain('Copy message');
   expect(agentListeningBadge(listening)).toBe('Background receiving: On');
   expect(render(listening)).not.toContain('Copy message');
   expect(agentListeningBadge({ ...initial, backgroundReceiving: undefined })).toBeNull();
