@@ -1,6 +1,23 @@
 import { responsesScopedTurn } from '../agent-bridges/responses-turn';
 import type { ScopedRunStore } from '../grok/scoped-store';
 
+const conditionalToolDescriptions: Readonly<Record<string, string>> = {
+  envoi_case_list_assets: 'List assets with optional limit and before, or inspect one asset with assetRef. Use includeContent only with assetRef. Omit limit and before when using assetRef.',
+  envoi_case_decide: 'For accept, supply optionRef and authorityRef and omit terms. For counter, supply terms and omit optionRef and authorityRef. For reject, omit all three.',
+  envoi_authority_check: 'For accept_proposal, supply proposalRef and optionRef and omit result. For complete_case, supply result and omit proposalRef and optionRef.',
+};
+
+function providerTool(tool: { type: string; name: string; parameters: Readonly<Record<string, unknown>> }) {
+  // The Anthropic transport rejects root combinators in custom tool schemas.
+  // This projects the model's schema only. CaseToolsClient still validates
+  // every call against the complete canonical schema before forwarding it.
+  const { allOf, anyOf, oneOf, ...parameters } = tool.parameters;
+  if (allOf === undefined && anyOf === undefined && oneOf === undefined) return tool;
+  const description = conditionalToolDescriptions[tool.name];
+  if (!description || anyOf !== undefined || oneOf !== undefined) throw new TypeError('Unsupported OpenClaw case tool schema');
+  return { ...tool, description, parameters };
+}
+
 export function openClawScopedTurn(options: {
   gatewayUrl: string;
   gatewayToken: string;
@@ -23,7 +40,7 @@ export function openClawScopedTurn(options: {
       headers: { authorization: `Bearer ${options.gatewayToken}`, 'content-type': 'application/json' },
       body: JSON.stringify({
         model: body.model, store: false, stream: false, max_output_tokens: body.max_output_tokens,
-        tools: body.tools,
+        tools: (body.tools as Parameters<typeof providerTool>[0][]).map(providerTool),
         input: (body.input as Array<Record<string, unknown>>).map(item => item.type === undefined && typeof item.role === 'string'
           ? { type: 'message', ...item } : item)
       })
