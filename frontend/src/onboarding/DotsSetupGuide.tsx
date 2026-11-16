@@ -9,10 +9,12 @@ const receivingOptions: { value: DotsWorkMode; label: string }[] = [
   { value: 'on_demand', label: 'Only when I ask' }
 ];
 
-export function DotsSetupGuide({ origin, name, address = '', reconnect = false, savedSetup = false, messageAccess = false }: {
+export function DotsSetupGuide({ origin, name, address = '', reconnect = false, savedSetup = false, messageAccess = false, selectedMode, onModeChange, modeLocked = false }: {
   origin: string; name?: string; address?: string; reconnect?: boolean; savedSetup?: boolean; messageAccess?: boolean;
+  selectedMode?: DotsWorkMode; onModeChange?: (mode: DotsWorkMode) => void; modeLocked?: boolean;
 }) {
-  const [mode, setMode] = useState<DotsWorkMode>('routine');
+  const [localMode, setLocalMode] = useState<DotsWorkMode>('routine');
+  const mode = selectedMode ?? localMode;
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const prompt = messageAccess ? dotsMessageAccessPrompt(address)
@@ -32,10 +34,10 @@ export function DotsSetupGuide({ origin, name, address = '', reconnect = false, 
 
   return <section className="dots-guide" aria-label={messageAccess ? 'Reconnect Dots permissions' : 'Dots connection instructions'}>
     <p>{messageAccess ? 'Paste this into your existing Dot chat to review or update its message access.' : "Paste this into your Dot's chat. It will guide you through the Envoi plugin and approval."}</p>
-    {!messageAccess && <fieldset className="dots-work-mode">
+    {!messageAccess && <fieldset className="dots-work-mode" disabled={modeLocked}>
       <legend>When messages arrive</legend>
       {receivingOptions.map(option => <label key={option.value}>
-        <input type="radio" name="dots-work-mode" checked={mode === option.value} value={option.value} onChange={() => { setMode(option.value); setCopied(false); setCopyFailed(false); }} />
+        <input type="radio" name="dots-work-mode" checked={mode === option.value} value={option.value} onChange={() => { (onModeChange ?? setLocalMode)(option.value); setCopied(false); setCopyFailed(false); }} />
         {option.label}
       </label>)}
     </fieldset>}

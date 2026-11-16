@@ -47,7 +47,7 @@ function addSavedSetupSchemas(definitions: Record<string, any>) {
   definitions.consentApproved.properties.savedSetup = closed({ setupId, linked: { type: 'boolean' } });
 
   const agent = { name: preferences.name, address: preferences.address };
-  const setup = { ...preferences, runtime: { const: 'dots' }, createdAt: date };
+  const setup = { ...preferences, runtime: { enum: ['dots', 'grok'] }, createdAt: date };
   definitions.savedSetup = {
     oneOf: [
       closed({ ...setup, status: { enum: ['waiting', 'replaced'] } }),

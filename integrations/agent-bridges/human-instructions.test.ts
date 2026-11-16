@@ -95,6 +95,7 @@ describe('human instructions in shared bridges', () => {
         const pathname = new URL(String(url)).pathname;
         const body = init?.body ? JSON.parse(String(init.body)) : {};
         requests.push({ path: pathname, body, headers: new Headers(init?.headers) });
+        if (pathname === '/api/agent/status') return json({ state: 'active', inboxId: session.inboxId, agent: { id: session.agentId }, workMode: { mode: 'off' } });
         if (pathname === '/api/agent/work/claim') return json({ work: { workId: message.id, message, leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() } });
         if (pathname.endsWith('/acknowledge') || pathname.endsWith('/complete')) {
           expect(body).toEqual({ leaseToken: 'fence_one' });
@@ -129,6 +130,7 @@ describe('human instructions in shared bridges', () => {
       expect(await bridge!.connector.processWorkOnce()).toBe(true);
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain('authenticated human instruction');
+      expect(requests.filter(item => item.path === '/api/agent/status')).toHaveLength(runtime === 'Grok' ? 0 : 1);
       const replies = requests.filter(item => item.path.endsWith('/reply'));
       expect(replies).toHaveLength(2);
       for (const reply of replies) {

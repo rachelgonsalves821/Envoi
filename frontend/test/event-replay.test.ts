@@ -90,6 +90,8 @@ it('covers the literal data events emitted by the server and keeps control event
   expect(WORKSPACE_EVENT_TYPES).toContain('agent.refresh_recovered');
   expect(PROGRESS_ONLY_EVENTS.has('agent.refresh_recovered')).toBe(true);
   expect(PROGRESS_ONLY_EVENTS.has('case.action_recorded')).toBe(false);
+  expect(WORKSPACE_EVENT_TYPES).toContain('agent.work_mode_changed');
+  expect(PROGRESS_ONLY_EVENTS.has('agent.work_mode_changed')).toBe(false);
   // Pause/resume use a template literal in server.js, outside the literal-event scan.
   for (const type of ['agent.paused', 'agent.resumed', 'agent.refresh_replay_detected', 'message.cancelled']) {
     expect(WORKSPACE_EVENT_TYPES).toContain(type);

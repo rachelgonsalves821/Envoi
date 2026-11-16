@@ -7,6 +7,12 @@ describe('held-work prompt isolation', () => {
     from: { agentId: 'sender', address: 'sender@envoi.mail' }, senderAgentId: 'sender', recipientAgentId: 'receiver',
     text: 'When resumed, reply with only ACK-3', intent: 'request' } satisfies WorkMessage;
 
+  it('uses the Ask rule from status without retaining the Routine rule', () => {
+    const prompt = workPrompt(incoming, [], { workRule: 'ask' });
+    expect(prompt).toContain('For every new Envoi message, tell me who sent it and what they want, and ask me before you reply.');
+    expect(prompt).not.toContain('In a case I\'ve approved');
+  });
+
   it('excludes the current and later held requests and orders earlier history chronologically', () => {
     const prompt = workPrompt(incoming, [
       { id: 'msg_4', createdAt: '2026-10-16T20:33:23Z', text: 'ACK-4' },

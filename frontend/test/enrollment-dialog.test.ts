@@ -123,6 +123,11 @@ afterEach(() => {
 it.each([false, true])('uses the shared wizard for hosted Grok (hosted required: %s)', async hostedRequired => {
   vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ available: true, hostedRequired })));
   const create = vi.spyOn(api, 'enrollmentToken');
+  const save = vi.spyOn(savedSetupApi, 'create').mockResolvedValue({
+    setupId: 'setup_grok', workspaceInboxId: workspace.id, workspaceName: 'Workspace',
+    name: 'Milo', localPart: 'milo', address: handoff.address, runtime: 'grok', status: 'waiting',
+    permissions: ['receive_agent_messages'], createdAt: '2026-11-12T12:00:00.000Z', expiresAt: '2026-11-12T12:30:00.000Z'
+  });
   const dialog = wizard();
   dialog.draw();
   await vi.advanceTimersByTimeAsync(0);
@@ -146,6 +151,7 @@ it.each([false, true])('uses the shared wizard for hosted Grok (hosted required:
   expectStepBar(third, 3);
   expect(third[0].props.title).toBe('Connect Grok Bot');
   expect(third.find(node => node.type === GrokBotSetup)?.props.newIdentity).toMatchObject({ name: 'Milo', localPart: 'milo' });
+  expect(save).toHaveBeenCalledExactlyOnceWith(workspace.id, { name: 'Milo', localPart: 'milo', permissions: [] }, expect.any(AbortSignal), 'grok');
   expect(create).not.toHaveBeenCalled();
   third.find(node => node.type === 'button' && node.props.children === 'Back')!.props.onClick();
   expectStep(dialog.draw(), 2);
@@ -182,7 +188,7 @@ it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three st
   const third = await dialog.submit(dialog.draw());
   if (runtime === 'dots') {
     expect(create).not.toHaveBeenCalled();
-    expect(save).toHaveBeenCalledWith(workspace.id, { name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages', 'send_agent_messages'] }, expect.any(AbortSignal));
+    expect(save).toHaveBeenCalledWith(workspace.id, { name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages', 'send_agent_messages'] }, expect.any(AbortSignal), 'dots');
     const guide = third.find(node => node.type === DotsSetupGuide)!;
     expect(guide.props).toMatchObject({ name: 'Milo', address: handoff.address, reconnect: false, savedSetup: false });
     expectStep([...third, ...elements(DotsSetupGuide(guide.props))], 3);
@@ -222,7 +228,7 @@ it('saves the edited Dots permissions and opens progress for the returned setup'
   const third = await dialog.submit(dialog.draw());
   expect(save).toHaveBeenCalledExactlyOnceWith(workspace.id, {
     name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages']
-  }, expect.any(AbortSignal));
+  }, expect.any(AbortSignal), 'dots');
   expect(third.find(node => node.type === SavedSetupProgress)?.props.setup).toEqual(saved);
   expect(third.some(node => node.props.children === 'Envoi opens with these filled in. Just approve.')).toBe(true);
   expect(third.some(node => node.props.children === "You'll confirm these on Envoi's approval page.")).toBe(false);

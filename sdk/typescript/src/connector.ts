@@ -168,7 +168,10 @@ interface WorkSettlement {
   receipt: { messageId: string; state: 'acknowledged' | 'processed'; [key: string]: unknown };
 }
 
+export type ConnectorWorkRule = 'routine' | 'ask';
+
 export interface WorkContext {
+  workRule?: ConnectorWorkRule;
   /** Aborts on shutdown or if the connector can no longer renew its lease. */
   signal: AbortSignal;
   /** Use a stable idempotency key for each logical reply; retries may run the handler again. */
@@ -184,7 +187,7 @@ export interface WorkHandler {
 
 export interface CaseSessionWorkHandler {
   admit(message: WorkMessage): Promise<void>;
-  process(channel: CaseSessionChannel, context: { signal: AbortSignal; workId?: string }): Promise<void>;
+  process(channel: CaseSessionChannel, context: { signal: AbortSignal; workId?: string; workRule?: ConnectorWorkRule }): Promise<void>;
 }
 
 export interface ScopedWakeWorkDriver {
@@ -203,6 +206,8 @@ export interface ConnectorOptions extends ClientOptions {
   /** Enables fenced work processing when the server work routes are available. */
   handler?: WorkHandler;
   caseSessionHandler?: CaseSessionWorkHandler;
+  /** Read the owner’s work rule with the existing authenticated status request. */
+  readWorkRule?: boolean;
   onState?: (lifecycle: ConnectorLifecycle) => void;
 }
 
@@ -358,6 +363,8 @@ export class EnvoiConnector {
   private readonly activeCaseSessions = new Set<CaseSessionChannel>();
   private readonly activeLeaseChecks = new Map<() => Promise<void>, AbortController>();
   private caseSessionsAvailable = false;
+  private workRule?: ConnectorWorkRule;
+  private workRuleCheckedAt = -Infinity;
   private readonly mintingCaseWork = new Set<string>();
 
   constructor(baseUrl: string, private readonly store: ConnectorStore, private readonly options: ConnectorOptions = {}) {
@@ -918,9 +925,9 @@ export class EnvoiConnector {
     if (signal?.aborted) return false;
     await this.guard();
     if ((await this.lifecycle()).paused) return false;
-    if (scoped) {
+    if (scoped || (this.options.readWorkRule && Date.now() - this.workRuleCheckedAt >= 60_000)) {
       await this.checkStatus();
-      if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
+      if (scoped && !this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
       if ((await this.lifecycle()).paused) return false;
     }
     let claimed: { work: WorkLease | null; state?: string; nextAvailableInMs?: number };
@@ -1048,6 +1055,7 @@ export class EnvoiConnector {
       if (workAbort.signal.aborted) throw new EnvoiError('Work lease was interrupted before processing');
       if (scoped) await this.processCaseSessionWork(work, scoped, workAbort.signal, () => leaseExpiresAt);
       else await this.options.handler!.process(work.message, {
+        ...(this.workRule ? { workRule: this.workRule } : {}),
         signal: workAbort.signal,
         reply: async (text, key, extra) => {
           if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) {
@@ -1124,7 +1132,7 @@ export class EnvoiConnector {
         }
       }
       try {
-        await abortableTurn(() => handler.process(channel!, { signal: channel!.signal, workId: work.workId }), channel.signal);
+        await abortableTurn(() => handler.process(channel!, { signal: channel!.signal, workId: work.workId, ...(this.workRule ? { workRule: this.workRule } : {}) }), channel.signal);
         signal.throwIfAborted();
         let endFailures = 0;
         while (true) {
@@ -1195,6 +1203,8 @@ export class EnvoiConnector {
 
   /** Status is available while paused and is the recovery path for a missed resume. */
   async checkStatus(): Promise<void> {
+    const readWorkRule = this.options.readWorkRule && Date.now() - this.workRuleCheckedAt >= 60_000;
+    if (readWorkRule) this.workRuleCheckedAt = Date.now();
     const epoch = this.actionEpoch;
     const result = await this.withFreshSession(async session => {
       let response: Response;
@@ -1202,13 +1212,16 @@ export class EnvoiConnector {
         headers: { authorization: `Bearer ${session.agentApiToken}` }, credentials: 'omit', redirect: 'error',
         signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000)
       }); } catch { throw new EnvoiError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
-      const status = await responsePayload<{ state: string; inboxId: string; agent: { id: string }; caseSessions?: { available: boolean; version: number } }>(response, 'Envoi status failed');
+      const status = await responsePayload<{ state: string; inboxId: string; agent: { id: string }; caseSessions?: { available: boolean; version: number }; workMode?: { mode?: unknown } }>(response, 'Envoi status failed');
       if (!['active', 'paused'].includes(status.state) || status.inboxId !== session.inboxId || status.agent?.id !== session.agentId)
         throw new EnvoiError('Envoi returned an invalid agent status');
       return status;
     });
     if (epoch !== this.actionEpoch) return;
     this.caseSessionsAvailable = result.caseSessions?.available === true && result.caseSessions.version === 1;
+    if (readWorkRule) {
+      this.workRule = result.workMode?.mode === 'ask' || result.workMode?.mode === 'routine' ? result.workMode.mode : undefined;
+    }
     if (result.state === 'paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'), epoch);
     else if ((await this.lifecycle()).paused) {
       await this.transition('RUNNING', { paused: false, code: undefined, reason: undefined, guidance: undefined, failures: 0, retryAt: undefined }, epoch);
