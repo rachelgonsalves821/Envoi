@@ -219,7 +219,8 @@ export async function createContinuationReceiver(options:{
       scopedReadOnlyWork:(workId:string)=>{ensure();const state=active.get(workId);
         if(!state||state.settled||state.failed)refuse('EXPLICIT_WORK_STEP_REQUIRED');
         return !state.held&&!recovery&&policy(state.flowId).noAction;},
-      ...(targets?{openClawTargetResolver:(workId:string,bounded:AbortSignal)=>targets.resolve(workId,bounded),openClawTargetSelection:options.openClawTargetSelection}:{}),
+      ...(targets?{openClawTargetResolver:(workId:string,bounded:AbortSignal)=>targets.resolve(workId,bounded),openClawTargetSelection:options.openClawTargetSelection,
+        openClawRetainedJournal:(workId:string)=>controller.openClawRetainedJournal(workId)}:{}),
       beforeScopedTurn:async(workId:string,scopedSignal:AbortSignal)=>{const state=active.get(workId);if(!state)refuse('EXPLICIT_WORK_STEP_REQUIRED');if(preNativeControl){
         const c=preNativeControl,capture=state.controlCapture;
         if(!controlConsumer||!capture?.session||!capture.sessionRedactedBytes||!capture.snapshotRawBytes||!capture.authorization||!capture.protocolVersion||!state.caseSession||capture.entered)refuse('ACTUAL_CONTROL_SCOPE_REQUIRED');capture.entered=true;

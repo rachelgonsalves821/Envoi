@@ -887,6 +887,11 @@ async function workflowBootstrapStopSetup(){
 it('preserves one failed persistent bootstrap, real preclaim review and separate logical/physical counters',async()=>{
  const s=await workflowBootstrapStopSetup(),before=await fs.readFile(s.filename),journal=await fs.readFile(s.journalPin.path),old=await fs.readFile(s.journal.path),handle=await ContinuationController.prepareControlledWorkflow(s.options);
  expect(await fs.readFile(s.filename)).toEqual(before);const c=await ContinuationController.startControlledWorkflow(handle);expect(c.ledger.snapshot().chargedAttempts).toBe(35);expect(c.receipt).not.toHaveProperty('hardStopUtc');expect(await fs.readFile(s.journalPin.path)).toEqual(journal);expect(await fs.readFile(s.journal.path)).toEqual(old);c.stop();
+ expect(c.openClawRetainedJournal(s.currentJournal.workId)).toEqual({
+  workId:s.currentJournal.workId,model:s.currentJournal.model,sha256:hash(journal)
+ });
+ expect(c.openClawRetainedJournal('msg_other')).toBeUndefined();
+ expect((await fs.readFile(s.filename)).subarray(0,before.length)).toEqual(before);
 });
 it.each(['missing-canonical','attempt-reset','attempt-jump','live-session','live-lease','old-failure-revived','physical-request','journal-rewritten','journal-output','foreign-snapshot','foreign-agent-context','missing-review','late-review','wrong-review-subject','extra-event','wrong-cause','live-port','legacy-receipt','changed-controls'] as const)('refuses unsafe persistent bootstrap recovery without mutation: %s',async fault=>{
  const s=await workflowBootstrapStopSetup();

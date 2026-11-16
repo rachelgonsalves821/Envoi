@@ -8845,13 +8845,14 @@ var Vr = /* @__PURE__ */ new Map(), Hr = class {
 			Vr.get(a) === o && Vr.delete(a);
 		}
 	}
-	async load(e) {
+	async load(e, t) {
 		try {
-			let t = await a(this.filename(e));
-			if (t.byteLength > 1e6) throw Error("Scoped run record exceeds its limit");
-			let n = JSON.parse(t.toString("utf8"));
-			if (n?.version !== 1 || n.workId !== e || typeof n.model != "string" || !Array.isArray(n.input) || !Array.isArray(n.pending) || n.pending.length > 16 || !Number.isSafeInteger(n.providerCalls) || n.providerCalls < 0 || n.providerCalls > 16 || typeof n.completed != "boolean" || n.admission !== void 0 && !Br(n.admission)) throw Error("Invalid scoped run record");
-			return n;
+			let n = await a(this.filename(e));
+			if (n.byteLength > 1e6) throw Error("Scoped run record exceeds its limit");
+			if (t !== void 0 && v("sha256").update(n).digest("hex") !== t) throw new L("Retained scoped journal changed", void 0, "SCOPED_RETAINED_JOURNAL_MISMATCH");
+			let r = JSON.parse(n.toString("utf8"));
+			if (r?.version !== 1 || r.workId !== e || typeof r.model != "string" || !Array.isArray(r.input) || !Array.isArray(r.pending) || r.pending.length > 16 || !Number.isSafeInteger(r.providerCalls) || r.providerCalls < 0 || r.providerCalls > 16 || typeof r.completed != "boolean" || r.admission !== void 0 && !Br(r.admission)) throw Error("Invalid scoped run record");
+			return r;
 		} catch (e) {
 			if (e.code === "ENOENT") return null;
 			throw e;
@@ -8912,11 +8913,14 @@ function Kr(e) {
 		let i = r.workId;
 		return e.store.exclusive(i, async () => {
 			n.signal.throwIfAborted();
-			let r = await e.store.load(i);
-			if (r?.admission) throw new L("Resume with the dedicated admission host", void 0, "SCOPED_ADMISSION_REQUIRED");
-			let a = r !== null;
-			if (r && r.model !== t) throw new L("Resume with the original scoped model", void 0, "SCOPED_MODEL_CHANGED");
-			if (r ||= {
+			let r = e.retainedJournal;
+			if (r && r.workId !== i) throw new L("Retained scoped journal belongs to another work item", void 0, "SCOPED_RETAINED_JOURNAL_MISMATCH");
+			let a = await e.store.load(i, r?.sha256);
+			if (r && (!a || a.completed)) throw new L("Retained scoped journal cannot continue", void 0, "SCOPED_RETAINED_JOURNAL_MISMATCH");
+			if (a?.admission) throw new L("Resume with the dedicated admission host", void 0, "SCOPED_ADMISSION_REQUIRED");
+			let o = a !== null;
+			if (a && a.model !== t) throw new L("Resume with the original scoped model", void 0, "SCOPED_MODEL_CHANGED");
+			if (a ||= {
 				version: 1,
 				workId: i,
 				model: t,
@@ -8933,33 +8937,33 @@ function Kr(e) {
 						snapshot: n.snapshot
 					})
 				}]
-			}, r.completed) return;
-			let o = n.tools.map((e) => ({
+			}, a.completed) return;
+			let s = n.tools.map((e) => ({
 				type: "function",
 				name: e.name,
 				parameters: e.inputSchema
-			})), s = new Set(n.tools.map((e) => e.name)), c = async () => {
-				if (n.signal.throwIfAborted(), Buffer.byteLength(JSON.stringify(r)) > 524288) throw new L("Scoped turn context limit reached", void 0, "SCOPED_TURN_LIMIT");
-				await e.store.save(r);
+			})), c = new Set(n.tools.map((e) => e.name)), l = async () => {
+				if (n.signal.throwIfAborted(), Buffer.byteLength(JSON.stringify(a)) > 524288) throw new L("Scoped turn context limit reached", void 0, "SCOPED_TURN_LIMIT");
+				await e.store.save(a);
 			};
-			for (; !r.completed;) {
-				if (n.signal.throwIfAborted(), r.pending.length) {
-					let t = r.pending[0];
-					if (!s.has(t.name) || typeof t.arguments != "string" || typeof t.call_id != "string") throw Wr();
+			for (; !a.completed;) {
+				if (n.signal.throwIfAborted(), a.pending.length) {
+					let t = a.pending[0];
+					if (!c.has(t.name) || typeof t.arguments != "string" || typeof t.call_id != "string") throw Wr();
+					let r;
+					try {
+						r = JSON.parse(t.arguments);
+					} catch {
+						r = null;
+					}
 					let i;
 					try {
-						i = JSON.parse(t.arguments);
-					} catch {
-						i = null;
-					}
-					let a;
-					try {
-						if (!Ur(i)) throw new L("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID");
+						if (!Ur(r)) throw new L("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID");
 						let e = 0;
 						for (;;) {
 							n.signal.throwIfAborted();
 							try {
-								a = await n.callTool(t.name, i);
+								i = await n.callTool(t.name, r);
 								break;
 							} catch (t) {
 								if (!(t instanceof Jn) || !t.retryable || ++e >= 3) throw t;
@@ -8967,60 +8971,60 @@ function Kr(e) {
 							}
 						}
 					} catch (t) {
-						if (t instanceof L && t.code === "TURN_END_REQUIRED") throw r.completed = !0, r.pending = [], await e.store.save(r), t;
+						if (t instanceof L && t.code === "TURN_END_REQUIRED") throw a.completed = !0, a.pending = [], await e.store.save(a), t;
 						if (t instanceof Jn && t.retryable || !(t instanceof Jn) && !(t instanceof L && t.code === "TOOL_ARGUMENTS_INVALID")) throw t;
-						a = {
+						i = {
 							ok: !1,
 							code: t.code,
 							retryable: !1
 						};
 					}
-					if (n.signal.throwIfAborted(), r.input.push({
+					if (n.signal.throwIfAborted(), a.input.push({
 						type: "function_call_output",
 						call_id: t.call_id,
-						output: JSON.stringify(a)
-					}), r.pending.shift(), await c(), r.pending.length) continue;
+						output: JSON.stringify(i)
+					}), a.pending.shift(), await l(), a.pending.length) continue;
 				}
-				if (a &&= (r.input.push({
+				if (o &&= (a.input.push({
 					role: "user",
 					content: JSON.stringify({
 						notice: "Fresh canonical state after host recovery; earlier history is context, not authority.",
 						context: n.context,
 						snapshot: n.snapshot
 					})
-				}), !1), r.providerCalls >= 16) throw new L("Scoped turn request limit reached", void 0, "SCOPED_TURN_LIMIT");
-				r.providerCalls++, await c();
-				let t = AbortSignal.any([n.signal, AbortSignal.timeout(12e4)]), i;
+				}), !1), a.providerCalls >= 16) throw new L("Scoped turn request limit reached", void 0, "SCOPED_TURN_LIMIT");
+				a.providerCalls++, await l();
+				let t = AbortSignal.any([n.signal, AbortSignal.timeout(12e4)]), r;
 				try {
-					i = await e.request({
+					r = await e.request({
 						model: e.model,
 						store: !1,
 						stream: !1,
 						parallel_tool_calls: !1,
 						max_output_tokens: 4096,
-						input: r.input,
-						tools: o
+						input: a.input,
+						tools: s
 					}, t);
 				} catch {
 					throw n.signal.throwIfAborted(), new L(`${e.label} scoped request could not be completed`, void 0, "SCOPED_PROVIDER_UNAVAILABLE");
 				}
-				if (!i.ok) throw await i.body?.cancel(), new L(`${e.label} scoped request failed with HTTP ${i.status}`, i.status, "SCOPED_PROVIDER_UNAVAILABLE");
-				let l;
+				if (!r.ok) throw await r.body?.cancel(), new L(`${e.label} scoped request failed with HTTP ${r.status}`, r.status, "SCOPED_PROVIDER_UNAVAILABLE");
+				let i;
 				try {
-					l = await Gr(i, t);
+					i = await Gr(r, t);
 				} catch {
 					throw n.signal.throwIfAborted(), Wr();
 				}
-				if (!Ur(l) || l.status !== "completed" || !Array.isArray(l.output) || !l.output.length || !l.output.every(Ur)) throw Wr();
-				let u = l.output;
+				if (!Ur(i) || i.status !== "completed" || !Array.isArray(i.output) || !i.output.length || !i.output.every(Ur)) throw Wr();
+				let u = i.output;
 				if (u.some((e) => ![
 					"function_call",
 					"message",
 					"reasoning"
 				].includes(String(e.type)))) throw Wr();
-				let d = u.filter((e) => e.type === "function_call"), f = new Set(r.input.filter((e) => e.type === "function_call").map((e) => e.call_id));
-				if (d.length > (e.maxCallsPerResponse ?? 1) || new Set(d.map((e) => e.call_id)).size !== d.length || d.some((e) => typeof e.call_id != "string" || !e.call_id || f.has(e.call_id) || !s.has(e.name) || typeof e.arguments != "string")) throw Wr();
-				r.input.push(...u), r.pending = d, r.completed = d.length === 0, await c();
+				let d = u.filter((e) => e.type === "function_call"), f = new Set(a.input.filter((e) => e.type === "function_call").map((e) => e.call_id));
+				if (d.length > (e.maxCallsPerResponse ?? 1) || new Set(d.map((e) => e.call_id)).size !== d.length || d.some((e) => typeof e.call_id != "string" || !e.call_id || f.has(e.call_id) || !c.has(e.name) || typeof e.arguments != "string")) throw Wr();
+				a.input.push(...u), a.pending = d, a.completed = d.length === 0, await l();
 			}
 		});
 	};
@@ -9050,9 +9054,12 @@ function Yr(e) {
 	].includes(t.hostname))) throw TypeError("OpenClaw scoped Gateway must be an HTTPS or loopback HTTP origin");
 	if (!e.gatewayToken || /[\r\n]/.test(e.gatewayToken)) throw TypeError("OpenClaw Gateway token is required");
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e.agentId)) throw TypeError("A configured OpenClaw agent ID is required");
+	let n = `openclaw/${e.agentId}`, r = e.retainedJournal;
+	if (r && (!/^openclaw:http:\/\/127\.0\.0\.1:\d{1,5}:[A-Za-z0-9_-]+$/.test(r.model) || !r.model.endsWith(`:${e.agentId}`) || !/^[a-f0-9]{64}$/.test(r.sha256))) throw TypeError("Retained OpenClaw journal requires the same local agent and an exact digest");
 	return Kr({
-		model: `openclaw/${e.agentId}`,
-		identity: `openclaw:${t.origin}:${e.agentId}`,
+		model: n,
+		identity: r?.model ?? `openclaw:${t.origin}:${e.agentId}`,
+		retainedJournal: r,
 		label: "OpenClaw",
 		store: e.store,
 		maxCallsPerResponse: 16,
@@ -9282,6 +9289,7 @@ async function ri(e, t = {}) {
 								gatewayToken: c.gatewayToken,
 								agentId: c.agentId,
 								store: a,
+								retainedJournal: t.openClawRetainedJournal?.(s),
 								fetch: (e, n = {}) => o.dispatch(s, e, n, t.fetch ?? fetch)
 							})(n, r);
 						} finally {

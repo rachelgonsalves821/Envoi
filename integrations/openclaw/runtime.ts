@@ -7,7 +7,7 @@ import { mcpReplyMessageId, openClawTurn, withRecordedMcpReply } from './turn';
 import { openClawRuntimeEnvironment, saveOpenClawScopedMode } from './scoped-admission';
 import { scopedTurnHandler } from '../agent-bridges/scoped-turn';
 import { FileScopedRunStore } from '../grok/scoped-store';
-import { openClawScopedTurn } from './scoped-turn';
+import { openClawScopedTurn, type RetainedOpenClawJournal } from './scoped-turn';
 import { guardScopedPreparation,type ScopedPreparationGuard } from '../hermes/native-binding';
 import { OpenClawTargetRegistry, type OpenClawTargetResolver, type OpenClawTargetSelectionAuthority } from './scoped-target';
 
@@ -21,7 +21,8 @@ export interface BridgeConfiguration {
 }
 
 /** Legacy setup and Quick Connect share the durable work and reply implementation. */
-export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number;beforeScopedTurn?:ScopedPreparationGuard;scopedReadOnlyWork?:(workId:string)=>boolean;openClawTargetResolver?:OpenClawTargetResolver;openClawTargetSelection?:OpenClawTargetSelectionAuthority } = {}) {
+export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number;beforeScopedTurn?:ScopedPreparationGuard;scopedReadOnlyWork?:(workId:string)=>boolean;openClawTargetResolver?:OpenClawTargetResolver;openClawTargetSelection?:OpenClawTargetSelectionAuthority;
+  openClawRetainedJournal?:(workId:string)=>RetainedOpenClawJournal|undefined } = {}) {
   const env = await openClawRuntimeEnvironment(config.stateDir, options.env ?? process.env, config);
   if (env.ENVOI_SCOPED_TOOLS === 'true') {
     const store = new FileBridgeStore(config.stateDir);
@@ -44,6 +45,7 @@ export async function createOpenClawBridge(config: BridgeConfiguration, options:
           try {
             if (target.binding.recipientAgentId !== saved.agentId) throw new Error('Trusted OpenClaw target names another agent');
             return await openClawScopedTurn({ gatewayUrl: target.gatewayUrl, gatewayToken: target.gatewayToken, agentId: target.agentId, store: runs,
+              retainedJournal: options.openClawRetainedJournal?.(workId),
               fetch: (input, init = {}) => targets.dispatch(workId, input, init, options.fetch ?? fetch) })(turn, host);
           } finally { targets.close(workId); }
         },

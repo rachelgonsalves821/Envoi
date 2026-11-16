@@ -28,6 +28,8 @@ export interface AdapterOptions {
   /** Opt-in trusted local target selection; conveys no native egress capability. */
   openClawTargetResolver?: import('../openclaw/scoped-target').OpenClawTargetResolver;
   openClawTargetSelection?: import('../openclaw/scoped-target').OpenClawTargetSelectionAuthority;
+  /** Used only for the exact admitted retry after trusted target selection. */
+  openClawRetainedJournal?: (workId: string) => import('../openclaw/scoped-turn').RetainedOpenClawJournal | undefined;
 }
 export interface AdapterContext extends AdapterOptions {
   apiUrl: string;

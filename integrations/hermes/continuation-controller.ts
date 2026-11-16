@@ -8,6 +8,8 @@ import { guardNativeSubmission, type NativeSubmissionGuard } from './native-bind
 import {authorizeRecoveryTime,type RecoveryTimeLink}from'./recovery-time';
 import {inspectStoppedProgress,assertStoppedProgressPreflight,authorizePreProgramInterval,type StoppedProgressPreflight,type StoppedProgressRecovery,type PreProgramRestore}from'./stopped-progress';
 import{inspectControlledProgress,type ControlledProgressRecovery}from'./controlled-progress';
+import { readUnforwardedPin } from './controlled-unforwarded';
+import type { RetainedOpenClawJournal } from '../openclaw/scoped-turn';
 
 type Role=RequestBudgetLedger['flows'][number]['role'];
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
@@ -78,6 +80,12 @@ export class ContinuationController {
   private approvedOperationBounds:Readonly<{operationCap:number;normalCeiling:number;cleanupReserve:number}>=Object.freeze({operationCap:60,normalCeiling:52,cleanupReserve:8});
   get operationBounds(){return this.approvedOperationBounds;}
   private distinctOpenClawFollowup:{text:string;senderAgentId:string;recipientAgentId:string;caseId:string}|undefined;
+  private retainedOpenClawJournal?: RetainedOpenClawJournal;
+
+  openClawRetainedJournal(workId: string): RetainedOpenClawJournal | undefined {
+    const retained = this.retainedOpenClawJournal;
+    if (retained?.workId === workId) return retained;
+  }
   private constructor(readonly ledger:RequestBudgetLedger,readonly receipt:ActiveContinuationReceipt,
     private flowCases:Readonly<Record<string,string>>,private actorIds:Readonly<Record<Role,string>>,private sameRoleNativeAttribution?:SameRoleNativeAttributionGuard){}
 
@@ -123,11 +131,25 @@ export class ContinuationController {
     const filename=path.join(options.releaseRoot,'phase-c-controlled-progress-'+handle.priorWindow+'.used.json'),f=await fs.open(filename,'wx',0o600);
     try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress',priorWindow:handle.priorWindow,nextWindow:handle.window,stateSha256:handle.carriedStateSha256,ledgerSha256:handle.ledgerSha256}));await f.sync();}finally{await f.close();}
     const verified=await this.inspectControlledOptions(options);if(verified.inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
+    const accepted = verified.inspection.acceptedCheckpoint;
+    let retainedJournal: RetainedOpenClawJournal | undefined;
+    if (accepted) {
+      const { value: journal } = await readUnforwardedPin(accepted.journal);
+      if (journal.workId !== verified.inspection.workId || journal.workId !== accepted.workId ||
+          !/^openclaw:http:\/\/127\.0\.0\.1:\d{1,5}:[A-Za-z0-9_-]+$/.test(journal.model))
+        refuse('EXACT_ACCEPTED_CHECKPOINT_RETRY_REQUIRED');
+      retainedJournal = Object.freeze({ workId: accepted.workId, model: journal.model, sha256: accepted.journal.sha256 });
+    }
     await verified.inspection.consume();await ledger.bindApprovedWindow(handle.window,{approvalReceiptHash:options.receipt.approvalReceiptSha256,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:ledger.snapshot().chargedAttempts});
     await ledger.amendReviewedPlan(options.reviewedPlan,proof);const controller=await this.openChecked(options,false,true);
     for(const id of inspection.blockedFlows)controller.released.add(id);for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
     controller.approvedOperationBounds=Object.freeze({...inspection.operationBounds});
-    if(inspection.acceptedCheckpoint){controller.retainedWorkHashes.add(hash(inspection.acceptedCheckpoint.retainedOriginalWorkId));controller.distinctOpenClawFollowup=Object.freeze({...inspection.acceptedCheckpoint.followup});controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});}
+    if(accepted){
+      controller.retainedWorkHashes.add(hash(accepted.retainedOriginalWorkId));
+      controller.distinctOpenClawFollowup=Object.freeze({...accepted.followup});
+      controller.expectedWork.set('openclaw',{workId:accepted.workId,evidenceSha256:options.recovery.canonicalWork.sha256});
+      controller.retainedOpenClawJournal = retainedJournal;
+    }
     else if(inspection.distinctFollowup){controller.retainedWorkHashes.add(hash(inspection.workId));controller.distinctOpenClawFollowup=Object.freeze({...inspection.distinctFollowup});}
     else controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});return controller;
   }
