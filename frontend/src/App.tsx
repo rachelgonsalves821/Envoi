@@ -43,13 +43,15 @@ import { previewRequested } from './preview';
 import { HighlightedText, HighlightLegend } from './HighlightedText';
 import { findHighlights } from './highlights';
 import { agentLabel, connectionLabel } from './agent-presence';
-import { listeningBadge } from './agent-listening';
+import { agentListeningBadge } from './agent-listening';
+import { Modal } from './Modal';
+import { pauseHelp, WorkModeHelp } from './WorkModeHelp';
 import { AgentWorkModeSetting } from './AgentWorkModeSetting';
 import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, cachedWorkspaceView, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
-import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, enrollmentStatusGraceMs, isLoopbackOrigin, runtimeLabel, setupHelpLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type DotsWorkMode, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsRouteUnavailableNotice, dotsWorkModePageHint, enrollmentStatusGraceMs, isLoopbackOrigin, runtimeLabel, setupHelpLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type DotsWorkMode, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
@@ -907,12 +909,12 @@ export function AppShell(props: ShellProps) {
         id: inbox.ownerAgentId || inbox.id,
         name: entry?.agent.name || inbox.removedAgent?.name || inbox.name.replace(/ inbox$/i, ''),
         inbox,
-        badge: listeningBadge(entry?.agent.backgroundReceiving),
+        badge: agentListeningBadge(entry?.agent),
         onboardingStatus: entry?.agent.onboardingStatus || (inbox.status === 'pending_approval' ? 'pending_approval' : 'approved')
       };
     }),
     ...agentEntries.filter(entry => entry.inbox.id === rootWorkspace.id && !agentInboxes.some(inbox => inbox.ownerAgentId === entry.agent.id)).map(({ agent, inbox }) => ({
-      id: agent.id, name: agent.name, inbox, badge: listeningBadge(agent.backgroundReceiving), onboardingStatus: agent.onboardingStatus
+      id: agent.id, name: agent.name, inbox, badge: agentListeningBadge(agent), onboardingStatus: agent.onboardingStatus
     }))
   ];
   const aggregateViews = [view, ...[rootWorkspace, ...agentInboxes].filter(inbox => inbox.id !== workspace.id).map(inbox => childViews[inbox.id]).filter((item): item is HumanView => Boolean(item))];
@@ -1899,7 +1901,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const [showSteps, setShowSteps] = useState(false);
-  const badge = listeningBadge(agent.backgroundReceiving);
+  const badge = agentListeningBadge(agent);
   const showInstallations = canManageInbox && workspace.kind === 'agent' && workspace.ownerAgentId === agent.id
     && (agent.onboardingStatus === 'approved' || frozen);
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
@@ -2002,7 +2004,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
         {showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}
       </div>}
       {showInstallations && <AgentInstallations key={`${humanId}:${agent.id}`} humanId={humanId} inboxId={workspace.id} agent={agent} canManage={canManageInbox} onReconnect={() => { setReconnectResult(null); setReconnectOpen(true); }} onRefresh={async () => { await onRefresh(); }} />}
-      {canManageInbox && <details className="agent-more"><summary>Advanced</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}{publicEmailAddress && <span>{publicEmailAddress}</span>}</div>{workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && approvedAccess && <PhaseDTrustControls inboxId={workspace.id} actorAgentId={agent.id} />}</details>}
+      {canManageInbox && <details className="agent-more"><summary>Advanced</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <span className="agent-pause-action"><button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button><WorkModeHelp label="Pause" description={pauseHelp} /></span>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}{publicEmailAddress && <span>{publicEmailAddress}</span>}</div>{workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && approvedAccess && <PhaseDTrustControls inboxId={workspace.id} actorAgentId={agent.id} />}</details>}
     </details>}
     {removalOpen && canManageInbox && <Modal title={`Remove ${agent.name}?`} onClose={() => setRemovalOpen(false)} dismissible={!removalBusy}>
       <AgentRemovalDialogContent agentName={agent.name} busy={removalBusy} error={removalError} onClose={() => setRemovalOpen(false)} onConfirm={(deleteHistory, confirmation) => void removeAgent(deleteHistory, confirmation)} />
@@ -2170,6 +2172,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'envoi-agents.com', 
       {savedSetup && <p className="enroll-note">Envoi opens with these filled in. Just approve.</p>}
       {savedSetupDisabled && <p className="enroll-note">You'll confirm these on Envoi's approval page.</p>}
       <DotsSetupGuide origin={dotsOrigin} name={dotsName} address={requestedAddress} reconnect={Boolean(reconnectAgent)} savedSetup={Boolean(savedSetup)} selectedMode={dotsWorkMode} onModeChange={setDotsWorkMode} modeLocked={dotsConnected} />
+      <p className="enroll-note">{dotsWorkModePageHint(dotsName)}</p>
       {savedSetup && <SavedSetupProgress setup={savedSetup} dotsWorkMode={dotsWorkMode} organizationId={workspace.organizationId} onConnected={async () => { setDotsConnected(true); await onRefresh?.(); }} onStartAgain={() => {
         setDotsConnected(false);
         setSavedSetup(null);
@@ -2431,14 +2434,6 @@ function ConfirmDialog({ action, busy, onCancel, onConfirm }: { action: HumanAct
   const tone = action === 'revoke' ? 'destructive' : action === 'decline' ? 'secondary' : 'primary';
   const label = action === 'decline' ? 'Reject' : humanize(action);
   return <Modal title={confirmTitle(action)} onClose={onCancel} dismissible={!busy}><p className="dialog-copy">{confirmBody(action)}</p><div className="dialog-actions"><button className="button secondary" onClick={onCancel} disabled={busy}>Keep working</button><button className={`button ${tone}`} onClick={onConfirm} disabled={busy}>{busy ? 'Recording action…' : label}</button></div></Modal>;
-}
-
-function Modal({ title, children, onClose, dismissible = true, className = '' }: { title: string; children: ReactNode; onClose: () => void; dismissible?: boolean; className?: string }) {
-  const panel = useRef<HTMLDivElement>(null);
-  const closeOptions = useRef({ onClose, dismissible });
-  closeOptions.current = { onClose, dismissible };
-  useEffect(() => { panel.current?.focus(); const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && closeOptions.current.dismissible) closeOptions.current.onClose(); if (event.key !== 'Tab' || !panel.current) return; const focusable = [...panel.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(item => item.getClientRects().length); if (!focusable.length) { event.preventDefault(); panel.current.focus(); return; } const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
-  return <div className="modal-layer"><button className="modal-scrim" aria-label={dismissible ? 'Close dialog' : undefined} onClick={dismissible ? onClose : undefined} /><div className={className ? `modal ${className}` : 'modal'} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1} ref={panel}><header><h2 id="modal-title">{title}</h2>{dismissible && <button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button>}</header>{children}</div></div>;
 }
 
 function CommandMenu({ view, onClose, onSelectCase }: { view: HumanView; onClose: () => void; onSelectCase: (item: WorkCase) => void }) {

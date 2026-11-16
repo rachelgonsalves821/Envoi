@@ -1,5 +1,6 @@
 import { dotsMonitoringPrompt, dotsRestorePrompt, RUNTIME_OPTIONS, runtimeLabel } from './quick-connect';
 import type { Agent, AgentBackgroundReceiving } from './types';
+import { needsDotReceivingSync } from './agent-work-mode';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import type { Installation } from './onboarding/types';
 
@@ -36,6 +37,10 @@ export function listeningBadge(status?: AgentBackgroundReceiving): string | null
     case 'unavailable': return 'On demand only';
     default: return null;
   }
+}
+
+export function agentListeningBadge(agent?: Agent): string | null {
+  return agent && needsDotReceivingSync(agent) ? 'Action needed' : listeningBadge(agent?.backgroundReceiving);
 }
 
 export function listeningBanner(agent: Pick<Agent, 'name' | 'backgroundReceiving' | 'connection'>, asOf = agent.connection?.asOf) {

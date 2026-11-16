@@ -195,6 +195,7 @@ it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three st
     expect(third.some(node => node.props.title === 'Dots connection is off here')).toBe(true);
     expect(third.some(node => node.type === SavedSetupProgress)).toBe(false);
     expect(third.some(node => node.props.children === "You'll confirm these on Envoi's approval page.")).toBe(true);
+    expect(third.some(node => node.props.children === "You can turn background receiving off or on any time on Milo's page in Envoi.")).toBe(true);
   } else {
     expect(create).toHaveBeenCalledWith(workspace.id, 'Milo', 'milo', ['receive_agent_messages', 'send_agent_messages', 'create_assets'], runtime);
     expectStep(third, 3);
