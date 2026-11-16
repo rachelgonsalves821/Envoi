@@ -36,7 +36,7 @@ function originSet(value){
   const values=Array.isArray(value)?value:String(value||'').split(',').map(value=>value.trim()).filter(Boolean);
   return new Set(values.map(value=>{let url;try{url=new URL(value);}catch{throw new Error('Invalid provider wake origin');}if(url.protocol!=='https:'||url.port||url.username||url.password||url.pathname!=='/'||url.search||url.hash||net.isIP(url.hostname.replace(/^\[|\]$/g,''))||url.origin!==value)throw new Error('Invalid provider wake origin');return url.origin;}));
 }
-export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,grokTriggerEnabled=false,grokBotWakeEnabled=false,key,env=process.env,now=()=>new Date().toISOString(),audit=async()=>{},observe=record=>console.error(JSON.stringify(record)),resolveDestination,authorizeOwner=async()=>{},validateCursor=async()=>{},eventHistory=async()=>({cursor:null,truncated:false,events:[]})}={}){
+export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,grokTriggerEnabled=false,grokBotWakeEnabled=false,key,env=process.env,now=()=>new Date().toISOString(),audit=async()=>{},observe=record=>console.error(JSON.stringify(record)),resolveDestination,authorizeOwner=async()=>{},validateCursor=async()=>{},eventHistory=async()=>({cursor:null,truncated:false,events:[]}),workModeOff=async()=>false}={}){
   const dataKey=key||((mcpEventsEnabled||grokTriggerEnabled||grokBotWakeEnabled)&&env.ENVOI_DATA_ENCRYPTION_KEY?crypto.createHash('sha256').update(env.ENVOI_DATA_ENCRYPTION_KEY).digest():null);
   if((mcpEventsEnabled||grokTriggerEnabled||grokBotWakeEnabled)&&(!Buffer.isBuffer(dataKey)||dataKey.length!==32))throw new Error('Provider wake requires the server data encryption key');
   const destination=createWakeDestination({env});const resolve=resolveDestination||destination.resolve;
@@ -82,7 +82,7 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
     discover(identity,version){requireEvents(identity,version);return {resultType:'complete',supportedVersions:[providerEventsProtocolVersion],capabilities:{tools:{},events:{}}};},
     list(identity,params={},version){requireEvents(identity,version);params=eventParams(params);if(!empty(params))throw invalid();return {events:providerEvents};},
     async subscribe(identity,params,version){
-      requireEvents(identity,version);params=eventParams(params);paramsValid(params,true);const binding=bound(identity);await validateCursor(binding,params.cursor??null);let url;
+      requireEvents(identity,version);params=eventParams(params);paramsValid(params,true);const binding=bound(identity);await validateCursor(binding,params.cursor??null);if(params.name==='envoi.work_available'&&await workModeOff(binding))throw rpc(-32016,'BackgroundReceivingOff','owner_turned_off');let url;
       try{url=checked(params.delivery.url,callbacks);}catch(error){throw callbackError(error.reason==='origin_not_allowed'?'origin_not_allowed':'address_not_allowed');}
       await httpWake.reserveProfileCreate(binding,'mcp_events',identityId(binding,params.name,url));
       const cache=cachePath(binding,url),oneWayKey=hash(`${params.delivery.secret}\n${allowlistDigest}`);

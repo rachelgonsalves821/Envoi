@@ -48,6 +48,7 @@
         "ENVOI_GROK_BOT_WAKE_V1": "true",
         "ENVOI_SAVED_SETUP": "true",
         "ENVOI_OWNER_PERMISSIONS": "true",
+        "ENVOI_WORK_MODE": "true",
         "ENVOI_CASE_SESSIONS_V1": "true",
         "ENVOI_MCP_EVENTS_V1": "true",
         "ENVOI_MCP_EVENTS_CALLBACK_ORIGINS": "https://connectors.api.openai.com",

@@ -79,6 +79,7 @@ import { authorityToolError, createCaseTools, caseToolError, humanDecisionWorkMe
 import { createCaseReferenceCodec, projectCaseSnapshot } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { deriveBackgroundReceiving, waitingCountCap } from './agent-listening.js';
+import { offeredWhileOff, parseWorkModeRequest, workModeOf } from './agent-work-mode.js';
 import { createMcpWakeTools } from './mcp-wake-tools.js';
 import { createProviderEventWake } from './provider-event-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
@@ -455,6 +456,8 @@ const publicAgent = agent => {
     publicEmailTransport: publicEmailTransportStatus()
   };
   delete value.credentialHash;
+  // agent-work-mode v1 §4 and §7: the stored mode is added only by the approved surfaces, and only while the flag is on.
+  delete value.workMode;
   return value;
 };
 const publicCalendarConnector = connector => {
@@ -1158,7 +1161,7 @@ const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installations
   }
 });
 const mcpWakeTools = createMcpWakeTools({ httpWake, enabled: Boolean(onboardingFlags.mcpWake), clientFor: identity => oauthClients.get(identity.family?.oauthClientId) });
-const providerEventWake = createProviderEventWake({ httpWake, store, key: connectorEncryptionKey(),
+const providerEventWake = createProviderEventWake({ httpWake, store, key: connectorEncryptionKey(), workModeOff: binding => agentWorkModeOff(binding.inboxId, binding.agentId),
   mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger), grokBotWakeEnabled: Boolean(onboardingFlags.grokBotWake),
   validateCursor: async (identity, cursor) => {
     try { await resumeEventCursor(identity.inboxId, cursor); }
@@ -1199,6 +1202,24 @@ const providerEventWake = createProviderEventWake({ httpWake, store, key: connec
 const registrationLimits = createRegistrationLimits({ store });
 // agent-owner-permissions v1: the owner's choice wins on the approval and Permissions pages. Flag ENVOI_OWNER_PERMISSIONS, off by default.
 const ownerPermissionsEnabled = process.env.ENVOI_OWNER_PERMISSIONS === 'true';
+// agent-work-mode v1 §7: the owner's per-agent work mode. Flag ENVOI_WORK_MODE, off by default: no route, no field, nothing enforced.
+const workModeEnabled = process.env.ENVOI_WORK_MODE === 'true';
+async function agentWorkModeOff(inboxId, agentId) {
+  if (!workModeEnabled) return false;
+  return workModeOf(await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`))).mode === 'off';
+}
+// agent-work-mode v1 §5: the calling credential family's installation decides on demand; a legacy family has none and is a connector.
+async function callerOnDemand(identity) {
+  if (!identity.familyId) return false;
+  const installation = await installations.forFamily(identity.inboxId, identity.agent, identity.familyId).catch(() => null);
+  return installation?.deliveryMode === 'on_demand';
+}
+// agent-work-mode v1 §3: the agent's reported installation decides on demand for the owner's change, as for the owner connection.
+async function reportedOnDemand(inboxId, agentId) {
+  const family = reportedFamily(await agentFamilies(inboxId, agentId));
+  if (!family?.installationId) return false;
+  return (await store.getJson(installationPath(inboxId, agentId, family.installationId)))?.deliveryMode === 'on_demand';
+}
 const registrations = createAgentRegistrations({
   store, flags: onboardingFlags, ownerPermissions: ownerPermissionsEnabled,
   codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
@@ -1551,7 +1572,8 @@ async function withOwnerConnection(inboxId, state, families = null) {
       if (!installation) throw new Error('The reported family names an installation that cannot be read');
       onDemand = installation.deliveryMode === 'on_demand';
     }
-    const connected = { ...state, connection: ownerConnection(state, family, record, store.now(), { onDemand }) };
+    const connected = { ...state, connection: ownerConnection(state, family, record, store.now(), { onDemand }),
+      ...(workModeEnabled ? { workMode: workModeOf(await store.getJson(path.join('inboxes', inboxId, 'agents', `${state.id}.json`))) } : {}) };
     const backgroundReceiving = await backgroundReceivingFor(inboxId, state.id, { onDemand });
     return backgroundReceiving ? { ...connected, backgroundReceiving } : connected;
   } catch {
@@ -4353,7 +4375,9 @@ const gatewayNativeAdapter = {
     const identity = await gatewayWorkIdentity(binding);
     if (identity.paused) throw agentPausedError();
     const candidates = (await store.listJson(path.join('inboxes', binding.inboxId, 'messages')))
-      .filter(message => !message.groupCase && !isHumanDecision(message) && !options.excludeWorkIds.includes(message.id));
+      .filter(message => !message.groupCase && !isHumanDecision(message) && !options.excludeWorkIds.includes(message.id))
+      // agent-work-mode v1 §5: a native gateway is a connector; in off mode it is offered owner instructions only.
+      .filter(message => !(workModeEnabled && workModeOf(identity.agent).mode === 'off') || offeredWhileOff(message, { isHumanInstruction, isHumanDecision }));
     gatewayDeadline(options);
     const result = await claimCanonicalAgentWork(identity, identity, { acceptHumanInstructions: true }, candidates, gatewayAudit(options), { leaseMs: options.leaseSeconds * 1000 });
     const work = result.payload.work;
@@ -4599,7 +4623,7 @@ async function route(req, res) {
       if (fresh.paused) throw agentPausedError();
       return messageAccessResult(fresh, remoteAuth.origin, organizationMaximumPermissions());
     } : null;
-    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, requestMessageAccess, listening: () => backgroundReceivingFor(identity.inboxId, identity.agent.id), onPermissionDenied: () => { req[monadPermissionDenied] = true; },
+    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, requestMessageAccess, listening: () => backgroundReceivingFor(identity.inboxId, identity.agent.id), workMode: workModeEnabled ? async () => workModeOf(identity.agent) : null, onPermissionDenied: () => { req[monadPermissionDenied] = true; },
       eventsEnabled: Boolean(onboardingFlags.mcpEvents), providerEvents: events, ownerReviewEnabled: caseSessions.enabled, workReplyEnabled: Boolean(onboardingFlags.grokBotWake),
       wakeTools: { ...mcpWakeTools, call: (name, args) => withInboxMutation(identity.inboxId, async () => mcpWakeTools.call(name, args, await freshMcpIdentity())) } });
   }
@@ -4667,8 +4691,12 @@ async function route(req, res) {
     if (action === 'claim' && (!input || typeof input !== 'object' || Array.isArray(input))) return fail(res, 400, 'Claim body must be a JSON object');
     if (action === 'claim' && input.acceptHumanInstructions !== undefined && typeof input.acceptHumanInstructions !== 'boolean') return fail(res, 400, 'acceptHumanInstructions must be a boolean');
     const requestedMessage = workSettlementRoute ? await store.getJson(messagePath(identity.inboxId, workId)) : null;
-    const claimCandidates = action === 'claim' ? (await store.listJson(path.join('inboxes', identity.inboxId, 'messages')))
+    let claimCandidates = action === 'claim' ? (await store.listJson(path.join('inboxes', identity.inboxId, 'messages')))
       .filter(message => !isHumanInstruction(message) || input.acceptHumanInstructions === true) : [];
+    // agent-work-mode v1 §5: in off mode a connector is offered owner instructions and decisions only; an on-demand caller is unchanged.
+    if (action === 'claim' && workModeEnabled && workModeOf(identity.agent).mode === 'off' && !await callerOnDemand(identity)) {
+      claimCandidates = claimCandidates.filter(message => offeredWhileOff(message, { isHumanInstruction, isHumanDecision }));
+    }
     const ownCandidates = claimCandidates.filter(message => message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status));
     const sharedWorkCaseIds = [...new Set([requestedMessage, ...ownCandidates].filter(m => m?.groupCase || isHumanInstruction(m) || isHumanDecision(m)).map(message => assertSafeIdentifier(message.caseId, 'caseId')))];
     const sharedWorkBindings = await Promise.all(sharedWorkCaseIds.map(caseId => store.getJson(caseBindingPath(caseId))));
@@ -5054,7 +5082,8 @@ async function route(req, res) {
       console.error(JSON.stringify({ event: 'envoi.agent_presence_read_failed' }));
       return null;
     });
-    const status = { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId, ...agentStatusPresence(record, store.now()) };
+    const status = { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId, ...agentStatusPresence(record, store.now()),
+      ...(workModeEnabled ? { workMode: workModeOf(agent) } : {}) };
     // agent-registration v1 §6.4: additive, exactly when installations are on.
     if (onboardingFlags.installations) {
       const installation = await installations.forFamily(identity.inboxId, agent, identity.familyId).catch(() => {
@@ -6081,6 +6110,35 @@ async function route(req, res) {
     const ownerView = await canAccessInbox(await auth.getHuman(req), inbox);
     const agents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
     return json(res, 200, await Promise.all(agents.map(agent => (ownerView ? ownerAgentState : agentControlState)(inboxId, agent))));
+  }
+
+  // agent-work-mode v1 §2 and §3: the owner's work mode for this inbox's agent.
+  const workModeMatch = suffix.match(/^agents\/([^/]+)\/work-mode$/);
+  if (workModeMatch) {
+    if (!workModeEnabled) throw codedError(404, 'FEATURE_DISABLED', 'Work mode is not available on this deployment.');
+    if (req.method !== 'PUT') return fail(res, 405, 'Method not allowed');
+    const agentId = assertSafeIdentifier(workModeMatch[1], 'agentId');
+    if (!await canManageInbox(await auth.getHuman(req), inbox) || inbox.ownerAgentId !== agentId) throw codedError(403, 'REQUEST_FAILED', 'Workspace administrator required.');
+    let input = null;
+    try { input = await body(req); } catch { input = null; }
+    const mode = parseWorkModeRequest(input);
+    if (!mode) throw codedError(400, 'WORK_MODE_INVALID', 'Choose routine, ask or off.');
+    const onDemand = mode === 'off' ? await reportedOnDemand(inboxId, agentId) : false;
+    await withInboxMutation(inboxId, async writeAudit => {
+      if (!await canManageInbox(await auth.getHuman(req), inbox)) throw codedError(403, 'REQUEST_FAILED', 'Workspace administrator required.');
+      const agentPath = path.join('inboxes', inboxId, 'agents', `${agentId}.json`);
+      const agent = await store.getJson(agentPath);
+      if (!agent) throw codedError(403, 'REQUEST_FAILED', 'Workspace administrator required.');
+      const from = workModeOf(agent).mode;
+      if (agent.workMode && from === mode) return;
+      const at = store.now();
+      await store.putJson(agentPath, { ...agent, workMode: { mode, updatedAt: at }, updatedAt: at });
+      await writeAudit('agent.work_mode_changed', { agentId, from, to: mode });
+      if (mode === 'off' && onDemand) await httpWake.ownerEndProfile(inboxId, agentId, 'mcp_events', 'ended_by_owner');
+    });
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    res.setHeader('cache-control', 'no-store');
+    return json(res, 200, await ownerAgentState(inboxId, agent));
   }
 
   const agentControlMatch = suffix.match(/^agents\/([^/]+)\/(pause|resume)$/);
