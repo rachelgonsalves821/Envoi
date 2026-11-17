@@ -111,8 +111,8 @@ The owner wants to choose once, on the agent's page in Envoi.
 1. Fast-forward the base if needed (§3).
 2. Post `CONTRACT-APPROVED agent-work-mode v1` after Codex's `CONTRACT-ACK`.
 3. Merge the base into `main` and deploy staging.
-4. Upload skill 1.0.9 for the staging Dot, then run §6.
-5. Decide whether beta gets `ENVOI_WORK_MODE`, then upload 1.0.9 to Envoi production.
+4. Upload skill 1.0.10 (from the W-B5 to W-B7 release; 1.0.9 if staging still runs `a7c4f2f`) for the staging Dot, then run §6.
+5. Decide whether beta gets `ENVOI_WORK_MODE`, then upload the skill version that staging verified (1.0.10 after the W-B5 to W-B7 release) to Envoi production.
 
 ## 6. Hosted check (staging Dot "Jack" and an OpenClaw agent)
 
