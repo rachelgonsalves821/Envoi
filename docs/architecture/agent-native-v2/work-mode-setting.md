@@ -84,18 +84,40 @@ The owner wants to choose once, on the agent's page in Envoi.
   - `docs/fix`: one entry, `#background-receiving-off`, for the `-32016` result.
   - Rebuild `web/`.
 
+**Owner additions (2026-11-16), W-B5 to W-B7.** These use fields the server already returns: the owner agent list's `workMode`, `backgroundReceiving` and `connection`. There is no contract or server change.
+
+**W-B5. Turning a Dot back on**
+- Switching a Dot from `off` to `routine` or `ask` opens a dialog straight after the save succeeds:
+  - Title: "One more step to turn it on".
+  - Body: "ChatGPT needs {name} to switch this on itself. Open your {name} chat in ChatGPT and send this message:"
+  - The line `Sync with Envoi for {address}`.
+  - Buttons **Copy message** and **Open ChatGPT** (opens `https://chatgpt.com` in a new tab).
+- Until the Dot is listening (`backgroundReceiving.state` is `on`), keep:
+  - an **Action needed** badge on the agent's row;
+  - the "Waiting for {name} to turn it on" banner on its page, with the same **Copy message** button.
+
+**W-B6. Telling the owner where the switch is**
+- The wizard's last step and the Dot's Ready message (skill 1.0.10) both say: "You can turn background receiving off or on any time on {name}'s page in Envoi."
+
+**W-B7. Help text**
+- Each "When messages arrive" option and **Pause agent** get a "?" icon with hover text, also shown on focus and tap:
+  - **Handle routine work:** "Wakes when a message arrives, handles everyday replies, tells you who contacted it, and asks you before important decisions."
+  - **Always ask me first:** "Wakes when a message arrives, tells you, and waits for your OK before replying."
+  - **Off:** "Won't wake for new messages. They wait until you ask. Your own requests still work. Turn it back on any time (a Dot needs one short message)."
+  - **Pause agent:** "Stops everything, even your own requests, until you resume it. Messages wait. No new setup is needed."
+
 ### Owner (human-only)
 
 1. Fast-forward the base if needed (§3).
 2. Post `CONTRACT-APPROVED agent-work-mode v1` after Codex's `CONTRACT-ACK`.
 3. Merge the base into `main` and deploy staging.
-4. Upload skill 1.0.9 for the staging Dot, then run §6.
-5. Decide whether beta gets `ENVOI_WORK_MODE`, then upload 1.0.9 to Envoi production.
+4. Upload skill 1.0.10 (from the W-B5 to W-B7 release; 1.0.9 if staging still runs `a7c4f2f`) for the staging Dot, then run §6.
+5. Decide whether beta gets `ENVOI_WORK_MODE`, then upload the skill version that staging verified (1.0.10 after the W-B5 to W-B7 release) to Envoi production.
 
 ## 6. Hosted check (staging Dot "Jack" and an OpenClaw agent)
 
-1. Set Jack to **Off** in Envoi. Its badge turns **Off**, and a message to Jack does not wake the Dot.
-2. Set Jack to **Handle routine work**. Envoi shows "Waiting for Jack to turn it on". Send the copied sync line. Jack creates one monitor, gets the first alert and says Ready. The badge turns **On**.
+1. Set Jack to **Off** in Envoi. Its badge turns **Off**, and a message to Jack does not wake the Dot. Leave it Off for about 20 minutes, until ChatGPT next renews the subscription, and record exactly what ChatGPT shows when Envoi refuses the renewal (`-32016 BackgroundReceivingOff`).
+2. Set Jack to **Handle routine work**. The "One more step" dialog opens, and the row shows **Action needed**. Copy the message and send it in Jack's chat. Jack creates one monitor, gets the first alert and says Ready. The badge turns **On**.
 3. Set Jack to **Always ask me first**. On its next run, Jack asks before replying to a new message.
 4. Set the OpenClaw agent to **Off**. Peer messages wait in its inbox, and an owner instruction is still handled.
 
