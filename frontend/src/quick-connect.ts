@@ -72,6 +72,10 @@ export function setupSkillFile(handoff: QuickConnectHandoff) {
   return `---\nname: envoi-${validated.runtime}-setup\ndescription: Private one-time setup instructions for this ${label} agent.\n---\n\n# Connect ${label} to Envoi\n\nThis file contains a confidential, one-use setup token. Give it only to your trusted agent on its runtime host. Delete it after setup.\n\n${setupPrompt(validated)}\n`;
 }
 
+export function dotsWorkModePageHint(name: string) {
+  return `You can turn background receiving off or on any time on ${name}'s page in Envoi.`;
+}
+
 export function dotsSetupPrompt(origin: string, name: string, requestedAddress: string, reconnect = false, savedSetup = false, mode: DotsWorkMode = 'routine') {
   const url = new URL(origin);
   if (url.origin !== origin || url.username || url.password ||
@@ -88,7 +92,7 @@ export function dotsSetupPrompt(origin: string, name: string, requestedAddress: 
 
 ${dotsSetupMonitoringPrompt(origin, requestedAddress, mode)}
 
-After registration, call envoi_agent_info. Say Ready only when backgroundReceiving.state is on and lastAlertAt is present and not null. If state is on with lastAlertAt: null, wait for the first alert run, then call envoi_agent_info once more. If you cannot create the monitor or the check does not pass, say exactly: "Background receiving isn't available in this Dot yet, so ${name} will only check Envoi when you ask." Then link ${origin}/docs/fix/#background-receiving-unavailable. An enabled badge is not proof.`;
+After registration, call envoi_agent_info. Say Ready only when backgroundReceiving.state is on and lastAlertAt is present and not null. In the Ready message, add: "${dotsWorkModePageHint(name)}". If state is on with lastAlertAt: null, wait for the first alert run, then call envoi_agent_info once more. If you cannot create the monitor or the check does not pass, say exactly: "Background receiving isn't available in this Dot yet, so ${name} will only check Envoi when you ask." Then link ${origin}/docs/fix/#background-receiving-unavailable. An enabled badge is not proof.`;
   if (savedSetup && !reconnect) return `${introduction}
 
 If a connection already exists, use envoi_agent_info to check its identity and access first. Reuse a working connection for the intended address and permissions. If it belongs to another identity or has different access, stop and ask me how to proceed. Do not switch identities or reconnect automatically.
@@ -175,7 +179,7 @@ ${dotsClaimInstructions(mode)}`;
 function dotsSyncInstructions(origin: string) {
   return `At the start of every run, call envoi_agent_info and verify the approved address. If workMode.mode is off, disable this Dot’s own monitor and stop automatic processing. Envoi already ended the subscription; no unsubscribe is needed. If workMode.mode is routine or ask, use the matching rule below. When the field is missing, keep the previously approved workflow.
 
-Reuse or restore a task only when its native source can be verified as backed by a subscription for this exact Envoi address. If no subscription is verified, pause the old task and create exactly one native envoi.work_available monitor when authorized. If ChatGPT does not expose unsubscribe for the old task, continue after pausing it. On -32016 BackgroundReceivingOff, tell the owner background receiving is off in Envoi, link ${origin}/docs/fix/#background-receiving-off and stop without retrying. Say Ready only when envoi_agent_info returns backgroundReceiving.state on and a non-null lastAlertAt. If it is on and lastAlertAt is null, wait for the first alert run and check once more.`;
+Reuse or restore a task only when its native source can be verified as backed by a subscription for this exact Envoi address. If no subscription is verified, pause the old task and create exactly one native envoi.work_available monitor when authorized. If ChatGPT does not expose unsubscribe for the old task, continue after pausing it. On -32016 BackgroundReceivingOff, tell the owner background receiving is off in Envoi, link ${origin}/docs/fix/#background-receiving-off and stop without retrying. Say Ready only when envoi_agent_info returns backgroundReceiving.state on and a non-null lastAlertAt. In the Ready message, add: "${dotsWorkModePageHint('{name}')}" Use the Dot name the owner approved for the verified address. If you do not know it, say "You can turn background receiving off or on any time on your Dot's page in Envoi." If it is on and lastAlertAt is null, wait for the first alert run and check once more.`;
 }
 
 export function dotsMonitoringPrompt(origin: string, address: string, mode: Exclude<DotsWorkMode, 'on_demand'> = 'routine') {

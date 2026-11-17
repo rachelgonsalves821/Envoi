@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { dotsMessageAccessPrompt, dotsSetupPrompt, type DotsWorkMode } from '../quick-connect';
 import type { Agent } from '../types';
 import { canReconnectAgent } from './types';
+import { workModeHelp, WorkModeHelp } from '../WorkModeHelp';
 
 const receivingOptions: { value: DotsWorkMode; label: string }[] = [
   { value: 'routine', label: 'Handle routine work, ask me for important decisions' },
@@ -36,10 +37,13 @@ export function DotsSetupGuide({ origin, name, address = '', reconnect = false, 
     <p>{messageAccess ? 'Paste this into your existing Dot chat to review or update its message access.' : "Paste this into your Dot's chat. It will guide you through the Envoi plugin and approval."}</p>
     {!messageAccess && <fieldset className="dots-work-mode" disabled={modeLocked}>
       <legend>When messages arrive</legend>
-      {receivingOptions.map(option => <label key={option.value}>
-        <input type="radio" name="dots-work-mode" checked={mode === option.value} value={option.value} onChange={() => { (onModeChange ?? setLocalMode)(option.value); setCopied(false); setCopyFailed(false); }} />
-        {option.label}
-      </label>)}
+      {receivingOptions.map(option => <div className="work-mode-option" key={option.value}>
+        <label>
+          <input type="radio" name="dots-work-mode" checked={mode === option.value} value={option.value} onChange={() => { (onModeChange ?? setLocalMode)(option.value); setCopied(false); setCopyFailed(false); }} />
+          {option.label}
+        </label>
+        <WorkModeHelp label={option.label} description={workModeHelp[option.value === 'on_demand' ? 'off' : option.value]} />
+      </div>)}
     </fieldset>}
     <div className="setup-handoff-actions">
       <button className="button primary" type="button" onClick={() => void copy()}>
