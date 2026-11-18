@@ -1,0 +1,133 @@
+diff --git a/scripts/audit-high.mjs b/scripts/audit-high.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/audit-high.mjs
+@@ -0,0 +1,74 @@
++#!/usr/bin/env node
++// High/critical dependency audit for the full tree (dev included).
++// Production dependencies are audited separately and strictly by `npm audit --omit=dev`, with no exceptions.
++// An exception covers one advisory, for one package, at the exact advisory range recorded here, until a date.
++// It lapses when the advisory's range changes (for example, a patched release appears) or the date passes,
++// so CI fails again and a person has to review it.
++import { spawnSync } from 'node:child_process';
++import { pathToFileURL } from 'node:url';
++
++export const AUDIT_EXCEPTIONS = Object.freeze([
++  Object.freeze({
++    advisory: 'GHSA-fc5q-39xc-vjpf',
++    package: 'picomatch',
++    range: '<=4.0.7',
++    until: '2026-12-15',
++    reason: 'ReDoS in picomatch extglobs. Every published picomatch (latest 4.0.7) is affected and no patched version exists. It reaches this repo only through dev build/test tooling (vite, vitest, tinyglobby, fdir), which never handles untrusted glob patterns. The production audit stays clean.'
++  })
++]);
++
++const BLOCKING = new Set(['high', 'critical']);
++const advisoryId = url => String(url || '').match(/GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}/i)?.[0]?.toUpperCase() ?? null;
++
++export function evaluateAudit(report, { exceptions = AUDIT_EXCEPTIONS, today = new Date().toISOString().slice(0, 10) } = {}) {
++  const vulnerabilities = report?.vulnerabilities ?? {};
++  const excepted = new Map();
++  const failures = [];
++  const exceptionFor = (pkg, via) => exceptions.find(item =>
++    item.advisory.toUpperCase() === advisoryId(via.url) && item.package === pkg && item.range === via.range && today <= item.until);
++
++  const covered = new Map();
++  const isCovered = (name, seen = new Set()) => {
++    if (covered.has(name)) return covered.get(name);
++    if (seen.has(name)) return true;
++    seen.add(name);
++    const node = vulnerabilities[name];
++    if (!node) return true;
++    let ok = true;
++    for (const via of node.via ?? []) {
++      if (typeof via === 'string') { if (!isCovered(via, seen)) ok = false; continue; }
++      if (!BLOCKING.has(via.severity)) continue;
++      const exception = exceptionFor(name, via);
++      if (exception) excepted.set(exception.advisory, exception);
++      else ok = false;
++    }
++    covered.set(name, ok);
++    return ok;
++  };
++
++  for (const [name, node] of Object.entries(vulnerabilities)) {
++    if (!BLOCKING.has(node.severity)) continue;
++    if (!isCovered(name)) failures.push({ name, severity: node.severity, via: (node.via ?? []).map(via => typeof via === 'string' ? via : `${advisoryId(via.url) ?? via.url} ${via.range}`) });
++  }
++  return { failures, excepted: [...excepted.values()] };
++}
++
++function main() {
++  const result = spawnSync('npm', ['audit', '--json'], { encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 64 * 1024 * 1024 });
++  let report;
++  try { report = JSON.parse(result.stdout); } catch {
++    console.error('npm audit did not return JSON.', result.stderr);
++    process.exit(1);
++  }
++  if (report.error) { console.error('npm audit failed:', report.error.summary ?? report.error); process.exit(1); }
++  const { failures, excepted } = evaluateAudit(report);
++  for (const item of excepted) console.log(`Excepted until ${item.until}: ${item.advisory} (${item.package} ${item.range}). ${item.reason}`);
++  if (failures.length) {
++    console.error(`${failures.length} high or critical vulnerabilities are not covered by a current exception:`);
++    for (const item of failures) console.error(`- ${item.name} (${item.severity}) via ${item.via.join(', ')}`);
++    process.exit(1);
++  }
++  console.log('No uncovered high or critical vulnerabilities.');
++}
++
++if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main();
+diff --git a/test/audit-high.test.js b/test/audit-high.test.js
+new file mode 100644
+--- /dev/null
++++ b/test/audit-high.test.js
+@@ -0,0 +1,49 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { evaluateAudit } from '../scripts/audit-high.mjs';
++
++const advisory = (id, range, severity = 'high') => ({ source: 1, url: `https://github.com/advisories/${id}`, severity, range });
++const picomatchReport = (extra = {}) => ({
++  vulnerabilities: {
++    picomatch: { severity: 'high', via: [advisory('GHSA-fc5q-39xc-vjpf', '<=4.0.7')] },
++    fdir: { severity: 'high', via: ['picomatch'] },
++    tinyglobby: { severity: 'high', via: ['fdir', 'picomatch'] },
++    vite: { severity: 'high', via: ['picomatch', 'tinyglobby'] },
++    '@vitejs/plugin-react': { severity: 'high', via: ['vite'] },
++    vitest: { severity: 'high', via: ['picomatch', 'tinyglobby', 'vite'] },
++    ...extra
++  }
++});
++const exceptions = [{ advisory: 'GHSA-fc5q-39xc-vjpf', package: 'picomatch', range: '<=4.0.7', until: '2026-12-15', reason: 'test' }];
++
++test('the recorded picomatch advisory and every package that depends on it are excepted', () => {
++  const result = evaluateAudit(picomatchReport(), { exceptions, today: '2026-11-17' });
++  assert.deepEqual(result.failures, []);
++  assert.deepEqual(result.excepted.map(item => item.advisory), ['GHSA-fc5q-39xc-vjpf']);
++});
++
++test('the exception lapses after its date', () => {
++  const result = evaluateAudit(picomatchReport(), { exceptions, today: '2026-12-16' });
++  assert.equal(result.failures.length, 6);
++});
++
++test('a changed advisory range (for example a patched release) ends the exception', () => {
++  const report = picomatchReport({ picomatch: { severity: 'high', via: [advisory('GHSA-fc5q-39xc-vjpf', '<4.0.8')] } });
++  assert.ok(evaluateAudit(report, { exceptions, today: '2026-11-17' }).failures.some(item => item.name === 'picomatch'));
++});
++
++test('the exception covers only the named package', () => {
++  const report = picomatchReport({ other: { severity: 'high', via: [advisory('GHSA-fc5q-39xc-vjpf', '<=4.0.7')] } });
++  assert.deepEqual(evaluateAudit(report, { exceptions, today: '2026-11-17' }).failures.map(item => item.name), ['other']);
++});
++
++test('a second high or critical advisory in the same chain still fails', () => {
++  const report = picomatchReport({ vite: { severity: 'critical', via: ['picomatch', advisory('GHSA-aaaa-bbbb-cccc', '<7.0.0', 'critical')] } });
++  const names = evaluateAudit(report, { exceptions, today: '2026-11-17' }).failures.map(item => item.name).sort();
++  assert.deepEqual(names, ['@vitejs/plugin-react', 'vite', 'vitest']);
++});
++
++test('moderate and low advisories do not block, as with --audit-level=high', () => {
++  const report = { vulnerabilities: { left: { severity: 'moderate', via: [advisory('GHSA-dddd-eeee-ffff', '<1.0.0', 'moderate')] } } };
++  assert.deepEqual(evaluateAudit(report, { exceptions: [], today: '2026-11-17' }).failures, []);
++});

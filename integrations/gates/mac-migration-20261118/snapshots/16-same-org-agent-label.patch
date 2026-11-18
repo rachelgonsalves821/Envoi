@@ -1,0 +1,46 @@
+diff --git a/REQUEST-lane-b-same-org-label.md b/REQUEST-lane-b-same-org-label.md
+new file mode 100644
+--- /dev/null
++++ b/REQUEST-lane-b-same-org-label.md
+@@ -0,0 +1,41 @@
++REQUEST lane-b: label a coworker's agent as being in your organization (DRAFT, not posted)
++
++**Lane A path touched:** none for the fix. Lane A adds a regression test only: `test/participant-directory-organization.test.js` on branch `lane-a/same-org-agent-label` (base `integration/agent-native` @1a265dd), which pins the field this change relies on.
++**Contract impact:** none. `human-view` already returns `inbox.organizationId` and, for every agent in `participantDirectory`, its `organizationId`. No new field is added and nothing new about another organization is revealed.
++
++## Symptom
++In a case header, the counterparty card always reads "Agent for another organization", including when the counterparty agent belongs to someone in the viewer's own organization. For an enterprise customer most conversations are between coworkers' agents, so the label is wrong for most of them.
++
++## Cause
++`frontend/src/App.tsx:1161` (integration @1a265dd):
++```tsx
++<ParticipantCard participant={counterparty} label={`Agent for ${counterparty.orgRef || 'another organization'}`} … />
++```
++`orgRef` is never set by the server, so the fallback always shows. The data needed to tell coworkers apart is already in the view: `counterparty.organizationId` (spread from the directory entry by `resolveParticipant`) and the case's source inbox `organizationId`.
++
++## Requested change (Lane B owns the exact code)
++1. In `CaseWorkspace`, before the participant cards:
++   ```tsx
++   const caseInbox = caseSourceView(workCase, view).inbox;
++   const sameOrganization = Boolean(counterparty.organizationId && caseInbox?.organizationId
++     && counterparty.organizationId === caseInbox.organizationId);
++   ```
++2. Counterparty label:
++   ```tsx
++   label={sameOrganization ? 'Agent in your organization' : `Agent for ${counterparty.orgRef || 'another organization'}`}
++   ```
++   `orgRef`, when present, keeps its current meaning for other organizations, so the existing `case-viewer-perspective.test.ts` expectations still hold.
++3. Leave the counterparty controls as they are (a coworker's agent can still be blocked). Do not change `type`; it stays `externalAgent` because it is outside the viewer's inbox.
++4. A missing `organizationId` on either side falls back to today's label. Never infer the same organization from the address domain.
++
++## Tests
++- `frontend/test/case-viewer-perspective.test.ts`: add a case where the counterparty directory entry has the same `organizationId` as `view.inbox.organizationId` and expect `<small>Agent in your organization</small>`; keep the existing cross-organization rows (`Agent for Recipient organization` / `Agent for Sender organization`).
++- Add one with `organizationId: null` on the counterparty and expect `Agent for another organization`.
++- Aggregated "All inboxes" view: same-organization detection uses the case's source inbox, so a case from a child agent inbox still compares against that inbox's organization.
++- Rebuild `web/**` with `npm run build`; do not hand-merge generated files.
++
++## Not in scope
++- Showing another organization's name. That would be a new disclosure and needs its own contract decision.
++- Local development sign-up, which still gives each person their own organization. Coworkers sharing an organization comes from the WorkOS organization in hosted environments; locally, two workspaces of one person share an organization.
++
++Rollback: revert the Lane B PR. The Lane A test stays valid either way.
