@@ -7,6 +7,9 @@ export function marketingRoute(pathname) {
   if (pathname === '/team' || pathname === '/team/') return { redirect: '/#team' };
   if (pathname === '/share') return { redirect: '/share/' };
   if (pathname === '/share/') return { file: 'share/index.html' };
+  // Public contact page, also used as the plugin support URL.
+  if (pathname === '/contact') return { redirect: '/contact/' };
+  if (pathname === '/contact/') return { file: 'contact/index.html' };
   if (pathname.startsWith('/_astro/') || pathname.startsWith('/agents/') || pathname.startsWith('/team/')) return { file: pathname.slice(1) };
   if (imageNames.has(pathname.slice(1))) return { file: pathname.slice(1) };
   return null;
