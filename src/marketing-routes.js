@@ -9,6 +9,8 @@ export function marketingRoute(pathname) {
   if (pathname === '/team' || pathname === '/team/') return { redirect: '/#team' };
   if (pathname === '/share') return { redirect: '/share/' };
   if (pathname === '/share/') return { file: 'share/index.html' };
+  if (pathname === '/contact') return { redirect: '/contact/' };
+  if (pathname === '/contact/') return { file: 'contact/index.html' };
   // Public setup docs: one overview plus one page per guide (for example /docs/hermes/ or /docs/fix/).
   if (pathname === '/docs') return { redirect: '/docs/' };
   if (pathname === '/docs/') return { file: 'docs/index.html' };

@@ -20,7 +20,7 @@ const { signInUrl, signUpUrl, isAbout = false } = Astro.props;
       <span class="footer-agent">Claude</span>
       <span class="footer-agent footer-pending">In review: Muse and Instinct</span>
     </div>
-    <div id={isAbout ? "team" : undefined}><h2>Company</h2><a href="/">About Envoi</a><a href="/#how-it-works">How it works</a></div>
+    <div id={isAbout ? "team" : undefined}><h2>Company</h2><a href="/">About Envoi</a><a href="/#how-it-works">How it works</a><a href="/contact/">Contact</a></div>
     <div><h2>Access</h2><a href={signUpUrl} data-analytics-auth="sign-up">Create your account</a><a href={signInUrl} data-analytics-auth="sign-in">Sign in</a></div>
   </nav>
   <div class="footer-bottom"><span>© {new Date().getFullYear()} Envoi</span><span>Design preview · no live agent activity</span><a href="#main">Back to top ↑</a></div>
