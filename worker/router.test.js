@@ -10,8 +10,10 @@ import {
   parseAllowedHostnames,
   releaseIsStale,
   selectEnvironment,
+  planSettingsRestart,
   serviceUnavailableResponse,
-  settingsChanged,
+  SETTINGS_RESTART_ATTEMPTS,
+  SETTINGS_RESTART_RETRY_MS,
   withNoStoreHeaders
 } from './router.js';
 
@@ -150,12 +152,82 @@ test('a settings fingerprint ignores key order and changes with any value', asyn
   assert.doesNotMatch(base, /one|envoi-agents/, 'the fingerprint reveals no value');
 });
 
-test('a container restarts once for changed settings and never without a recorded start', () => {
-  assert.equal(settingsChanged('a', 'b', null), true, 'settings changed since the container started');
-  assert.equal(settingsChanged('a', 'a', null), false, 'unchanged settings');
-  assert.equal(settingsChanged(undefined, 'b', null), false, 'a container started before fingerprints were recorded');
-  assert.equal(settingsChanged('a', 'b', 'b'), false, 'already restarted for these settings, so no flapping');
-  assert.equal(settingsChanged('a', 'c', 'b'), true, 'a later edit restarts again');
+const minute = 60_000;
+
+test('a settings restart is planned only when the recorded start differs from the Worker settings', () => {
+  assert.deepEqual(planSettingsRestart('a', 'b', undefined, 1000), { fingerprint: 'b', attempts: 1, at: 1000 }, 'settings changed since the container started');
+  assert.equal(planSettingsRestart('a', 'a', undefined, 1000), null, 'unchanged settings');
+  assert.equal(planSettingsRestart(undefined, 'b', undefined, 1000), null, 'a container started before fingerprints were recorded');
+  assert.equal(planSettingsRestart('a', undefined, undefined, 1000), null, 'no Worker settings to converge to');
+  assert.deepEqual(planSettingsRestart('a', 'c', { fingerprint: 'b', attempts: SETTINGS_RESTART_ATTEMPTS, at: 1000 }, 1000), { fingerprint: 'c', attempts: 1, at: 1000 }, 'a later edit starts a new attempt budget');
+});
+
+test('a settings restart is retried only after the spacing and never beyond the attempt budget', () => {
+  const first = planSettingsRestart('a', 'b', undefined, 0);
+  assert.equal(planSettingsRestart('a', 'b', first, SETTINGS_RESTART_RETRY_MS - 1), null, 'no retry before the spacing');
+  const second = planSettingsRestart('a', 'b', first, SETTINGS_RESTART_RETRY_MS);
+  assert.deepEqual(second, { fingerprint: 'b', attempts: 2, at: SETTINGS_RESTART_RETRY_MS });
+  let record = second;
+  while (record.attempts < SETTINGS_RESTART_ATTEMPTS) record = planSettingsRestart('a', 'b', record, record.at + SETTINGS_RESTART_RETRY_MS);
+  assert.equal(planSettingsRestart('a', 'b', record, record.at + 24 * 60 * minute), null, 'an exhausted budget never restarts again');
+});
+
+test('a malformed restart record for the current settings never restarts', () => {
+  for (const record of [{ fingerprint: 'b' }, { fingerprint: 'b', attempts: 0, at: 0 }, { fingerprint: 'b', attempts: 1.5, at: 0 }, { fingerprint: 'b', attempts: 1, at: 'soon' }]) {
+    assert.equal(planSettingsRestart('a', 'b', record, 10 * SETTINGS_RESTART_RETRY_MS), null, JSON.stringify(record));
+  }
+});
+
+// Models the SinaloaContainer Durable Object: storage survives restarts, the cron probe runs
+// every minute, and onStart records the fingerprint of whichever Worker version started the
+// container. Reproduces dashboard-only edits that keep the release SHA unchanged.
+function simulateStaging({ startedBy, current, storage = {} }) {
+  const state = { storage: { startedSettingsFingerprint: startedBy, ...storage }, restarts: 0, now: 0 };
+  return {
+    state,
+    // `restartWith` is the fingerprint the restarted container comes back with: the current
+    // settings, or the previous version's when a hot/stale object starts it during rollout.
+    probe(restartWith = current) {
+      state.now += minute;
+      const legacy = state.storage.restartedForSettings;
+      const next = planSettingsRestart(state.storage.startedSettingsFingerprint, current, state.storage.settingsRestart ?? legacy, state.now);
+      if (!next) return false;
+      state.storage.settingsRestart = next;
+      state.restarts += 1;
+      state.storage.startedSettingsFingerprint = restartWith;
+      return true;
+    }
+  };
+}
+
+test('a dashboard-only edit with an unchanged release SHA restarts once and then stays quiet', () => {
+  const staging = simulateStaging({ startedBy: 'invite-only', current: 'public-100' });
+  for (let i = 0; i < 120; i += 1) staging.probe();
+  assert.equal(staging.state.restarts, 1);
+  assert.equal(staging.state.storage.startedSettingsFingerprint, 'public-100');
+});
+
+test('a restart that comes back with the previous version settings is retried until adopted', () => {
+  const staging = simulateStaging({ startedBy: 'invite-only', current: 'public-100' });
+  assert.equal(staging.probe('invite-only'), true, 'first restart is started by a stale object');
+  for (let i = 0; i < 120; i += 1) staging.probe();
+  assert.equal(staging.state.restarts, 2, 'the old once-per-fingerprint guard stopped after the first restart');
+  assert.equal(staging.state.storage.startedSettingsFingerprint, 'public-100');
+});
+
+test('a container that never adopts the settings is restarted a bounded number of times', () => {
+  const staging = simulateStaging({ startedBy: 'invite-only', current: 'public-100' });
+  for (let i = 0; i < 24 * 60; i += 1) staging.probe('invite-only');
+  assert.equal(staging.state.restarts, SETTINGS_RESTART_ATTEMPTS, 'no restart loop over a day of probes');
+  assert.ok(staging.state.restarts >= 2, 'at least one retry after a stale restart');
+});
+
+test('a container stuck behind the previous once-only guard is recovered once the new code deploys', () => {
+  // The previous code stored only the fingerprint it had restarted for, then never retried.
+  const staging = simulateStaging({ startedBy: 'invite-only', current: 'public-100', storage: { restartedForSettings: 'public-100' } });
+  for (let i = 0; i < 120; i += 1) staging.probe();
+  assert.equal(staging.state.restarts, 1);
+  assert.equal(staging.state.storage.startedSettingsFingerprint, 'public-100');
 });
 
 test('a running container is stale only when it reports a different configured release', () => {
