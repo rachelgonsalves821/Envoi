@@ -39,6 +39,13 @@ export function validateReleaseTargets(config) {
   // Each deployment stamps its own database with this name and refuses one stamped by another.
   assert.equal(config.env.staging.vars?.ENVOI_DEPLOYMENT_ENVIRONMENT, 'staging', 'Staging must name its deployment');
   assert.equal(beta.vars?.ENVOI_DEPLOYMENT_ENVIRONMENT, 'beta', 'Beta must name its deployment');
+  // Staging admits any verified WorkOS account up to a bounded public cap. The app
+  // refuses to start outside 1-100, so reject that here rather than at container start.
+  const stagingVars = config.env.staging.vars;
+  assert.equal(stagingVars?.ENVOI_HUMAN_SIGNUP_MODE, 'public', 'Staging signup must be public');
+  const stagingLimit = Number(stagingVars?.ENVOI_PUBLIC_SIGNUP_LIMIT);
+  assert.ok(typeof stagingVars?.ENVOI_PUBLIC_SIGNUP_LIMIT === 'string' && Number.isSafeInteger(stagingLimit) && stagingLimit >= 1 && stagingLimit <= 100,
+    'Staging public signup limit must be a string integer from 1 to 100');
 }
 
 export async function checkDeploymentConfiguration() {

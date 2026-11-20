@@ -40,7 +40,9 @@
       },
       "vars": {
         "ENVOI_DEPLOYMENT_ENVIRONMENT": "staging",
-        "ENVOI_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan"
+        "ENVOI_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan",
+        "ENVOI_HUMAN_SIGNUP_MODE": "public",
+        "ENVOI_PUBLIC_SIGNUP_LIMIT": "100"
       },
       "containers": [
         {

@@ -23,6 +23,12 @@ for (const [description, mutate] of [
   ['broadening beta edge hostname admission', candidate => { candidate.env.beta.vars.ENVOI_EDGE_ALLOWED_HOSTS += ',sinaloa-beta.rachelgonsalves821.workers.dev'; }],
   ['moving beta browser auth to workers.dev', candidate => { candidate.env.beta.vars.ENVOI_PUBLIC_URL = 'https://sinaloa-beta.rachelgonsalves821.workers.dev'; }],
   ['using the staging callback for beta', candidate => { candidate.env.beta.vars.WORKOS_REDIRECT_URI = 'https://sinaloa-staging.rachelgonsalves821.workers.dev/api/auth/workos/callback'; }],
+  ['returning staging to invite-only signup', candidate => { candidate.env.staging.vars.ENVOI_HUMAN_SIGNUP_MODE = 'invite-only'; }],
+  ['dropping the staging signup mode', candidate => { delete candidate.env.staging.vars.ENVOI_HUMAN_SIGNUP_MODE; }],
+  ['dropping the staging public signup limit', candidate => { delete candidate.env.staging.vars.ENVOI_PUBLIC_SIGNUP_LIMIT; }],
+  ['a zero staging public signup limit', candidate => { candidate.env.staging.vars.ENVOI_PUBLIC_SIGNUP_LIMIT = '0'; }],
+  ['a staging public signup limit above the app maximum', candidate => { candidate.env.staging.vars.ENVOI_PUBLIC_SIGNUP_LIMIT = '101'; }],
+  ['a fractional staging public signup limit', candidate => { candidate.env.staging.vars.ENVOI_PUBLIC_SIGNUP_LIMIT = '50.5'; }],
 ]) {
   test(`release target validation rejects ${description}`, () => {
     const candidate = structuredClone(config);
