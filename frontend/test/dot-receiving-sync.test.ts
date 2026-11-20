@@ -91,6 +91,16 @@ it('keeps a failed save or a connector change out of the Dot dialog', async () =
   expect(refresh).toHaveBeenCalledOnce();
 });
 
+it('keeps the sync dialog closed when the saved response reports unavailable receiving', async () => {
+  const result = enabled(dot, 'ask');
+  result.backgroundReceiving = { ...dot.backgroundReceiving!, state: 'unavailable', endedReason: null };
+  vi.spyOn(api, 'setAgentWorkMode').mockResolvedValue(result);
+  const refresh = vi.fn().mockResolvedValue(undefined);
+  await draw(dot, refresh).find(item => item.type === 'input' && item.props.value === 'ask')!.props.onChange();
+  expect(refresh).toHaveBeenCalledOnce();
+  expect(draw().some(item => item.type === Modal)).toBe(false);
+});
+
 it('copies only the sync line and links to ChatGPT in the dialog', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal('navigator', { clipboard: { writeText } });

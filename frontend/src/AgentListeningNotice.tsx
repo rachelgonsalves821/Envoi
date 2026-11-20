@@ -10,7 +10,8 @@ import { DotReceivingSync } from './DotReceivingSync';
 export function AgentListeningNotice({ agent, inboxId, onReconnect, origin = typeof window === 'undefined' ? 'https://www.envoi-agents.com' : window.location.origin }: {
   agent: Agent; inboxId: string; onReconnect?: (runtime?: ConnectorRuntime) => void; origin?: string;
 }) {
-  const banner = agentWorkMode(agent) === 'off' ? null : listeningBanner(agent);
+  const mode = agentWorkMode(agent);
+  const banner = mode === 'off' ? null : listeningBanner(agent);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [manualCopy, setManualCopy] = useState('');
@@ -20,7 +21,14 @@ export function AgentListeningNotice({ agent, inboxId, onReconnect, origin = typ
   if (needsDotReceivingSync(agent)) return <section className="inline-notice tone-attention listening-notice" aria-label="Background receiving status">
     <div><strong>Waiting for {agent.name} to turn it on</strong><DotReceivingSync agent={agent} /></div>
   </section>;
-  if (!banner) return null;
+  if (!banner) {
+    if ((mode === 'ask' || mode === 'routine') && agent.backgroundReceiving?.state === 'unavailable') {
+      return <p className="agent-work-mode-status" role="status">{agent.name} only works when you ask.{' '}
+        <a href="/docs/fix/#background-receiving-unavailable">Why background receiving is unavailable</a>
+      </p>;
+    }
+    return null;
+  }
 
   async function fix() {
     if (!banner || active.current) return;

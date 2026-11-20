@@ -18,8 +18,8 @@ export function isOnDemandAgent(agent: Agent): boolean {
 
 export function needsDotReceivingSync(agent: Agent): boolean {
   const mode = agentWorkMode(agent);
-  const status = agent.backgroundReceiving;
-  return (mode === 'routine' || mode === 'ask') && Boolean(status && status.state !== 'connector' && status.state !== 'on' && isOnDemandAgent(agent));
+  const state = agent.backgroundReceiving?.state;
+  return (mode === 'routine' || mode === 'ask') && (state === 'off' || state === 'starting' || state === 'failing');
 }
 
 export async function saveDotsSetupMode(organizationId: string, workspaceInboxId: string, agentId: string, mode: DotsWorkMode, signal: AbortSignal) {
