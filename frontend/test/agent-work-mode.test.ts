@@ -90,6 +90,22 @@ it('keeps the same action on the row and page until Envoi reports that the Dot i
   expect(render({ ...initial, backgroundReceiving: undefined })).not.toContain('Copy message');
 });
 
+it.each(['routine', 'ask'] as const)('explains unavailable receiving in %s mode with or without waiting work', mode => {
+  for (const count of [0, 1]) {
+    const current: Agent = {
+      ...agent, workMode: { mode, updatedAt: null },
+      backgroundReceiving: { ...agent.backgroundReceiving!, state: 'unavailable',
+        waiting: { count, more: false, oldestAt: count ? agent.backgroundReceiving!.waiting.oldestAt : null } }
+    };
+    expect(agentListeningBadge(current)).toBe('On demand only');
+    const html = render(current);
+    expect(html).toContain('Mark only works when you ask');
+    expect(html).toContain('/docs/fix/#background-receiving-unavailable');
+    expect(html).not.toContain('Sync with Envoi');
+    if (count) expect(html).toContain('1 message is waiting');
+  }
+});
+
 it('resolves the dedicated inbox and maps the wizard’s On demand choice to Off', async () => {
   const fetchMock = vi.fn().mockResolvedValueOnce(Response.json([
     { id: 'workspace', kind: 'workspace', ownerAgentId: null, status: 'active' },
