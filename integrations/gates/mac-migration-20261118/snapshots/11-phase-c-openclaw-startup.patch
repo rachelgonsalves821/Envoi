@@ -1,0 +1,1950 @@
+diff --git a/integrations/connector/adapter.ts b/integrations/connector/adapter.ts
+index aa022df0be2f242dd81f95b750e85643cd479baa..6c9c205ccb0a17b3e315f25a00f57359ebb9adb1 100644
+--- a/integrations/connector/adapter.ts
++++ b/integrations/connector/adapter.ts
+@@ -28,6 +28,8 @@ export interface AdapterOptions {
+   /** Opt-in trusted local target selection; conveys no native egress capability. */
+   openClawTargetResolver?: import('../openclaw/scoped-target').OpenClawTargetResolver;
+   openClawTargetSelection?: import('../openclaw/scoped-target').OpenClawTargetSelectionAuthority;
++  /** Used only after trusted scoped-target selection on a reviewed retry. */
++  openClawRetainedJournalIdentity?: (workId: string) => string | undefined;
+ }
+ export interface AdapterContext extends AdapterOptions {
+   apiUrl: string;
+diff --git a/integrations/gates/phase-c/CURRENT-CLOSEOUT.md b/integrations/gates/phase-c/CURRENT-CLOSEOUT.md
+index 09c63bd4c829f71f9c07bde178091c46a94875ca..4cc0520f909cbeb127614cf76646075b37047062 100644
+--- a/integrations/gates/phase-c/CURRENT-CLOSEOUT.md
++++ b/integrations/gates/phase-c/CURRENT-CLOSEOUT.md
+@@ -1,6 +1,6 @@
+ # Phase C: remaining work and preserved evidence
+ 
+-**Reconciled 2026-11-10, 18:20 UTC (1:20 p.m. New York). Status: current scoped closeout OPEN.** This is the single operational checklist for the remaining Hermes/OpenClaw Phase C work. It supersedes pending-task language in the October plans and earlier audit/operator prompts, not the approved API contracts or historical acceptance. Update this file when a result changes; do not create another competing checklist.
++**Reconciled November 13, 2026. Core workflow verified. Expanded staging acceptance deferred.** R1 and R2 are complete at their recorded sources. R3 through R6 remain deferred.
+ 
+ The human requested this documentation reconciliation and preservation of completed work. It authorizes no runtime action, merge, deployment, setting, new send, permission expansion or change to a frozen contract. pjsk02 remains sole approver. New live actions use the existing operator and actual recorded authority.
+ 
+@@ -8,10 +8,18 @@ The human requested this documentation reconciliation and preservation of comple
+ 
+ - Execution owner: existing chat **“Assess tonight’s VC demo readiness”**, `01a1799d-27b3-7c51-b5e0-b8f161f0c54c`.
+ - Source/policy coordination: existing chat **“Goal Prompts”**, `01a175f4-c0b5-76e3-ac1f-54c94594420f`; no second writer or runner.
+-- **Immediate hold:** the November 12 recovery passed the launcher checks and reached the personally reviewed OpenClaw checkpoint on staging `44b4c7f`. The restricted child timed out during startup before a model request. The work settled as failed and the owned child stopped. Preserve the terminal checkpoint, failed receipt, original sends and journals. The private execution event log is pinned by SHA-256 `e29e15453558bd6803d04934bb8918cc397a5ec5a71121d71a93ec111630339e`.
+-- The earlier provider-key handoff correction passed focused checks and actual inert OpenClaw startup in 48 seconds with zero model requests. Native startup is a prerequisite, not proof that the accepted task processed or replied.
+-- [PR #336 / OT6 source and approval are already integrated](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6774494513). The reviewed staging client remains `025ae28`, with the existing staging server/profile. Current integration `7ee302e` also contains separate work; do not adopt unrelated Phase D bytes or deploy integration to force convergence. Source fixes can advance; refresh their exact review/adoption records before execution.
+-- [The approved persistent workflow](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6767810807) continues until completion or human cancellation. Obsolete 90-minute workflow-expiry instructions do not apply. Per-request/native/lease bounds, failure stops and cumulative caps remain binding. Latest recorded physical usage is **35/64**; the approved operation allowance is **62**. This document does not increase or reset either ledger, and does not claim a freshly read current operation count.
++- The November 12 recovery passed the launcher checks and reached the personally reviewed OpenClaw checkpoint on staging `44b4c7f`. The restricted child timed out during startup before a model request. The work settled as failed and the owned child stopped. Preserve the terminal checkpoint, failed receipt, original sends and journals. The private execution event log is pinned by SHA-256 `e29e15453558bd6803d04934bb8918cc397a5ec5a71121d71a93ec111630339e`.
++- **R2 release lineage.** The one approved send was accepted on `ba131ba051650e208fbbfd2cc65f162de5672e70`. The reply and settlement were verified on `4ac3b68130c3b8fee1cc792ed93eae5c3ea6506d` with the reviewed Worker and container. The saved controller lineage remains at `44b4c7f`.
++- The owner’s November 12 Windows cold start reached readiness in 37.828 seconds and shut down cleanly. It made zero model calls, staging claims or sends. [PR #364 at `167e7d7`](https://github.com/rachelgonsalves821/Envoi/pull/364)
++- The saved send, reply and owner readback agree on the one approved R2 message. Preserve its request ID and the earlier terminal tasks.
++- R2 ran under **63 operations** (55 normal and 8 cleanup). The later owner approval raises the cumulative cap to **65 operations** (57 normal and 8 cleanup). At deferral the anchored ledgers count **40 operations** and **41 of 64 model calls**, with zero pending or unresolved model requests. [Approved persistent workflow](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6767810807)
++
++## Deferral checkpoint
++
++- At 17:42:18 UTC on November 13 the pinned process inventory found **zero owned native processes** and signaled none. The deterministic R3 execution directory `r3-fa6ff3d3` was absent. Windows package and staging preflight ran against staging `001be54e4a3cbf5b99417acaf83f151d2f2d3b44` with zero sends, claims or model calls. The owner execution path, combined SQL intake and native file/isolation flows had no end-to-end run. No owner launch command was issued.
++- The exact R2 receipt and both ledgers still match their pins. Action ledger SHA-256 `3717ad6462a641abbaec9120d2361f9f3828b22e7bb062cffd6d96090ef7dcd8`. Model ledger SHA-256 `0e49176041617ccc38c7c15384fac8747459e9eb97156106973a18dd97a3d209`. The R2 settlement ended its session, and the last R3 queue receipt at 15:13:32 UTC showed the Testowner marker processed and the OpenClaw owner instruction still delivered. The latest saved global lease and session read was at 13:37:03 UTC before the successful R2 run, with zero active leases and sessions at that time. A later GET-only case read returned HTTP 401 for both saved sessions. Global server lease and session status at deferral remains unverified.
++- The distinct R3 file request is prepared under request ID `fa6ff3d3-e4e1-4dcc-b6e1-a6f32c66a912`, expected work ID `msg_c2123cd02047de51de6c04449f8eb78d`. The request and OpenClaw isolation canary remain unsent. Resume at R3 launcher validation if expanded acceptance is reopened. Carry R1, R2, the settled Testowner marker and completed controls forward. Leave the delivered OpenClaw owner instruction in place.
++- [Source promotion review](MAIN-PROMOTION.md) records the branch comparison and the runtime fixes that still need promotion or review.
+ 
+ ## Already proved: preserve, do not restart
+ 
+@@ -23,9 +31,12 @@ The human requested this documentation reconciliation and preservation of comple
+ | [Main onboarding sign-off](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6457783330) | Both onboardings and first-task visibility accepted; remaining rehearsal checks waived for that release | Preserve the waiver as a waiver; do not call it successful autonomous processing. |
+ | November 6 operator receipts | `private-followup` and `amber-followup` native turns completed with canonical `processed` status; returned private reply delivered and human-confirmed in the website | Actual successful exchange stays credited at its original source. Never resend it to repair receipt handling or restamp it as a new-source execution. |
+ | Je2 control receipts | Personal pause/resume, old scoped-authority and stale-settlement refusal, real session expiry and recovery/poll-gap observations | Final canonical inventory joins remain part of R6. A later startup failure does not erase these controls. |
+-| OpenClaw operator results | Pause/resume, real session/lease expiry and same-task polling-gap recovery passed before a later native-target failure | Separate host coverage is now credited too. Do not repeat these controls during recovery unless a documented code/configuration impact invalidates them. Actual pending task/reply remains R2. |
++| OpenClaw operator results | Pause/resume, real session/lease expiry and same-task polling-gap recovery passed. The separate R2 run completed processing, reply and owner readback. | Carry each result at its recorded source. |
+ | Earlier wake and isolation receipts | Historical C19–C21 wake safety credit and dated common SDK cross-tenant read-denial credit retained in the operator ledger | No new callback/provider claim; current wake-off profile does not require a fresh callback run merely to fill the matrix. Current native canary/asset assertions remain within R3–R5. |
+ | Source-inclusion records | Core case-session, case-tools and http-wake contracts approved; C-A1–C-A6 and selected C-B1–C-B5 implemented, followed by reviewed fixes | Original source PR copies remaining open are not missing implementation. Green CI is source evidence, not hosted acceptance. |
++| [Combined implementation #143](https://github.com/rachelgonsalves821/Envoi/pull/143) at `9b9c109` | Source inclusion for the owner file/outcome changes in #126 and server stack in #138, plus reviewed client increments | Source and tests. The October 21 countersign records historical acceptance separately. |
++| [Hosted managed Files #348](https://github.com/rachelgonsalves821/Envoi/pull/348) at `9fec278` | Managed Files denied unselected reads and self-grants, denied read-only edits, verified exact replacement bytes for the granted writer, refused stale revisions and denied revoked reads | Hosted managed Files routes. R3 still needs the selected native MCP fixture, grant, read and isolation evidence. |
++| [Hosted Phase D #333](https://github.com/rachelgonsalves821/Envoi/pull/333) at `9357398` and [rollback #343](https://github.com/rachelgonsalves821/Envoi/pull/343) | A2A D04/D06 verified explicit clean-file grants, exact bytes, pause/revoke and wrong-workspace denials. D08 verified native owner Case and asset HTTP readback with A2A and wake disabled. #343 verified staging restoration. | A2A and native owner HTTP routes at their recorded sources. Held native work and MCP authorization remain in R3/R5. |
+ 
+ Do not recreate identities, reset journals/counters, replay accepted sends or retry an uncertain old native admission to make a row green. Keep the interrupted receipt's actual failed/unknown disposition and journal. The earlier proposed *distinct private receipt-review fixture is not in the active remaining program*: its `prospectiveReview` is null and the program carries the prior visible exchange. Do not revive that retired fixture as another required task. Verify the carried disposition in R1/R6 rather than inventing successful receipt processing.
+ 
+@@ -33,27 +44,89 @@ Do not recreate identities, reset journals/counters, replay accepted sends or re
+ 
+ The entries below are assertion groups in the **existing** reviewed remaining program, not six new test batches. Complete each once and attach its actual evidence here. If an existing receipt already satisfies an assertion, reconcile it instead of rerunning it. Proposed test code and offline passing fixtures do not check off a live result.
+ 
+-- [ ] **R1 — Close the current history-verifier hold and verify safe continuation.** Existing operator/source owner: reproduce the legacy parent-reference mismatch; accept only the supported, verified lineage using the original approval and immutable execution/task records; retain refusal of substituted ancestry or changed files. Complete focused regressions and any required exact-source review/CI/adoption. Verify carried native successes, failed receipt disposition, charges, original journals and queued task. Exit: the approved derived package passes against the saved records and is eligible for activation, with no resent task, model dispatch, journal edit or new workflow clock during preparation. A fresh live guard is permitted when genuinely required, but it is not another acceptance test or a reason to redo onboarding.
+-- [ ] **R2 — Observe the existing OpenClaw task processing and reply.** Resume only through the supported existing checkpoint/retry; keep previous failed attempts and charges. Retain completed OpenClaw controls. Exit: actual native completed result, allowed scoped tool calls, expected canonical reply/effect, corresponding work settlement and recipient/owner readback. A booted gateway, tools list, model request count or HTTP acknowledgment alone is insufficient. Include required current MCP replay/denial assertions already in the processing milestone. Confirm the actual reply before proceeding to the later stage.
+-- [ ] **R3 — Complete the remaining file and isolation flows.** `asset-share`, `oc-canary-no-action`, `oc-shared-read-propose`: exact clean file bytes/checksum, current grant, native scoped read/proposal, no cross-case/canary leak and actual pending/ungranted/foreign-ref denials. Use only the approved benign fixtures. Preserve historical/server infection/quarantine evidence with its scope; do not fabricate malware or require a new infected-file run absent an actual remaining assertion. Exit: linked native/scan/grant/read/denial/owner observations and correct canonical effects, without an unauthorized read, grant or duplicate notification.
+-- [ ] **R4 — Complete the remaining decision, authority and outcome flows.** `accept-authority`, `asset-decline`, `declined-resume`, `approved-accept-complete`, `oc-accepted-decision-no-action`, `hermes-final-proposal`: follow canonical FIFO order; observe the required distinct human decline and approval; verify actual native no-action resumption after decline, authority expiry/refusal, and approved case outcome separately from work settlement. OpenClaw's ordinary received-decision processing is not evidence of requester-owned human-decision resumption. Exit: actual scoped/native and owner decisions, one authorized canonical effect per logical action, declined case remains open, approved case has its outcome receipt. No model assertion substitutes for owner authorization.
+-- [ ] **R5 — Finish final revoke and affected security assertions.** After the positive flows, use only the approved distinct held work for OpenClaw and Testowner revocation. Verify late auth/tool/settlement denial and no unauthorized effect. Reconcile remaining actual idempotency/conflict, case/recipient isolation, permissions and stale-fence assertions against carried/current evidence. Exit: required denials and unchanged unauthorized-effect counts. Do not repeat Je2/OpenClaw pause/expiry, enrollment, historical callback safety or all old scenarios to close this group.
+-- [ ] **R6 — Final evidence join, preservation/cleanup and countersign.** Join the above results to canonical state and the existing owner website/session observations; request only missing file/decision/outcome/CSRF/sign-out evidence after checking prior receipts. Verify original identities/history, accepted sends, journals, protected paused case, actual cumulative usage, stopped owned processes and final lease/subscription/wake dispositions with explicit preservation exceptions. Record the selected server/client/artifact hashes and rollback/preservation references. Reconcile C01–C24 with the coverage table below; label historical, carried, new, waived and approved N/A honestly. Exit: all required remaining assertions resolved and pjsk02 countersigns the **scoped** results. Do not claim a single newly executed exact-SHA full gate from mixed-source carry-forward evidence.
+-
+-R2 is the current hold. The startup timeout and terminal settlement leave processing and reply unverified. Complete the focused startup regression and establish a supported live validation path before running the remaining program. R3–R5 proceed only under the existing approved program and personal controls. R6 closes the phase scope.
++- [x] **R1 — Verify safe continuation on the selected staging release.**
++  - [x] The November 12 recovery verified carried lineage and reached an actual claim on `44b4c7f` with client `6151df3`. The old checkpoint settled terminally and its owned child stopped. Preserve its records, journal and charges.
++  - [x] The selected PR #364 cold start and the successor’s offline approval, ledger and one-send fixtures passed. The admission check verified the pinned failed settlement and rejected fixture inventories with a live lease, a revived checkpoint or an existing copy of the approved message. The existing SDK sent the exact request once against fixture transport, with a prior operation reservation and lock release.
++  - [x] The terminal-worker candidate verified its seal and admitted the pinned terminal settlement with fixture staging inventory under the existing import guard. It checked the 21 remaining normal operations against the recorded 34 and the approved 55 normal plus 8 cleanup. The sealed SDK fixture recorded one dispatch even when the acknowledgement was lost.
++  - [x] The terminal-worker seal opened the saved cumulative action ledger read-only under the approved 63-operation bounds. Its SDK test reserved the exact message on a copy of the saved ledger before HTTP forwarding and refused a second run after the reservation. The historical 22-operation baseline remains part of the saved count.
++  - [x] The Windows PowerShell 7 package launcher verified the terminal-worker seal, guarded code closure, retained checkpoint journal and saved ledger. It rejected a substituted seal. This check ran without a live operator or a staging send.
++  - [x] The controller resumed the recorded workflow with the approved new work ID and rejected the failed and unapproved IDs. PowerShell 7 verified the new controller against the saved workflow and unchanged ledgers with fixture inventory. The sealed worker tested the new controller, the selected SDK sender and the receiver handoff using fixture transport and native output.
++  - [x] The sealed terminal worker now opens the saved OpenClaw receiver before the one send, routes the new ID through the existing owner review, and uses the existing native settlement, scoped probes and owner inbox readback. Windows package verification loaded the sealed modules. Fixture tests verified the handoffs and cleanup.
++  - [x] The resealed Windows package selects the exact child from the 37.828-second cold startup. The selected SDK's existing parent accepted the new child's IPC in a fixture without dispatch, and the factory fixture retained the reviewed package and policy while selecting a fresh work directory.
++  - [x] Prepared and pinned a single read-only staging intake for preservation, terminal checkpoint, duplicate-send and queue checks. Fixtures admit a current consistent snapshot and reject stale, mixed or changed state.
++  - [x] The sealed Windows launcher compares both public health endpoints, the active Worker, the deployment settings and the container image with the owner's selected release. The final `VerifyHosted` command passed on `ba131ba` with the saved installations, stopped runtimes and 35 recorded model calls.
++  - [x] The owner launcher is wired to the terminal intake, existing sender and OpenClaw receiver. It requires a personal Windows console. Focused tests verified one dispatch and refusal of a second send after an uncertain acknowledgement. The live case check runs before reserving the approved send.
++  - [x] The owner supplied the fresh read-only staging inventory. The live run on `ba131ba` accepted the single approved message as `msg_4ecc398cb4c68c59afc11e8476678103`. The saved send receipt and one message operation agree. The owner approved the new local target, and OpenClaw reached native startup and the scoped case snapshot.
++- [x] **R2 — Verify one OpenClaw processing result and reply.**
++  - [x] The carried Hermes private exchange completed and its reply was visible on the website. Both hosts’ completed controls stay credited at their original runs.
++  - [x] The owner's November 12 read-only staging query at 21:39:15 UTC confirmed the accepted work had one attempt and a `retryable` failure settlement (`HANDLER_FAILED`). Its session ended as `work_settled` at 21:29:45 UTC. Active sessions and replies were both zero, the work lease was cleared, and the two prior tasks were still failed. The scoped session-end observer hit a success-only replay assertion during cleanup. The server closed the session through the failure settlement, the local gateway port closed, and a focused repair passed local tests for failed session end.
++  - [x] Prepared the recovery candidate for the accepted work `msg_4ecc398cb4c68c59afc11e8476678103`. A copied ledger preserved the 38 charged calls and admitted exactly three more for this work using two unused allocations from the retired `private-backlog` and `green` flows plus one unallocated call. The cumulative cap stays at 64. Tests refused a second retry, a stale native token, another work ID, and processing a case with an existing reply. The owner console preserves the interrupted journal when the port changes and exposes the same scoped tools directly. The read-only hosted check verified `a216107` with the same container image and the expected saved setup flag.
++  - [x] On November 13 UTC the owner approved the one recovery attempt and reviewed the new local target on `a216107`. The receiver claimed the existing accepted work and captured its scoped case snapshot. It did not send another message. The native child timed out after 90 seconds at `gateway-start` and the server recorded a `retryable` failure settlement. The cumulative request ledger remained unchanged at 38 charged calls. The selected loopback port was no longer listening after exit; the launcher reported a cleanup error, so this does not certify full cleanup. Preserve this attempt and its original error.
++  - [x] The owner's restricted Windows trace reached readiness in 29.837 seconds and exited cleanly, with zero model, staging or send activity. The guard refused ten reads: the native bundled-plugin resolver searched for package manifests above the launcher. This records timing only, not a clean isolation pass or a live retry. The follow-up candidate disables bundled discovery for direct client tools and keeps the guard unchanged.
++  - [x] With bundled discovery disabled, the owner observed readiness in 23.180 seconds and clean shutdown, still with ten blocked manifest reads. That run traced the remaining reads to the native CLI resolver. A focused Windows reproduction using the pinned resolver reproduced all ten with the helper entry and zero when its search started in the pinned package. The rebuilt child selects that path after source validation; its import-boundary fixture and the unchanged guard's refusal test passed. This does not prove end-to-end startup or that the manifest reads caused the live timeout.
++  - [x] The owner ran the rebuilt child on Windows and reached readiness in 29.312 seconds with zero blocked reads, clean exit and a closed loopback port. The synthetic receipt SHA-256 is `0e5ff40cc30080be7ff35cd9d6d449d25293d2fc57e76c65fc39188d9ff821c6`. No model request, staging claim or send occurred. This closes the restricted cold-start check only.
++  - [x] The successor package pins the passing child and both prior settlements. Focused tests admit the saved startup-only attempt without resetting its journal and reject evidence of dispatch or an existing reply. The actual saved receipts were admitted with fixture inventory, typecheck passed, and read-only verification matched the `a216107` staging settings and stopped local installations. The live intake requires the same accepted work first in the queue and both prior sessions ended.
++  - [x] The owner supplied the real staging intake. It showed two attempts, zero replies or active leases, and the same accepted work first in the queue. The second session ended explicitly at the host after the startup timeout and before the retryable failure settlement. The first launcher stopped before a claim on the session reason; the corrected sealed controller admitted the exact saved JSON at its receipt time, and the live read-only settings and local preflights passed again. No new claim, send or model request occurred.
++  - [x] The owner confirmed and ran the rebuilt package against the same accepted work on `a216107`. The claim and scoped snapshot succeeded. The child again reached the 90-second startup bound; its local log reached native model-runtime initialization without completing that phase. Staging recorded another retryable failure. The request ledger remains at 38 charged calls, and the selected loopback port is closed. The runner reported incomplete cleanup and emitted no successful reply or settlement receipt. This records a separate live failure; the passing synthetic startup result remains credited.
++  - [x] The owner ran the guarded diagnostic with the live configuration shape. It reached readiness in 37.346 seconds; native model-runtime initialization took 105.6 ms. The child exited cleanly, the loopback port closed, and the guard reported zero blocked reads or model/staging activity. Receipt SHA-256: `dab477ac1ff6fff94e9f70a9aa6acc8e0a4c20db767184fca23460dca57b3ff9`. The authored configs differ only in local paths, gateway/proxy addresses, tokens, and diagnostic logging. The diagnostic wraps native worker launches; it does not reproduce the live worker startup path or prove the live timeout fixed.
++  - [x] The owner ran the startup-only probe with the live parent allocator, pinned child, and a disposable profile. It reached readiness in 31.648 seconds and closed the child and both ports, with zero traffic at the rejecting loopback endpoint and zero model, claim, or send activity. The model-runtime phase took 98.2 ms. Receipt SHA-256: `969c3b5f7ab9d79b2dac6f54445209eb3e8f9f8abbaf0599453ff462a32df90d`. The probe used synthetic credentials and a local rejecting endpoint, so the live startup stall remains unexplained.
++  - [x] Prepared a candidate for the current staging release `4ac3b68`. Source review found attachment support in the reply path, with the text-only idempotency inputs and claim and settlement logic preserved. The sealed read-only check verified the selected Worker, container and functional settings. The candidate preserves all three prior attempts and adds local startup timing for the restricted child. Focused tests and the sealed controller admitted the actual retained receipts with a fixture for the third canonical session. A fresh live inventory is still required to verify that session and queue before a claim.
++  - [x] The owner ran the bounded attempt on `4ac3b68`. The exact existing work was claimed and the owned OpenClaw child reached readiness. Anthropic returned HTTP 400 for the root `allOf` in the `envoi_case_list_assets` tool schema. The metered response was drained, staging recorded a retryable failure, and the selected port closed. The ledger records 39 of 64 calls, with zero pending or unresolved requests. No reply receipt or resend was recorded. The retry authorization was consumed.
++  - [x] Added an OpenClaw provider-facing projection for the three canonical tools with root `allOf` constraints. The projection describes the conditional inputs for the model. The SDK and server still enforce the full canonical schema. OpenClaw transport and SDK case-tool tests passed, and the pinned native Anthropic serializer fixture retained all four tools from the failed request without a root combinator. No provider request was made during verification.
++  - [x] Sealed the schema recovery for the same accepted work on `4ac3b68`. Its Windows package and read-only hosted/local checks passed. The candidate admitted the real failure receipts and unchanged ledger with fixture inventory for the fourth attempt. The ledger tests rejected a stale digest, reused tokens, a second recovery approval, and a third model request. The candidate reply fixture verified exact-work processing, one reply, settlement evidence, and receiver cleanup without live activity.
++  - [x] The owner approved the schema recovery and supplied real staging inventory at 13:25:48 UTC on November 13. All four sessions had ended, the same accepted work was first in the queue, and replies and active leases were zero. The launcher then failed before runtime initialization with `ADMISSION_NATIVE_WORK_ROOT_ALREADY_USED` because its deterministic directory was retained from the HTTP 400 attempt. The interrupted journal and 39-call ledger still match their seals. The successor allocates an exclusive empty directory under the same reviewed parent. A collision test skipped both retained names and verified the prior work bytes.
++  - [x] The sealed Windows launcher's `VerifyPreparation` mode passed the actual native factory and source preflight on `4ac3b68`, including the fresh directory check that stopped the owner's previous run. It removed its own empty probe directory. No gateway, model call, claim or send was started by the probe.
++  - [x] The November 13 live run on `4ac3b68` processed the accepted work and settled it successfully at 13:44:22 UTC. The scoped session ended. The completed native journal, canonical settlement, identical MCP reply replay, conflicting-key and recipient-override denials, and one reply effect were verified. The saved owner inbox and website readbacks agree on the reply. Website readback was recorded at 13:46:51 UTC. Settlement SHA-256 `0bef9d503582d656e5668dd741c7b4ac5d634c59b9a85c303a220024702086f3`. Owner receipt SHA-256 `40b855705b7cffa51c3dda9e8f9ebdbab52cea9d10fd0bf4840c82340d27057c`.
++  - [x] The completed run used launcher seal `6346a3724a4aa580debabdec597255cd6642c072cd3fc84cef34e1913a375f33` and client bundle SHA-256 `f6327d8ecaef099faec799593582e1e06c520ed2cadf29872bcf8cd9f68edcf0`. Both metered responses drained. The ledgers retain one send and total 41 model calls and 40 conservative operations across five cases and five installations, with zero assets. The prior failed journal hash still matches its pin. Both recorded per-work loopback ports refused connections after cleanup. The pinned process check found zero owned native children at 13:53:14 UTC. Full Phase C preservation and cleanup remain R6.
++- [ ] **R3 — Deferred.** Complete the remaining file and isolation flows. `asset-share`, `oc-canary-no-action`, `oc-shared-read-propose`: exact clean file bytes/checksum, current grant, native scoped read/proposal, no cross-case/canary leak and actual pending/ungranted/foreign-ref denials. Use only the approved benign fixtures. Preserve historical/server infection/quarantine evidence with its scope; do not fabricate malware or require a new infected-file run absent an actual remaining assertion. Exit: linked native/scan/grant/read/denial/owner observations and correct canonical effects, without an unauthorized read, grant or duplicate notification.
++  - [x] Carry historical file/quarantine acceptance, #348 managed Files, and #333 Phase D A2A at their recorded routes. Use the approved benign fixtures for the current native grant/read and pending/foreign-reference denials.
++  - [x] On November 13 at 14:02:09 UTC, two authenticated staging reads through Testowner's existing SDK installation verified the case was in progress. Its four messages included two failed tasks and one incoming OpenClaw message, the delivered R2 reply marker. There was no incoming file request. The SDK refreshed the existing credential once. The check created no claim, send or model call.
++  - [x] The owner's read-only queue snapshot at 14:06:59 UTC found two delivered items with no claims or leases. Authenticated readback identified the OpenClaw owner instruction as the text `visible` and the Testowner item as the R2 reply marker. Neither supplies file work. The selected REST claim route takes the earliest eligible item and has no expected-work selector. The owner cancel route applies to held outbound delivery, so these two delivered records need ordinary fenced settlement to clear the queues.
++  - [x] The November 13 owner console recorded approval, then reported `EEXIST`. Its original log ends at OpenClaw's claim intent with no captured claim response or settlement. Authenticated readback still shows both messages delivered, and the visible audit history contains no matching claim or completion. The ledger and original log are preserved. The possible prior lease is past the server's maximum lifetime.
++  - [x] At 15:03:13 UTC the sealed continuation received a successful claim response with no OpenClaw work. Its transport assertion surfaced as `NETWORK_ERROR` in the SDK. No lease was returned and no acknowledgement or settlement followed. The Testowner branch was never reached. The original logs and both ledgers remain pinned.
++  - [x] Testowner claimed and settled the R2 marker with no reply. Staging recorded `processed` at 15:10:26 UTC. The launcher reported `NETWORK_ERROR` before recording the completion response. Authenticated readback verified the exact processed delivery receipt, no derived reply, the unchanged OpenClaw owner instruction, and unchanged model and action ledgers. Readback SHA-256 `7c20fdb821c400504e517e11bbe7ba150ddb0acaca0abbff048a4c59e4390409`. This settlement is complete.
++  - [x] Verified the SDK claim path with `acceptHumanInstructions: false`. The local API regression processed the exact newer peer message in the same case and left the earlier owner instruction delivered without a receipt. The Phase C receiver regression exercised a single explicitly selected OpenClaw work item and verified the flag on its claim. The default claim behavior remains available to existing callers.
++  - [x] The R3 file stage binds a distinct OpenClaw-to-Testowner request to `asset-share` in the existing case. Windows fixture tests verified the exact SDK send, one operation reservation before forwarding, lookup after a lost response, no duplicate send, exact recipient validation, and handoff of the asset notification to the two concurrent OpenClaw scopes. These tests used fixture delivery and native results.
++  - [x] The successor controller opened the real anchored ledgers and matched the saved R2 send, settlement, owner readback and queue receipts in Windows Verify mode. It matched all six OpenClaw dispatches since the seed to the accepted R2 work, refused release of the completed `openclaw` flow and bound `asset-share` to the new work ID. The staging preflight was a fixture. Verification left both ledger hashes unchanged.
++  - [ ] Deferred launcher validation includes the composed Windows operator test and the combined read-only intake. It must use the tested claim mode and current staging preservation and queue state, keep the OpenClaw owner instruction untouched, and preserve both failed tasks and the R2 reply. A missing send or settlement response requires exact message and receipt readback.
++  - [x] The 65-operation approval covers 17 remaining normal operations plus eight reserved for cleanup. The 64-call cap and historical usage carry forward. The approved cap is pinned in `R3-Operation-Approval.json` at SHA-256 `d0eb9f315986651a749f918baddc4cb6ef0dab5e126896599cec8b106bf3e9d6`.
++- [ ] **R4 — Deferred.** Complete the remaining decision, authority and outcome flows. `accept-authority`, `asset-decline`, `declined-resume`, `approved-accept-complete`, `oc-accepted-decision-no-action`, `hermes-final-proposal`: follow canonical FIFO order; observe the required distinct human decline and approval; verify actual native no-action resumption after decline, authority expiry/refusal, and approved case outcome separately from work settlement. OpenClaw's ordinary received-decision processing is not evidence of requester-owned human-decision resumption. Exit: actual scoped/native and owner decisions, one authorized canonical effect per logical action, declined case remains open, approved case has its outcome receipt. No model assertion substitutes for owner authorization.
++  - [x] Carry the October 21 decision and outcome acceptance and November 6 amber proposal exchange. The two remaining native cases cover the decline/resumption and approval/completion paths, including the authority checks. R2 already covers an ordinary reply and work settlement.
++- [ ] **R5 — Deferred.** Finish final revoke and affected security assertions. After the positive flows, use only the approved distinct held work for OpenClaw and Testowner revocation. Verify late auth/tool/settlement denial and no unauthorized effect. Reconcile remaining actual idempotency/conflict, case/recipient isolation, permissions and stale-fence assertions against carried/current evidence. Exit: required denials and unchanged unauthorized-effect counts. Do not repeat Je2/OpenClaw pause/expiry, enrollment, historical callback safety or all old scenarios to close this group.
++  - [x] Carry both hosts’ pause/expiry and polling recovery, the R2 replay, key-conflict and recipient-override denials, and the recorded Phase D A2A access denials. Verify late authority and unchanged effects on the two reviewed held-work revocations.
++- [ ] **R6 — Deferred.** Final evidence join, preservation/cleanup and countersign. Collect the new file, decision and outcome readbacks alongside one final preservation inventory after the remaining work. Verify original identities/history, accepted sends, journals, protected paused case, actual cumulative usage, stopped owned processes and final lease/subscription/wake dispositions. Record the selected server/client/artifact hashes, preservation exceptions and rollback references. Reconcile C01–C24 with the coverage table below and present one scoped closeout for pjsk02 to countersign.
++  - [x] Carry the October 21 owner access, CSRF and sign-out attestation, the live Hermes and OpenClaw reply readbacks, and the recorded rollback and Phase D staging restoration. The older browser checklist contains prepared steps. Its CSRF/sign-out steps need a new run only if the selected owner auth path changes in a way that invalidates the accepted evidence.
++
++R1 and R2 are complete. Expanded staging acceptance resumes at R3 only if reopened.
+ 
+ ## Requirement coverage, not another unchecked test list
+ 
+-| Original requirements | Existing credit and the only remaining join/assertion |
+-| --- | --- |
+-| C01–C03: bindings, bounded snapshot, simultaneous case isolation | Historical baseline and completed Hermes bindings retained. R1/R2 verify the new isolated OpenClaw path; R3 supplies remaining scoped/canary isolation; R6 joins provenance. |
+-| C04–C06: reply, replay and override refusal | Completed Hermes reply retained; R2 records OpenClaw reply and processing-milestone MCP negatives; R3/R5/R6 reconcile only missing conflict/idempotency/recipient assertions. No duplicate live replay of accepted sends. |
+-| C07–C09: proposals, authority, human decisions | Historical acceptance preserved. R4 is the current native changed-path proof and owner decision join. |
+-| C10–C12: assets and case outcome | Historical acceptance preserved. R3/R4 prove the remaining current file/outcome flows and distinguish outcome from processed work. |
+-| C13–C15: restart, gaps and stale fences | Completed Je2/OpenClaw controls and recovery retained. R1/R2 verify supported continuation and actual processing; R5/R6 join only affected race/receipt evidence. |
+-| C16–C18: pause, expiry and revoke | Both hosts' observed pause/real-expiry controls retained. R5 supplies the remaining final revoke observations; R6 completes canonical joins. |
+-| C19–C21: signed wake/callback safety | Historical credit retained under the unchanged wake-off profile. No new callback run in this checklist. A future changed wake implementation/profile requires its own impact review. |
+-| C22–C24: owner/session controls, cross-tenant access, artifacts/rollback | Visible Hermes reply and dated common-route isolation retained. R3/R5 supply remaining native/asset denials; R6 joins missing owner/session, preservation, exact-artifact and scoped countersign evidence. |
++| Assertion | Receipt credited now | Current runner gap |
++| --- | --- | --- |
++| C01 | Historical countersign, November 12 claim and November 13 exact R2 installation/claim/session binding | Covered for R1/R2. |
++| C02 | Historical countersign, November 6 Hermes native snapshots and November 13 bounded OpenClaw snapshot | Covered for R2. |
++| C03 | Historical countersign and dated common SDK tenant denial | R3 verifies simultaneous-case isolation on the current OpenClaw MCP channel. |
++| C04 | November 6 Hermes and November 13 OpenClaw live completion, exact replies, successful settlement and owner readback | Covered for R2. |
++| C05 | Historical countersign, carried polling-gap receipts and November 13 OpenClaw MCP replay with one reply effect | Covered for R2. |
++| C06 | Historical countersign and November 13 OpenClaw conflicting-key and recipient-override denials | Covered for R2. |
++| C07 | October 21 countersign and November 6 amber proposal exchange | R4 verifies the current remaining native proposal and decision effects. |
++| C08 | October 21 countersign, authority baseline | R4 verifies current authority replacement, expiry and refusal for the scoped acceptance. |
++| C09 | October 21 countersign, human decision baseline | R4 verifies the distinct decline and approval, plus native resumption after decline. |
++| C10 | October 21 countersign, #348 exact bytes and #333 granted download | R3 verifies the current clean fixture, grant, exact bytes and owner readback on the native flow. |
++| C11 | October 21 countersign, #348 access denials and #333 ungranted/wrong-workspace denial | R3 verifies current pending, ungranted and foreign-reference denials. Historical quarantine evidence carries. |
++| C12 | October 21 countersign and #143 source inclusion | R4 verifies the current approved case outcome receipt. R2 work settlement has its own evidence. |
++| C13 | November 6 Je2 restart, November 12 OpenClaw stop, PR #364 cold start, and November 13 bounded live OpenClaw recovery | Covered for R1/R2. |
++| C14 | Je2 and OpenClaw same-work polling-gap observations | Carry. The selected wake-off profile needs no new callback run. |
++| C15 | Je2 and OpenClaw stale lease/fence refusals | Carry these controls. R5 checks late authority for the newly revoked work. |
++| C16 | Je2 and OpenClaw pause/resume receipts | Carry on both hosts. |
++| C17 | Je2 and OpenClaw real lease/session expiry receipts | Carry on both hosts. |
++| C18 | October 21 countersign and #333 A2A revoke denials | R5 verifies revocation on the two approved native held-work fixtures and checks that late calls have no effect. |
++| C19 | October 21 countersign, signed callback challenge baseline | Carry under the selected wake-off profile. |
++| C20 | October 21 countersign, callback signature and SSRF baseline | Carry under the selected wake-off profile. |
++| C21 | October 21 countersign, duplicate/missed callback baseline | Carry under the selected wake-off profile. |
++| C22 | October 21 owner access, CSRF and sign-out attestation, November 6 Hermes and November 13 OpenClaw website replies | R6 joins the current file, decision and outcome observations. |
++| C23 | Dated common SDK denial, #348 managed Files and #333 A2A isolation | R3/R5 verify remaining current native canary, foreign reference and revocation isolation. |
++| C24 | October 21 countersign, #343 rollback, November 6 and 12 executor stops | R6 joins exact new artifacts, cumulative usage, stopped owned processes, canonical cleanup and preservation before countersign. |
+ 
+ Historical human acceptance is not downgraded because detailed citations need linking. Conversely, it does not certify later changed native code. Permission-derived N/A applies only to actually unavailable authorized operations with its recorded approval; never invent an N/A for cost or missing time. Additional assertion requirements must name the original requirement, affected change and evidence gap before being added to R1–R6.
+ 
+@@ -68,14 +141,15 @@ Fresh credential/inventory checks and review of genuinely new local targets can
+ 1. Finish source fixes, focused regressions, sealed-package compatibility and slow inert/native-file audits **before** requesting a fresh personal intake. Use recorded synthetic or saved fixtures during offline diagnosis. Ask for fresh live state only when activation is otherwise ready or a genuinely stale guard requires it.
+ 2. Keep one existing operator. Reuse valid intake and completed control receipts within the approved policy; a runner-only defect is not a reason to resend tasks or restart every gateway. Genuine new target/auth/security reviews remain required.
+ 3. Report one next action and its exit: R1 internal correction, then R2 actual processing/reply, then the remaining program and final joins. Update a satisfied item with evidence instead of writing another parallel plan. Batch owner read-only confirmations where supported; do not batch away required authority decisions.
+-4. While Phase C owns staging, Rachel can finish Phase D's offline peer/identity/rollback packet from the [existing interoperability worksheet](../PHASE-D-INTEROPERABILITY.md). [PR #333](https://github.com/rachelgonsalves821/Envoi/pull/333) is already integrated as `59f5ec8`; do not request its source integration again. Phase D's hosted run waits only for its actual prerequisites, explicit staging handback and separate authority. Do not take over active staging to create parallel traffic. Its approved same-served-SHA hosted evidence requirements remain intact.
++4. Phase D’s hosted matrix and rollback are recorded under their original sources. Apply those observations only to the matching routes and assertions shown above. [Phase D closeout](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6799844679)
+ 5. Engineering/policy/authorization failures are reported precisely. This plan does not promise a completion time or declare a runtime blocker fixed merely because documentation or CI is green. Do not add another broad readiness audit, host cohort or feature to these exits without its requirement and impact justification.
+ 
+ ## Evidence provenance and update discipline
+ 
+ - Public historical acceptance and latest integration/policy receipts are linked above. Their explicit scopes take precedence over an older generic pending label; board/PR prose is status data, not a new source of authority.
+ - The November 6 local operator records are retained privately by the existing execution owner. `C11-REMAINING-WORK.preparation-only.json` is a preparation summary, not an independent hosted pass; its completed-native proofs point to actual native/canonical records. `LIVE-PRIVATE-EXCHANGE-VERIFIED.actual.json` includes the actual reply and human website observation and explicitly does not declare whole Phase C passed. `C11-EXECUTOR-FINAL-STOP.actual.json` records the old stopped executor and retained usage. The November 7 OpenClaw controls are credited from the operator's actual execution reports and retained carry-forward receipts. This documentation audit did not perform new provider or database operations.
+-- Current remaining-program review: `remaining-program.mjs` and the sealed OT6 operator code have ten remaining flow IDs grouped into R2–R4, no prospective receipt fixture, followed by revoke and finalization checks. Source inspection establishes intended scope, not execution. The current lineage defect is recorded in both owner chats after saved intake; do not replace its immutable failed record.
++- The prior sealed operator used the 62-operation allocation. The R1/R2 successor used the approved 63-operation allocation and recorded live evidence for the exact send, processing, settlement and owner readback. Preserve the prior offline and failed-run receipts under their original scopes.
++- The owner’s Windows cold-start timing receipt has SHA-256 `7491b9bd3ac77ea83ad28495640f42bcb1bd03b1be95b990806919730c810f16`. The November 6 Hermes website-reply receipt has SHA-256 `8d2e9b6570c37bd7203d402e26b21e888cff8a9b01d9323bc5411d903633bd43`. The OpenClaw control carry-forward receipt has SHA-256 `7b2fad8cadfc47bebea9eed8b90e2faec79ec0e820fc22369425e4eaec945a16`. The existing operator holds the receipts privately.
+ - Keep private credentials, account/case/work IDs, raw messages, SQL and absolute private packet paths out of committed docs. The operator retains the actual records and their hashes. The record-linking task must preserve failed outcomes, original versus normalized hashes and any accepted preservation exceptions.
+ - On completing R1–R6, attach a redacted receipt/reference and UTC time, retain source/profile and evidence category, and check off only its satisfied exit. If a new regression invalidates a completed observation, annotate that observation's impact; never silently reset the rest of the checklist.
+ - **Separate tracks:** Phase D/A2A, group cases, Dots/public plugin publication, Grok/Muse/Instinct or other new-host breadth, general production backup/capacity/signup work and Adam's separate durability pilot are not new prerequisites for this scoped Phase C closeout. Keep them open under their own owners and approval boundaries.
+diff --git a/integrations/hermes/continuation-controller.ts b/integrations/hermes/continuation-controller.ts
+index 8070a8d76ca04cc1e9f0e75905b9117056aa9465..0d210f7190703c0449bcf8b53ae509204f5b5310 100644
+--- a/integrations/hermes/continuation-controller.ts
++++ b/integrations/hermes/continuation-controller.ts
+@@ -8,6 +8,8 @@ import { guardNativeSubmission, type NativeSubmissionGuard } from './native-bind
+ import {authorizeRecoveryTime,type RecoveryTimeLink}from'./recovery-time';
+ import {inspectStoppedProgress,assertStoppedProgressPreflight,authorizePreProgramInterval,type StoppedProgressPreflight,type StoppedProgressRecovery,type PreProgramRestore}from'./stopped-progress';
+ import{inspectControlledProgress,type ControlledProgressRecovery}from'./controlled-progress';
++import { inspectAcceptedOpenClawRetry, inspectTerminalOpenClaw, type AcceptedOpenClawRetryEvidence, type TerminalOpenClawEvidence } from './terminal-openclaw-continuation';
++import { inspectR2Closeout, type R2CloseoutPins } from './r3-file-admission';
+ 
+ type Role=RequestBudgetLedger['flows'][number]['role'];
+ const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
+@@ -77,13 +79,117 @@ export class ContinuationController {
+   private retainedWorkHashes=new Set<string>();
+   private approvedOperationBounds:Readonly<{operationCap:number;normalCeiling:number;cleanupReserve:number}>=Object.freeze({operationCap:60,normalCeiling:52,cleanupReserve:8});
+   get operationBounds(){return this.approvedOperationBounds;}
+-  private distinctOpenClawFollowup:{text:string;senderAgentId:string;recipientAgentId:string;caseId:string}|undefined;
++  private distinctOpenClawFollowup:{text:string;senderAgentId:string;recipientAgentId:string;caseId:string;intent?:'request'}|undefined;
++  private terminalOpenClawPending = false;
++  private openClawRetryApproval: Parameters<RequestBudgetLedger['approveOpenClawRetry']>[0] | undefined;
++  private openClawSchemaRecoveryApproval: Parameters<RequestBudgetLedger['approveOpenClawSchemaRecovery']>[0] | undefined;
++  private acceptedOpenClawRetryJournal: Readonly<{ workId: string; model: string }> | undefined;
++  private assetShareWorkId: string | undefined;
++  openClawRetainedJournalIdentity(workId: string) {
++    const retained = this.acceptedOpenClawRetryJournal;
++    if (retained?.workId === workId) return retained.model;
++  }
+   private constructor(readonly ledger:RequestBudgetLedger,readonly receipt:ActiveContinuationReceipt,
+     private flowCases:Readonly<Record<string,string>>,private actorIds:Readonly<Record<Role,string>>,private sameRoleNativeAttribution?:SameRoleNativeAttributionGuard){}
+ 
+   static async open(options:ControllerOptions) {
+     return this.openChecked(options);
+   }
++  static async resumeAfterR2(input: Omit<ControlledWorkflowOptions, 'recovery' | 'graphApprovalRaw'> & {
++    closeout: R2CloseoutPins;
++    operationApproval: Readonly<{ path: string; sha256: string }>;
++  }) {
++    const { sameRoleNativeAttribution, closeout, operationApproval, ...data } = input;
++    const options = { ...structuredClone(data), sameRoleNativeAttribution };
++    const controller = await this.openChecked(options, false, true, 6);
++    const carry = await inspectR2Closeout(structuredClone(closeout), controller.ledger, options.releaseRoot);
++    if (carry.caseId !== options.flowCases['asset-share'] || carry.serverSource !== options.receipt.serverSource
++      || options.preflight.conservativeMessages !== carry.operationsUsed || options.preflight.assets !== 0)
++      refuse('R3_R2_CLOSEOUT_BINDING_MISMATCH');
++    const roles = { 'asset-share': 'testowner', 'oc-canary-no-action': 'openclaw', 'oc-shared-read-propose': 'openclaw' };
++    if (!Object.entries(roles).every(([id, role]) => controller.ledger.flows.some(flow => flow.id === id && flow.role === role)))
++      refuse('R3_REMAINING_GRAPH_REQUIRED');
++    for (const flow of controller.ledger.flows) {
++      if (Object.hasOwn(roles, flow.id)) {
++        if (flow.retired || controller.ledger.hasFlowHistory(flow.id)) refuse('R3_REMAINING_FLOW_ALREADY_USED');
++      } else controller.released.add(flow.id);
++    }
++    for (const workId of carry.blockedWorkIds) controller.retainedWorkHashes.add(hash(workId));
++    controller.assetShareWorkId = carry.assetShareWorkId;
++    const rawApproval = await fs.readFile(operationApproval.path);
++    if (operationApproval.sha256 !== 'd0eb9f315986651a749f918baddc4cb6ef0dab5e126896599cec8b106bf3e9d6'
++      || hash(rawApproval) !== operationApproval.sha256) refuse('R3_OPERATION_APPROVAL_REQUIRED');
++    const approval = JSON.parse(rawApproval.toString('utf8'));
++    if (approval.actionLedgerSha256 !== closeout.actionLedger.sha256 || approval.modelLedgerSha256 !== closeout.requestLedgerSha256)
++      refuse('R3_OPERATION_APPROVAL_LEDGER_MISMATCH');
++    controller.approvedOperationBounds = Object.freeze({ operationCap: 65, normalCeiling: 57, cleanupReserve: 8 });
++    return controller;
++  }
++  static async resumeTerminalOpenClawWorkflow(input: Omit<ControlledWorkflowOptions, 'recovery' | 'graphApprovalRaw'> & {
++    terminal: TerminalOpenClawEvidence;
++  }) {
++    const { sameRoleNativeAttribution, ...data } = input;
++    const options = { ...structuredClone(data), sameRoleNativeAttribution };
++    if (path.resolve(options.terminal.actionLedger.path) !== path.resolve(options.releaseRoot, 'phase-c-cumulative-actions.jsonl')) {
++      refuse('EXACT_TERMINAL_ACTION_LEDGER_REQUIRED');
++    }
++    const successor = await inspectTerminalOpenClaw(options);
++    const controller = await this.openChecked(options, false, true);
++    const ledger = controller.ledger;
++    const flow = ledger.flows.find(item => item.id === 'openclaw');
++    if (ledger.contentSha256 !== options.terminal.requestLedgerSha256 ||
++        ledger.snapshot().unresolvedDispatches !== 0 || !flow || flow.retired || flow.role !== 'openclaw' ||
++        flow.workHash !== null && flow.workHash !== hash(successor.workId) || ledger.hasFlowHistory('openclaw')) {
++      refuse('UNUSED_OPENCLAW_NATIVE_FLOW_REQUIRED');
++    }
++    for (const item of ledger.flows) {
++      if (ledger.hasFlowHistory(item.id)) controller.released.add(item.id);
++    }
++    controller.retainedWorkHashes.add(hash(successor.failedWorkId));
++    controller.distinctOpenClawFollowup = Object.freeze(successor.request);
++    controller.expectedWork.set('openclaw', { workId: successor.workId, evidenceSha256: options.terminal.inventory.sha256 });
++    controller.approvedOperationBounds = Object.freeze({ operationCap: 63, normalCeiling: 55, cleanupReserve: 8 });
++    controller.terminalOpenClawPending = true;
++    return controller;
++  }
++
++  static async resumeAcceptedOpenClawRetry(input: Omit<ControlledWorkflowOptions, 'recovery' | 'graphApprovalRaw'> & {
++    retry: AcceptedOpenClawRetryEvidence;
++    requestApproval: TerminalOpenClawEvidence['requestApproval'];
++    retryApproval?: Parameters<RequestBudgetLedger['approveOpenClawRetry']>[0];
++    schemaRecoveryApproval?: Parameters<RequestBudgetLedger['approveOpenClawSchemaRecovery']>[0];
++  }) {
++    const { sameRoleNativeAttribution, ...data } = input;
++    const options = { ...structuredClone(data), sameRoleNativeAttribution };
++    const { preflight, retry, requestApproval, retryApproval, schemaRecoveryApproval } = options;
++    const approval = retryApproval ?? schemaRecoveryApproval;
++    if (!approval || (schemaRecoveryApproval ? retryApproval || !retry.schemaRejectedAttempt : retry.schemaRejectedAttempt)) {
++      return refuse('EXACT_ACCEPTED_RETRY_EVIDENCE_REQUIRED');
++    }
++    const successor = await inspectAcceptedOpenClawRetry({
++      requestApproval, retry, caseId: options.flowCases.openclaw, senderAgentId: options.actorIds.testowner,
++      recipientAgentId: options.actorIds.openclaw, window: hash(JSON.stringify(options.receipt)),
++    });
++    if (successor.checkedAt !== preflight.checkedAtMs || approval.workHash !== hash(successor.workId)
++      || approval.evidenceSha256 !== retry.retryInventory.sha256) refuse('EXACT_ACCEPTED_RETRY_EVIDENCE_REQUIRED');
++    const controller = await this.openChecked(options, false, true, schemaRecoveryApproval ? 4 : 3);
++    if (schemaRecoveryApproval) controller.ledger.inspectOpenClawSchemaRecovery(schemaRecoveryApproval);
++    else controller.ledger.inspectOpenClawRetry(retryApproval!);
++    for (const flow of controller.ledger.flows) {
++      if (flow.id !== 'openclaw') controller.released.add(flow.id);
++    }
++    controller.retainedWorkHashes.add(hash(successor.priorWorkId));
++    controller.distinctOpenClawFollowup = Object.freeze(successor.request);
++    controller.expectedWork.set('openclaw', { workId: successor.workId, evidenceSha256: retry.retryInventory.sha256 });
++    controller.approvedOperationBounds = Object.freeze({ operationCap: 63, normalCeiling: 55, cleanupReserve: 8 });
++    controller.terminalOpenClawPending = true;
++    // This append happens after native target review and immediately before the
++    // admitted work may acquire a fresh provider binding.
++    controller.openClawRetryApproval = retryApproval;
++    controller.openClawSchemaRecoveryApproval = schemaRecoveryApproval;
++    controller.acceptedOpenClawRetryJournal = Object.freeze({ workId: successor.workId, model: successor.journalIdentity });
++    return controller;
++  }
+   /** Carries genuine completed controls after a retryable pre-target failure.
+    * Preparation never changes the old partial state, ledger or time authority. */
+   static async prepareControlledProgress(input:ControlledProgressOptions):Promise<PreparedControlledProgress>{
+@@ -285,7 +391,7 @@ export class ContinuationController {
+   }
+   private static async openChecked(options:Omit<ControllerOptions,'preflight'|'receipt'> & {receipt:ActiveContinuationReceipt;
+     preflight:ContinuationPreflight|RetainedFollowupPreflight|StoppedProgressPreflight;
+-  },recovering=false,progress=false) {
++  },recovering=false,progress=false,expectedOpenClawDispatches: 0 | 3 | 4 | 6 = 0) {
+     const {receipt:r,preflight:p,expected:e}=options;const start=Date.parse(r.startUtc),now=Date.now();
+     const timeValid=r.version===2?progress&&r.lifetime==='until-complete-or-cancel'&&r.humanReview==='before-claim'&&!Object.hasOwn(r,'hardStopUtc')&&r.modelCap===64
+       :r.version===1&&Number.isFinite(Date.parse(r.hardStopUtc))&&Date.parse(r.hardStopUtc)>now&&Date.parse(r.hardStopUtc)-start<=90*60*1000;
+@@ -316,7 +422,7 @@ export class ContinuationController {
+     }
+     if(ledger.window!==window||ledger.modelCap!==r.modelCap||ledger.snapshot().pending||JSON.stringify(ledger.flows)!==JSON.stringify(flows)
+       ||JSON.stringify(ledger.reviewedPlan)!==JSON.stringify(reviewed)) refuse('CANONICAL_CONTINUATION_RECONCILIATION_REQUIRED');
+-    if(progress)assertStoppedProgressPreflight(p,ledger);
++    if(progress)assertStoppedProgressPreflight(p,ledger,now,expectedOpenClawDispatches);
+     if(reviewed){const approval=validateReviewedGraphApproval(ledger.reviewedGraphApprovalRaw,{planSha256:reviewed.planSha256,window,clientSource:r.clientSource,serverSource:r.serverSource,packetSha256:r.packetSha256});
+       if(approval.approvalHash!==reviewed.ownerApprovalHash)refuse('GRAPH_SOURCE_APPROVAL_HASH_MISMATCH');}
+     return new ContinuationController(ledger,Object.freeze({...r}),Object.freeze({...options.flowCases}),Object.freeze({...options.actorIds}),options.sameRoleNativeAttribution);
+@@ -334,6 +440,9 @@ export class ContinuationController {
+   stop(reason='CONTROLLED_STOP'){this.control.abort(new Error(reason));this.group?.gate.reject(this.control.signal.reason);}
+   releaseGroup(ids:readonly string[]) {
+     this.live();if(this.preNativeControl)refuse('PRE_NATIVE_CONTROL_ACTIVE');if(this.ledger.snapshot().pending||this.group&&!this.group.ids.every(id=>this.bindings.get(id)?.finished))refuse('PRIOR_FLOW_NOT_RECONCILED');
++    if(this.terminalOpenClawPending && !this.bindings.get('openclaw')?.finished && (ids.length !== 1 || ids[0] !== 'openclaw')) {
++      refuse('TERMINAL_OPENCLAW_SUCCESSOR_MUST_RUN_FIRST');
++    }
+     const flows=ids.map(id=>this.ledger.flows.find(f=>f.id===id));
+     const sameRole=new Set(flows.map(f=>f?.role)).size!==ids.length;
+     if(!ids.length||new Set(ids).size!==ids.length||flows.some(f=>!f||f.retired)||ids.some(id=>this.released.has(id))
+@@ -345,6 +454,7 @@ export class ContinuationController {
+   /** Trusted canonical GET/effect observer pins the exact work before any claim/native admission. */
+   expectWork(flowId:string,workId:string,canonicalEvidenceSha256:string){
+     if(this.retainedWorkHashes.has(hash(workId)))refuse('PRIOR_NATIVE_WORK_MUST_NOT_REPEAT');
++    if(flowId==='asset-share'&&this.assetShareWorkId&&workId!==this.assetShareWorkId)refuse('R3_FILE_REQUEST_WORK_MISMATCH');
+     this.live();const bound=this.bindings.get(flowId);if(!this.group?.ids.includes(flowId)||bound&&(bound.submitted||bound.workId!==workId)||!/^msg_[A-Za-z0-9_-]+$/.test(workId)||!digest(canonicalEvidenceSha256)
+       ||[...this.expectedWork.entries()].some(([id,v])=>id!==flowId&&v.workId===workId))refuse('EXACT_CANONICAL_RECEIPT_REQUIRED');
+     const previous=this.expectedWork.get(flowId);if(previous&&previous.workId!==workId)refuse('CANONICAL_WORK_BINDING_CHANGED');
+@@ -357,7 +467,9 @@ export class ContinuationController {
+     if(!flow||flow.role!==role||!this.group?.ids.includes(flowId)||!expected||work.workId!==expected.workId||work.workId!==work.message.id
+       ||!/^msg_[A-Za-z0-9_-]+$/.test(work.workId)||work.message.caseId!==this.flowCases[flowId]
+       ||work.message.recipientAgentId!==this.actorIds[role])refuse('CANONICAL_WORK_GRAPH_MISMATCH');
+-    if(flowId==='openclaw'&&this.distinctOpenClawFollowup&&Object.entries(this.distinctOpenClawFollowup).filter(([key])=>['text','senderAgentId','recipientAgentId','caseId'].includes(key)).some(([key,value])=>work.message[key]!==value))refuse('EXACT_DISTINCT_FOLLOWUP_MESSAGE_REQUIRED');
++    if(flowId==='openclaw'&&this.distinctOpenClawFollowup&&Object.entries(this.distinctOpenClawFollowup)
++      .filter(([key])=>['text','senderAgentId','recipientAgentId','caseId'].includes(key)||this.terminalOpenClawPending&&key==='intent')
++      .some(([key,value])=>work.message[key]!==value))refuse('EXACT_DISTINCT_FOLLOWUP_MESSAGE_REQUIRED');
+     const policy=this.flowPolicy(flowId);
+     if(policy.decisionOutcome!==null){
+       if(work.message.kind!=='humanDecision')refuse('CANONICAL_HUMAN_DECISION_REQUIRED');
+@@ -392,6 +504,18 @@ export class ContinuationController {
+       }
+       nativeSignal.throwIfAborted();
+       if(Date.now()>=frame.deadlineUnixMs)refuse('NATIVE_DEADLINE_EXPIRED');
++      if (this.openClawRetryApproval) {
++        if (binding.flowId !== 'openclaw' || this.openClawRetryApproval.workHash !== hash(frame.workId)) refuse('EXACT_ACCEPTED_RETRY_EVIDENCE_REQUIRED');
++        await this.ledger.approveOpenClawRetry(this.openClawRetryApproval);
++        this.openClawRetryApproval = undefined;
++      }
++      if (this.openClawSchemaRecoveryApproval) {
++        if (binding.flowId !== 'openclaw' || this.openClawSchemaRecoveryApproval.workHash !== hash(frame.workId)) {
++          refuse('EXACT_ACCEPTED_RETRY_EVIDENCE_REQUIRED');
++        }
++        await this.ledger.approveOpenClawSchemaRecovery(this.openClawSchemaRecoveryApproval);
++        this.openClawSchemaRecoveryApproval = undefined;
++      }
+       await this.ledger.bindWork(binding.flowId,{canonicalWorkHash:hash(frame.workId),nativeToken:token,evidenceHash:binding.evidenceSha256});
+       nativeSignal.throwIfAborted();this.live();binding.submitted=true;binding.sessionId=frame.sessionId;binding.nativeToken=nativeWorkToken(meterToken,this.ledger.window,role,frame.sessionId);group.ready.set(binding.flowId,frame.deadlineUnixMs);
+       if(group.ready.size===group.ids.length&&!group.activating){group.activating=true;
+diff --git a/integrations/hermes/continuation-receiver-batch.test.ts b/integrations/hermes/continuation-receiver-batch.test.ts
+index 0f70a015367b5282fa017518f17b66031e609e08..274c1410442b7bcc94c8adbe2f1225c9d60b97b4 100644
+--- a/integrations/hermes/continuation-receiver-batch.test.ts
++++ b/integrations/hermes/continuation-receiver-batch.test.ts
+@@ -22,7 +22,7 @@ const deferred=()=>{let resolve!:()=>void;const promise=new Promise<void>(r=>{re
+ const cleanups:Array<()=>Promise<unknown>>=[];
+ beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-17T12:00:06Z'));});
+ afterEach(async()=>{for(const fn of cleanups.splice(0).reverse())await fn();vi.useRealTimers();vi.restoreAllMocks();});
+-async function setup({role='je1',process,tokenReuse=false,noAction=false,removeAfter=false,tamperAfterEnd=false,expectedCaseState,returnedCaseState='inProgress',decisionOutcome,targetResolver,targetSelection,ownedNative}:{role?:'je1'|'testowner'|'openclaw';process?:(channel:any,context:any)=>Promise<void>;tokenReuse?:boolean;noAction?:boolean;removeAfter?:boolean;tamperAfterEnd?:boolean;expectedCaseState?:'inProgress'|'completed';returnedCaseState?:'inProgress'|'completed';decisionOutcome?:'declined'|null;targetResolver?:OpenClawTargetResolver;targetSelection?:OpenClawTargetSelectionAuthority;ownedNative?:Parameters<typeof createContinuationReceiver>[0]['openClawOwnedNative']}={}){
++async function setup({role='je1',process,tokenReuse=false,noAction=false,removeAfter=false,tamperAfterEnd=false,expectedCaseState,returnedCaseState='inProgress',decisionOutcome,targetResolver,targetSelection,ownedNative,acceptHumanInstructions}:{role?:'je1'|'testowner'|'openclaw';process?:(channel:any,context:any)=>Promise<void>;tokenReuse?:boolean;noAction?:boolean;removeAfter?:boolean;tamperAfterEnd?:boolean;expectedCaseState?:'inProgress'|'completed';returnedCaseState?:'inProgress'|'completed';decisionOutcome?:'declined'|null;targetResolver?:OpenClawTargetResolver;targetSelection?:OpenClawTargetSelectionAuthority;ownedNative?:Parameters<typeof createContinuationReceiver>[0]['openClawOwnedNative'];acceptHumanInstructions?:false}={}){
+  const dir=await fs.mkdtemp(path.join(tmpdir(),'envoi-rx-batch-'));cleanups.push(async()=>{const target=path.resolve(dir);if(!target.startsWith(path.resolve(tmpdir())+path.sep)||!path.basename(target).startsWith('envoi-rx-batch-'))throw Error('CLEANUP_REFUSED');await fs.rm(target,{recursive:true,force:true});});
+  const expected={address:'example@envoi.mail',agentId:'agent_example',inboxId:'inbox_example',installationId:'installation_example'};
+  state.saved={version:1,runtime:role==='openclaw'?'openclaw':'hermes',apiUrl:origin,address:expected.address,configuration:{gatewayUrl:'http://127.0.0.1:19002',agentId:'inert'},activationSetup:{agentId:expected.agentId,inboxId:expected.inboxId,installationId:expected.installationId}};
+@@ -57,7 +57,7 @@ async function setup({role='je1',process,tokenReuse=false,noAction=false,removeA
+   }}});return{connector,close:async()=>{}};
+  };
+  const gate={policySha256:'b'.repeat(64),moduleSha256:'c'.repeat(64),factoriesSha256:'d'.repeat(64),profileHash:'e'.repeat(64),window:'a'.repeat(64),role:role==='openclaw'?'je1' as const:role,meterToken:'f'.repeat(64)};
+- const receiver=await createContinuationReceiver({controller,role,stateDir:dir,env:{ENVOI_SCOPED_TOOLS:'true',ENVOI_HERMES_GATE_REQUIRED:'1'},meterToken:'f'.repeat(64),nativeGate:role==='openclaw'?undefined:gate,expected,allowedNewSends:[],fetch:fetcher,reserveOperation,record,openClawTargetResolver:targetResolver,openClawTargetSelection:targetSelection,openClawOwnedNative:ownedNative,
++ const receiver=await createContinuationReceiver({controller,role,stateDir:dir,env:{ENVOI_SCOPED_TOOLS:'true',ENVOI_HERMES_GATE_REQUIRED:'1'},meterToken:'f'.repeat(64),nativeGate:role==='openclaw'?undefined:gate,expected,allowedNewSends:[],fetch:fetcher,reserveOperation,record,openClawTargetResolver:targetResolver,openClawTargetSelection:targetSelection,openClawOwnedNative:ownedNative,acceptHumanInstructions,
+   observeTransport:async(input,init,next)=>{const end=new URL(String(input)).pathname.match(/\/work\/([^/]+)\/session\/end$/);if(end)fenceOrder.push({kind:'outer_end_observer',workId:end[1]});const response=await next(input,init);if(end&&tamperAfterEnd)await fs.appendFile(path.join(dir,'scoped-runs',end[1]+'.json'),'\n');return response;}});cleanups.push(receiver.close);
+  const flows=works.map((w,index)=>({flowId:index?'second':'first',workId:w.workId,caseId:w.message.caseId,evidenceSha256:String(index+1).repeat(64)}));
+  return{receiver,controller,native,flows,fetcher,record,reserveOperation,calls,tokens,fenceOrder,claims:()=>claims};
+@@ -133,6 +133,14 @@ it('routes a reviewed immutable target using the actual SDK-minted canonical ses
+  const t=fakeTarget(f.workId),before=s.fetcher.mock.calls.length;await expect(state.context.fetch(t.gatewayUrl+'/v1/responses',{method:'POST',headers:{authorization:'Bearer '+t.gatewayToken},body:JSON.stringify({model:'openclaw/inert',input:[]})})).rejects.toMatchObject({code:'FOREIGN_RUNTIME_REQUEST_REFUSED'});expect(s.fetcher).toHaveBeenCalledTimes(before);
+  expect(JSON.stringify(s.record.mock.calls)).not.toMatch(/inert-target|envoi_case_session_|INERT_AGENT/);
+ });
++it('excludes queued owner instructions when processing a single reviewed OpenClaw work item',async()=>{
++ const s=await setup({role:'openclaw',targetResolver:async id=>fakeTarget(id),targetSelection:fakeSelection(fakeTarget),acceptHumanInstructions:false});
++ const f=s.flows[0],result=await s.receiver.runOne(f.flowId,f.workId,f.caseId,f.evidenceSha256);
++ expect(result).toMatchObject({workId:f.workId,canonicalStatus:'processed'});
++ const claims=s.fetcher.mock.calls.filter(([url])=>String(url).endsWith('/work/claim'));
++ expect(claims).toHaveLength(1);
++ expect(JSON.parse(String(claims[0][1]?.body))).toEqual({acceptHumanInstructions:false});
++});
+ it('rejects a personally reviewed target for a foreign canonical channel before native dispatch',async()=>{
+  const wrong=(id:string)=>({...fakeTarget(id),toolChannelSha256:'0'.repeat(64)}),s=await setup({role:'openclaw',targetResolver:async id=>wrong(id),targetSelection:fakeSelection(wrong)}),f=s.flows[0];
+  await expect(s.receiver.runOne(f.flowId,f.workId,f.caseId,f.evidenceSha256)).rejects.toMatchObject({code:'OPENCLAW_CANONICAL_TARGET_MISMATCH'});expect(s.calls.filter(c=>c.method==='responses')).toHaveLength(0);expect(s.native).not.toHaveBeenCalled();
+diff --git a/integrations/hermes/continuation-receiver.ts b/integrations/hermes/continuation-receiver.ts
+index cb4e920c2db6ee08d901f7c6ae269eb982c92327..40c21ebb72ea20222cf1b26bc9f1d015cb557c49 100644
+--- a/integrations/hermes/continuation-receiver.ts
++++ b/integrations/hermes/continuation-receiver.ts
+@@ -45,6 +45,8 @@ export async function createContinuationReceiver(options:{
+   controller:ContinuationController;role:Role;stateDir:string;env:NodeJS.ProcessEnv;meterToken:string;nativeGate?:NativeRequestGateExpectation;
+   expected:{address:string;agentId:string;inboxId:string;installationId:string};
+   allowedNewSends:readonly HostTaskRequest[];
++  /** Keep queued owner instructions out of explicitly selected work claims. */
++  acceptHumanInstructions?:false;
+   reserveOperation(input:{kind:'message'|'tool';caseId?:string;tool?:string;workId?:string}):Promise<void>;
+   observeTransport?(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],next:typeof fetch):Promise<Response>;
+   beforeScopedControl?(workId:string,signal:AbortSignal):Promise<never>;
+@@ -217,7 +219,8 @@ export async function createContinuationReceiver(options:{
+       scopedReadOnlyWork:(workId:string)=>{ensure();const state=active.get(workId);
+         if(!state||state.settled||state.failed)refuse('EXPLICIT_WORK_STEP_REQUIRED');
+         return !state.held&&!recovery&&policy(state.flowId).noAction;},
+-      ...(targets?{openClawTargetResolver:(workId:string,bounded:AbortSignal)=>targets.resolve(workId,bounded),openClawTargetSelection:options.openClawTargetSelection}:{}),
++      ...(targets?{openClawTargetResolver:(workId:string,bounded:AbortSignal)=>targets.resolve(workId,bounded),openClawTargetSelection:options.openClawTargetSelection,
++        openClawRetainedJournalIdentity:(workId:string)=>controller.openClawRetainedJournalIdentity?.(workId)}:{}),
+       beforeScopedTurn:async(workId:string,scopedSignal:AbortSignal)=>{const state=active.get(workId);if(!state)refuse('EXPLICIT_WORK_STEP_REQUIRED');if(preNativeControl){
+         const c=preNativeControl,capture=state.controlCapture;
+         if(!controlConsumer||!capture?.session||!capture.sessionRedactedBytes||!capture.snapshotRawBytes||!capture.authorization||!capture.protocolVersion||!state.caseSession||capture.entered)refuse('ACTUAL_CONTROL_SCOPE_REQUIRED');capture.entered=true;
+@@ -302,8 +305,9 @@ export async function createContinuationReceiver(options:{
+       open(flows);
+       try{
+         for(const state of active.values())if(policy(state.flowId).noAction){const messages=await bridge!.connector.listCaseMessages(state.caseId);if(messages.length>=50)refuse('BOUNDED_CASE_INVENTORY_REQUIRED');state.beforeIds=new Set(messages.map(m=>m.id));}
+-        if(flows.length===1){if(!await bridge!.connector.scopedWakeWorkDriver().processWorkOnce(signal))refuse('ACTUAL_WORK_SETTLEMENT_REQUIRED');return[await proof(active.get(flows[0].workId)!)];}
+-        const outcomes=await bridge!.connector.scopedWakeWorkDriver().processWorkBatch(flows.map(f=>({workId:f.workId,caseId:f.caseId})),signal);
++        const driver=bridge!.connector.scopedWakeWorkDriver();
++        if(flows.length===1&&options.acceptHumanInstructions!==false){if(!await driver.processWorkOnce(signal))refuse('ACTUAL_WORK_SETTLEMENT_REQUIRED');return[await proof(active.get(flows[0].workId)!)];}
++        const outcomes=await driver.processWorkBatch(flows.map(f=>({workId:f.workId,caseId:f.caseId})),signal,{acceptHumanInstructions:options.acceptHumanInstructions});
+         if(outcomes.length!==flows.length)refuse('EXACT_BATCH_OUTCOMES_REQUIRED');
+         const results:Awaited<ReturnType<typeof proof>>[]=[],errors:unknown[]=[];
+         for(let index=0;index<outcomes.length;index++){
+diff --git a/integrations/hermes/request-budget.test.ts b/integrations/hermes/request-budget.test.ts
+index 79673601e892b3bd56be095e2691c2963d4b17d3..cca5b8f204c855c52d9fb3d690ce24aebb96856a 100644
+--- a/integrations/hermes/request-budget.test.ts
++++ b/integrations/hermes/request-budget.test.ts
+@@ -4,7 +4,7 @@ import path from 'node:path';
+ import {createHash} from 'node:crypto';
+ import { afterEach, describe, expect, it, vi } from 'vitest';
+ import { nativeWorkToken, RequestBudgetLedger, requestBudgetMeter, type ModelBudgetAmendment } from './request-budget';
+-import { continuationAllocation,continuationRequirements } from './continuation-plan';
++import { continuationAllocation,continuationRequirements, defaultContinuationFlowPolicy, hashReviewedContinuationPlan } from './continuation-plan';
+ import { bindNativeBudget, cumulativeBudgetReport } from './request-budget-binding';
+ 
+ const cleanups: Array<() => Promise<unknown>> = [];
+@@ -37,6 +37,84 @@ async function setup(flows = defaultFlows, bind = true, amendment?:ModelBudgetAm
+ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.restoreAllMocks(); });
+ 
+ describe('durable physical-attempt budget', () => {
++  it('authorizes a bounded retry and carries only its unused allocation through schema recovery', async () => {
++    const flows = [
++      { id: 'openclaw', role: 'openclaw', requests: 3, workHash: null },
++      { id: 'private-backlog', role: 'je2', requests: 1, workHash: null },
++      { id: 'green', role: 'je1', requests: 1, workHash: null },
++      { id: 'asset', role: 'testowner', requests: 28, workHash: null },
++    ] as const;
++    const s = await setup([...flows], false, { purpose: 'phase-c-decline-continuation', models: 64, approvalReceiptSha256: h('7') });
++    const subject = {
++      purpose: 'phase-c-reviewed-graph' as const, version: 1 as const, allowSameRoleCohorts: false,
++      flows: flows.map(flow => ({ ...flow, policy: defaultContinuationFlowPolicy(flow.id) })),
++      flowCases: Object.fromEntries(flows.map(flow => [flow.id, 'case_' + flow.id])),
++      actorIds: { je1: 'agent_je1', je2: 'agent_je2', testowner: 'agent_owner', openclaw: 'agent_openclaw' },
++    };
++    const planSha256 = hashReviewedContinuationPlan(subject);
++    const { ledger } = s;
++    const proof = { clientSource: 'a'.repeat(40), serverSource: 'b'.repeat(40), packetSha256: h('3') };
++    const graphApprovalRaw = JSON.stringify({
++      purpose: 'phase-c-reviewed-graph-source-approval', version: 1, ownerApproved: true,
++      approvalId: 'fixture', planSha256, window: ledger.window, ...proof,
++    });
++    await ledger.amendReviewedPlan({
++      ...subject, planSha256, ownerApprovalHash: createHash('sha256').update(graphApprovalRaw).digest('hex'),
++    }, { ...proof, graphApprovalRaw, expectedWindow: ledger.window, allHostsStopped: true,
++      canonicalLeasesZero: true, previousNativeTerminal: true, chargedAttempts: 30 });
++    const workHash = h('4'), firstToken = h('5'), retryToken = h('6');
++    const firstDeadline = Date.now() + 1000;
++    await ledger.bindWork('openclaw', { canonicalWorkHash: workHash, nativeToken: firstToken, evidenceHash: h('8') });
++    await ledger.selectPhase('openclaw', ['openclaw'], firstDeadline);
++    for (let i = 0; i < 3; i++) {
++      const id = await ledger.reserve('openclaw', firstToken);
++      await ledger.markDispatched(id);
++      await ledger.finish(id, 'response');
++    }
++    await expect(ledger.reserve('openclaw', firstToken)).rejects.toThrow('MODEL_REQUEST_CAP_REACHED');
++    const approval = { purpose: 'phase-c-one-openclaw-retry', ownerApproved: true, window: ledger.window,
++      ledgerSha256: ledger.contentSha256, workHash, evidenceSha256: h('9'), additionalRequests: 3 } as const;
++    await expect(ledger.approveOpenClawRetry(approval)).rejects.toThrow('OPENCLAW_RETRY_REVIEW_REQUIRED');
++    const before = await fs.readFile(s.filename, 'utf8');
++    vi.spyOn(Date, 'now').mockReturnValue(firstDeadline + 1);
++    await expect(ledger.approveOpenClawRetry({ ...approval, workHash: h('0') })).rejects.toThrow('OPENCLAW_RETRY_REVIEW_REQUIRED');
++    await ledger.approveOpenClawRetry(approval);
++    await expect(ledger.approveOpenClawRetry(approval)).rejects.toThrow('OPENCLAW_RETRY_REVIEW_REQUIRED');
++    await expect(ledger.bindWork('openclaw', { canonicalWorkHash: h('0'), nativeToken: retryToken, evidenceHash: h('9') })).rejects.toThrow('CANONICAL_WORK_BINDING_CHANGED');
++    await expect(ledger.bindWork('openclaw', { canonicalWorkHash: workHash, nativeToken: firstToken, evidenceHash: h('9') })).rejects.toThrow('OPENCLAW_RETRY_REQUIRES_FRESH_NATIVE_TOKEN');
++    await expect(ledger.selectPhase('openclaw', ['openclaw'], Date.now() + 1000)).rejects.toThrow('AMBIGUOUS_OR_UNBOUND_WORK');
++    await ledger.bindWork('openclaw', { canonicalWorkHash: workHash, nativeToken: retryToken, evidenceHash: h('9') });
++    await expect(ledger.bindWork('green', { canonicalWorkHash: h('0'), nativeToken: h('1'), evidenceHash: h('9') })).rejects.toThrow('CANONICAL_WORK_BINDING_REQUIRED');
++    await ledger.selectPhase('openclaw', ['openclaw'], Date.now() + 1000);
++    await expect(ledger.reserve('openclaw', firstToken)).rejects.toThrow('OPENCLAW_RETRY_REQUIRES_FRESH_NATIVE_TOKEN');
++    await expect(ledger.selectPhase('openclaw', ['openclaw'], Date.now() + 1000)).rejects.toThrow('NATIVE_DEADLINE_CANNOT_RESET');
++    const rejected = await ledger.reserve('openclaw', retryToken);
++    await ledger.markDispatched(rejected);
++    await ledger.finish(rejected, 'response');
++    const schemaRecovery = { purpose: 'phase-c-openclaw-schema-recovery', ownerApproved: true, window: ledger.window,
++      ledgerSha256: ledger.contentSha256, workHash, evidenceSha256: h('a'), remainingRequests: 2 } as const;
++    await expect(ledger.approveOpenClawSchemaRecovery(schemaRecovery)).rejects.toThrow('OPENCLAW_SCHEMA_RECOVERY_REVIEW_REQUIRED');
++    vi.spyOn(Date, 'now').mockReturnValue(firstDeadline + 1002);
++    await expect(ledger.approveOpenClawSchemaRecovery({ ...schemaRecovery, ledgerSha256: h('b') })).rejects.toThrow('OPENCLAW_SCHEMA_RECOVERY_REVIEW_REQUIRED');
++    await ledger.approveOpenClawSchemaRecovery(schemaRecovery);
++    await expect(ledger.approveOpenClawSchemaRecovery(schemaRecovery)).rejects.toThrow('OPENCLAW_SCHEMA_RECOVERY_REVIEW_REQUIRED');
++    for (const nativeToken of [firstToken, retryToken]) {
++      await expect(ledger.bindWork('openclaw', { canonicalWorkHash: workHash, nativeToken, evidenceHash: h('a') }))
++        .rejects.toThrow('OPENCLAW_RETRY_REQUIRES_FRESH_NATIVE_TOKEN');
++    }
++    const recoveryToken = h('c');
++    await ledger.bindWork('openclaw', { canonicalWorkHash: workHash, nativeToken: recoveryToken, evidenceHash: h('a') });
++    await ledger.selectPhase('openclaw', ['openclaw'], Date.now() + 1000);
++    for (let i = 0; i < 2; i++) {
++      const id = await ledger.reserve('openclaw', recoveryToken);
++      await ledger.markDispatched(id);
++      await ledger.finish(id, 'response');
++    }
++    await expect(ledger.reserve('openclaw', recoveryToken)).rejects.toThrow('MODEL_REQUEST_CAP_REACHED');
++    const reopened = await RequestBudgetLedger.open(s.filename);
++    expect(reopened.snapshot()).toMatchObject({ chargedAttempts: 36, knownOpenClawDispatches: 6, pending: 0, modelCap: 64 });
++    expect((await fs.readFile(s.filename, 'utf8')).startsWith(before)).toBe(true);
++  });
+   it('keeps default48 and requires explicit bounded approval before an expanded flow can be seeded',async()=>{
+     await expect(setup([{id:'private',role:'je2',requests:19,workHash:h('c')}])).rejects.toThrow('FLOW_ALLOCATION_REFUSED');
+     for(const amendment of [{purpose:'phase-c-decline-continuation',models:62,approvalReceiptSha256:''},
+@@ -47,7 +125,7 @@ describe('durable physical-attempt budget', () => {
+   it('charges all34 amended attempts and denies65 without changing other caps or historical use',async()=>{
+     const proof={purpose:'phase-c-decline-continuation' as const,models:64,approvalReceiptSha256:h('7')};
+     const s=await setup([{id:'private',role:'je2',requests:34,workHash:h('c')}],true,proof);
+-    await s.ledger.selectPhase('hermes',['private'],Date.now()+10000);
++    await s.ledger.selectPhase('hermes',['private'],Date.now()+120000);
+     for(let n=0;n<34;n++){const id=await s.ledger.reserve('je2',s.work.je2);await s.ledger.finish(id,'response');}
+     await expect(s.ledger.reserve('je2',s.work.je2)).rejects.toThrow('MODEL_REQUEST_CAP_REACHED');
+     const reopened=await RequestBudgetLedger.open(s.filename);
+diff --git a/integrations/hermes/request-budget.ts b/integrations/hermes/request-budget.ts
+index 9f0013b680ef19b45fd5cfcab2ae432a0b2641c2..b44ba8c2f53417987885b680e4e2ed105948e97a 100644
+--- a/integrations/hermes/request-budget.ts
++++ b/integrations/hermes/request-budget.ts
+@@ -18,8 +18,29 @@ type Prior = { actualCalls: number; actualHermesApiCalls: number; openClawProvid
+ type RecordLine = { previous: string; kind: string; [key: string]: unknown };
+ export type ReviewedGraphAmendmentProof=Readonly<{expectedWindow:string;allHostsStopped:boolean;canonicalLeasesZero:boolean;previousNativeTerminal:boolean;chargedAttempts:number;
+   graphApprovalRaw:string;clientSource:string;serverSource:string;packetSha256:string}>;
++export type OpenClawRetryApproval = Readonly<{
++  purpose: 'phase-c-one-openclaw-retry';
++  ownerApproved: true;
++  window: string;
++  ledgerSha256: string;
++  workHash: string;
++  evidenceSha256: string;
++  additionalRequests: 3;
++}>;
++export type OpenClawSchemaRecoveryApproval = Readonly<{
++  purpose: 'phase-c-openclaw-schema-recovery';
++  ownerApproved: true;
++  window: string;
++  ledgerSha256: string;
++  workHash: string;
++  evidenceSha256: string;
++  remainingRequests: 2;
++}>;
+ const nativeHistoryKinds=new Set(['binding','phase','attempt','dispatched','finished']);
+-const allocatedRequests=(flows:readonly Flow[])=>flows.reduce((n,f)=>n+(f.retired?0:f.requests),0);
++const retryReallocatedFlows = new Set(['private-backlog', 'green']);
++const allocatedRequests = (flows: readonly Flow[], retry?: OpenClawRetryApproval) =>
++  flows.reduce((sum, flow) => sum + (flow.retired || retry && retryReallocatedFlows.has(flow.id) ? 0 : flow.requests), 0)
++  + (retry?.additionalRequests ?? 0);
+ const flowHasHistory=(rows:readonly RecordLine[],id:string)=>rows.some(r=>r.flow===id||r.kind==='phase'&&Array.isArray(r.active)&&r.active.includes(id));
+ const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+ function refuse(code: string): never { throw Object.assign(new Error(code), { code }); }
+@@ -116,8 +137,26 @@ export class RequestBudgetLedger {
+   get flows() { const plan=this.reviewedPlan;return plan?plan.flows.map(({policy:_policy,...flow})=>flow):structuredClone(this.lines[0].flows) as Flow[]; }
+   get prior() { return structuredClone(this.lines[0].prior) as Prior; }
+   get modelCap() { return approvedCaps(this.lines[0].modelBudgetAmendment).models; }
++  private get openClawRetry() {
++    return this.lines.find(line => line.kind === 'openclaw-retry')?.approval as OpenClawRetryApproval | undefined;
++  }
++  private requestLimit(flow: Flow) {
++    return flow.requests + (flow.id === 'openclaw' ? this.openClawRetry?.additionalRequests ?? 0 : 0);
++  }
++  private retryHistory(flowId: string) {
++    const recoveryIndex = this.lines.findIndex(line => line.kind === 'openclaw-schema-recovery');
++    const index = recoveryIndex >= 0 ? recoveryIndex : this.lines.findIndex(line => line.kind === 'openclaw-retry');
++    return index >= 0 && flowId === 'openclaw' && this.openClawRetry?.window === this.window
++      ? this.lines.slice(index + 1) : this.lines;
++  }
++  private reclaimedForRetry(flowId: string) {
++    return Boolean(this.openClawRetry && retryReallocatedFlows.has(flowId));
++  }
+   /** Includes admissions which failed before the first physical provider request. */
+   get hasNativeHistory() { return this.lines.some(line=>nativeHistoryKinds.has(line.kind)); }
++  hasFlowHistory(flowId: string) {
++    return flowHasHistory(this.lines, flowId);
++  }
+   /** Retain older admissions. Recovery refuses every native record at or after
+    * the proven stopped execution's window boundary, including later windows. */
+   hasNativeHistorySinceWindow(window:string) {
+@@ -151,12 +190,114 @@ export class RequestBudgetLedger {
+     if (!flows.length || new Set(flows.map(f => f.id)).size !== flows.length || flows.some(f => !/^[a-z0-9-]{1,80}$/.test(f.id)
+       || !['je1','je2','testowner','openclaw'].includes(f.role) || !Number.isSafeInteger(f.requests) || f.requests < 1
+       || f.workHash !== null && !exactHash(f.workHash)||f.retired!==undefined&&f.retired!==true)) refuse('REQUEST_LEDGER_FLOW_INVALID');
+-    if (this.lines.some(l => !['seed','binding','phase','attempt','dispatched','finished','window','plan'].includes(l.kind))) refuse('REQUEST_LEDGER_RECORD_INVALID');
++    if (this.lines.some(l => !['seed','binding','phase','attempt','dispatched','finished','window','plan','openclaw-retry','openclaw-schema-recovery'].includes(l.kind))) refuse('REQUEST_LEDGER_RECORD_INVALID');
+     this.validatePlans();
+-    if (s.chargedAttempts > this.modelCap || allocatedRequests(this.flows) > this.modelCap-30) refuse('REQUEST_LEDGER_CAP_INVALID');
+-    for (const flow of this.flows) if (s.requests.filter(r => r.flow === flow.id).length > flow.requests) refuse('REQUEST_LEDGER_FLOW_INVALID');
++    if (s.chargedAttempts > this.modelCap || allocatedRequests(this.flows, this.openClawRetry) > this.modelCap-30) refuse('REQUEST_LEDGER_CAP_INVALID');
++    const retryIndex = this.lines.findIndex(line => line.kind === 'openclaw-retry');
++    const recoveryIndex = this.lines.findIndex(line => line.kind === 'openclaw-schema-recovery');
++    if (recoveryIndex >= 0) this.checkOpenClawSchemaRecovery(this.lines[recoveryIndex].approval, this.lines.slice(0, recoveryIndex));
++    if (retryIndex >= 0) {
++      this.checkOpenClawRetry(this.lines[retryIndex].approval, this.lines.slice(0, retryIndex));
++      const segmentStart = recoveryIndex < 0 ? retryIndex : recoveryIndex;
++      const tail = this.lines.slice(segmentStart + 1);
++      const bindings = tail.filter(line => line.kind === 'binding' && line.flow === 'openclaw');
++      const phases = tail.filter(line => line.kind === 'phase' && (line.active as string[]).includes('openclaw'));
++      const approval = this.openClawRetry!;
++      const oldTokens = new Set(this.lines.slice(0, segmentStart).filter(line => line.kind === 'binding' && line.flow === 'openclaw').map(line => line.nativeToken));
++      if (tail.some(line => line.kind === 'openclaw-retry' || line.kind === 'openclaw-schema-recovery') || [...retryReallocatedFlows].some(id => flowHasHistory(tail, id))
++        || bindings.length > 1 || bindings.some(line => line.window !== approval.window || oldTokens.has(line.nativeToken)
++          || !exactHash(line.nativeToken) || line.canonicalWorkHash !== approval.workHash)
++        || phases.length > 1 || phases.some(line => JSON.stringify(line.active) !== '["openclaw"]' || !bindings[0]
++          || tail.indexOf(line) < tail.indexOf(bindings[0]))
++        || tail.some((line, index) => line.kind === 'attempt' && line.flow === 'openclaw'
++          && (!phases[0] || tail.indexOf(phases[0]) >= index || line.canonicalWorkHash !== approval.workHash))) {
++        refuse('OPENCLAW_RETRY_REVIEW_REQUIRED');
++      }
++    }
++    for (const flow of this.flows) if (s.requests.filter(r => r.flow === flow.id).length > this.requestLimit(flow)) refuse('REQUEST_LEDGER_FLOW_INVALID');
+     if(flows.some(f=>f.retired&&flowHasHistory(this.lines,f.id)))refuse('RETIRED_FLOW_HAS_NATIVE_HISTORY');
+   }
++  private checkOpenClawRetry(value: unknown, prior: readonly RecordLine[]) {
++    const approval = value as OpenClawRetryApproval;
++    const plan = prior.filter(row => row.kind === 'plan').at(-1)?.plan as ReviewedContinuationPlan | undefined;
++    const flow = plan?.flows.find(item => item.id === 'openclaw');
++    const window = prior.filter(row => row.kind === 'window').at(-1)?.window ?? prior[0].window;
++    const attempts = prior.filter(row => row.kind === 'attempt');
++    const workAttempts = attempts.filter(row => row.flow === 'openclaw');
++    const bindings = prior.filter(row => row.kind === 'binding' && row.flow === 'openclaw');
++    const phases = prior.filter(row => row.kind === 'phase' && (row.active as string[]).includes('openclaw'));
++    if (!approval || Object.keys(approval).sort().join() !== 'additionalRequests,evidenceSha256,ledgerSha256,ownerApproved,purpose,window,workHash'
++      || approval.purpose !== 'phase-c-one-openclaw-retry' || approval.ownerApproved !== true || approval.additionalRequests !== 3
++      || !exactHash(approval.workHash) || !exactHash(approval.evidenceSha256) || approval.window !== window
++      || approval.ledgerSha256 !== hash(prior.map(row => JSON.stringify(row) + '\n').join(''))
++      || prior.some(row => row.kind === 'openclaw-retry') || this.modelCap !== 64 || !plan
++      || flow?.role !== 'openclaw' || flow.retired || flow.requests !== 3 || workAttempts.length !== 3
++      || bindings.length !== 1 || bindings[0].canonicalWorkHash !== approval.workHash || bindings[0].window !== window
++      || phases.length !== 1 || JSON.stringify(phases[0].active) !== '["openclaw"]'
++      || !Number.isSafeInteger(phases[0].deadline) || Number(phases[0].deadline) > Date.now()
++      || workAttempts.some(row => row.canonicalWorkHash !== approval.workHash
++        || !prior.some(event => event.kind === 'dispatched' && event.attempt === row.attempt))
++      || attempts.some(row => !prior.some(event => event.kind === 'finished' && event.attempt === row.attempt)
++        || !prior.some(event => event.attempt === row.attempt && (event.kind === 'dispatched' || event.kind === 'finished' && event.outcome === 'not_forwarded')))
++      || [...retryReallocatedFlows].some(id => !plan.flows.some(item => item.id === id && !item.retired && item.requests === 1)
++        || attempts.some(row => row.flow === id)
++        || prior.some(row => row.kind === 'phase' && (row.active as string[]).includes(id)
++          && (!Number.isSafeInteger(row.deadline) || Number(row.deadline) > Date.now())))
++      || allocatedRequests(plan.flows, approval) > this.modelCap - 30) {
++      refuse('OPENCLAW_RETRY_REVIEW_REQUIRED');
++    }
++    return approval;
++  }
++
++  async approveOpenClawRetry(value: OpenClawRetryApproval) {
++    const input = structuredClone(value);
++    return this.serialized(async () => {
++      if (this.denied || this.readOnly) refuse('OPENCLAW_RETRY_REVIEW_REQUIRED');
++      const approval = this.checkOpenClawRetry(input, this.lines);
++      await this.append('openclaw-retry', { approval });
++    });
++  }
++
++  inspectOpenClawRetry(value: OpenClawRetryApproval) {
++    return Object.freeze(this.checkOpenClawRetry(structuredClone(value), this.lines));
++  }
++
++  private checkOpenClawSchemaRecovery(value: unknown, prior: readonly RecordLine[]) {
++    const approval = value as OpenClawSchemaRecoveryApproval;
++    const retryIndex = prior.findIndex(row => row.kind === 'openclaw-retry');
++    if (retryIndex < 0) return refuse('OPENCLAW_SCHEMA_RECOVERY_REVIEW_REQUIRED');
++    const retry = this.checkOpenClawRetry(prior[retryIndex].approval, prior.slice(0, retryIndex));
++    const [binding, phase, attempt, dispatched, finished, extra] = prior.slice(retryIndex + 1);
++    const initialBinding = prior.slice(0, retryIndex).find(row => row.kind === 'binding' && row.flow === 'openclaw');
++    if (!approval || Object.keys(approval).sort().join() !== 'evidenceSha256,ledgerSha256,ownerApproved,purpose,remainingRequests,window,workHash'
++      || approval.purpose !== 'phase-c-openclaw-schema-recovery' || approval.ownerApproved !== true || approval.remainingRequests !== 2
++      || approval.window !== retry.window || approval.workHash !== retry.workHash || !exactHash(approval.evidenceSha256)
++      || approval.ledgerSha256 !== hash(prior.map(row => JSON.stringify(row) + '\n').join(''))
++      || extra || binding?.kind !== 'binding' || binding.flow !== 'openclaw' || binding.role !== 'openclaw'
++      || binding.window !== retry.window || binding.canonicalWorkHash !== retry.workHash || !exactHash(binding.nativeToken)
++      || binding.nativeToken === initialBinding?.nativeToken
++      || phase?.kind !== 'phase' || phase.phase !== 'openclaw' || JSON.stringify(phase.active) !== '["openclaw"]'
++      || !Number.isSafeInteger(phase.deadline) || Number(phase.deadline) > Date.now()
++      || attempt?.kind !== 'attempt' || attempt.flow !== 'openclaw' || attempt.role !== 'openclaw' || attempt.canonicalWorkHash !== retry.workHash
++      || dispatched?.kind !== 'dispatched' || dispatched.attempt !== attempt.attempt
++      || finished?.kind !== 'finished' || finished.attempt !== attempt.attempt || finished.outcome !== 'response') {
++      refuse('OPENCLAW_SCHEMA_RECOVERY_REVIEW_REQUIRED');
++    }
++    return approval;
++  }
++
++  inspectOpenClawSchemaRecovery(value: OpenClawSchemaRecoveryApproval) {
++    return Object.freeze(this.checkOpenClawSchemaRecovery(structuredClone(value), this.lines));
++  }
++
++  async approveOpenClawSchemaRecovery(value: OpenClawSchemaRecoveryApproval) {
++    const input = structuredClone(value);
++    return this.serialized(async () => {
++      if (this.denied || this.readOnly) refuse('OPENCLAW_SCHEMA_RECOVERY_REVIEW_REQUIRED');
++      const approval = this.checkOpenClawSchemaRecovery(input, this.lines);
++      await this.append('openclaw-schema-recovery', { approval });
++    });
++  }
+   private validatePlans(){
+     let previousFlows=structuredClone(this.lines[0].flows) as Flow[];
+     let policies=new Map(previousFlows.map(f=>[f.id,defaultContinuationFlowPolicy(f.id)]));
+@@ -176,9 +317,10 @@ export class RequestBudgetLedger {
+         ||proof.chargedAttempts!==30+attempts.length||approvals.has(plan.ownerApprovalHash)
+         ||attempts.some(a=>!prefix.some(f=>f.kind==='finished'&&f.attempt===a.attempt))
+         ||attempts.some(a=>!prefix.some(f=>f.kind==='dispatched'&&f.attempt===a.attempt)&&!prefix.some(f=>f.kind==='finished'&&f.attempt===a.attempt&&f.outcome==='not_forwarded'))
+-        ||allocatedRequests(plan.flows)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
++        ||allocatedRequests(plan.flows, prefix.find(line => line.kind === 'openclaw-retry')?.approval as OpenClawRetryApproval | undefined)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
+       for(const old of previousFlows){
+-        const next=plan.flows.find(f=>f.id===old.id),charged=attempts.filter(a=>a.flow===old.id).length;
++        const next=plan.flows.find(f=>f.id===old.id),charged=attempts.filter(a=>a.flow===old.id).length
++          - (old.id === 'openclaw' && prefix.some(line => line.kind === 'openclaw-retry') ? 3 : 0);
+         if(!next||next.role!==old.role||next.workHash!==old.workHash||next.requests>old.requests||next.requests<charged
+           ||old.retired&&!next.retired||next.retired&&next.requests!==old.requests||!old.retired&&next.retired&&flowHasHistory(prefix,old.id)
+           ||!sameContinuationFlowPolicy(next.policy,policies.get(old.id)!)||previousPlan&&plan.flowCases[old.id]!==previousPlan.flowCases[old.id])refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
+@@ -192,12 +334,15 @@ export class RequestBudgetLedger {
+   async bindWork(flowId: string, proof: { canonicalWorkHash: string; nativeToken: string; evidenceHash: string }) {
+     return this.serialized(async () => {
+       const flow = this.flows.find(f => f.id === flowId);
+-      if (!flow || flow.retired || !exactHash(proof.canonicalWorkHash) || !exactHash(proof.nativeToken) || !exactHash(proof.evidenceHash)
++      if (!flow || flow.retired || this.reclaimedForRetry(flowId) || !exactHash(proof.canonicalWorkHash) || !exactHash(proof.nativeToken) || !exactHash(proof.evidenceHash)
+         || flow.workHash !== null && flow.workHash !== proof.canonicalWorkHash) refuse('CANONICAL_WORK_BINDING_REQUIRED');
+       if (this.lines.some(l => l.kind === 'binding' && l.flow !== flowId && (l.nativeToken === proof.nativeToken || l.canonicalWorkHash === proof.canonicalWorkHash))) refuse('CANONICAL_WORK_BINDING_CHANGED');
+       const prior = this.lines.find(l => l.kind === 'binding' && l.flow === flowId);
+       if (prior && prior.canonicalWorkHash !== proof.canonicalWorkHash) refuse('CANONICAL_WORK_BINDING_CHANGED');
+-      const existing = this.lines.find(l => l.kind === 'binding' && l.flow === flowId && l.window === this.window);
++      const retry = this.retryHistory(flowId);
++      if (retry !== this.lines && this.lines.some(line => line.kind === 'binding' && line.flow === flowId
++        && line.nativeToken === proof.nativeToken && !retry.includes(line))) refuse('OPENCLAW_RETRY_REQUIRES_FRESH_NATIVE_TOKEN');
++      const existing = retry.find(l => l.kind === 'binding' && l.flow === flowId && l.window === this.window);
+       if (existing) {
+         if (existing.flow === flowId && existing.canonicalWorkHash === proof.canonicalWorkHash && existing.nativeToken === proof.nativeToken) return;
+         refuse('CANONICAL_WORK_BINDING_CHANGED');
+@@ -244,10 +389,11 @@ export class RequestBudgetLedger {
+         ||proof.chargedAttempts!==s.chargedAttempts||s.pending||s.unresolvedDispatches)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
+       if(current&&JSON.stringify(current)===JSON.stringify(plan))return {plan,approval,unchanged:true};
+       if(this.lines.some(l=>l.kind==='plan'&&(l.plan as ReviewedContinuationPlan).ownerApprovalHash===plan.ownerApprovalHash)
+-        ||allocatedRequests(plan.flows)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
++        ||allocatedRequests(plan.flows,this.openClawRetry)>this.modelCap-30)refuse('REVIEWED_GRAPH_RECONCILIATION_REQUIRED');
+       for(const old of this.flows){
+         const next=plan.flows.find(f=>f.id===old.id),policy=current?.flows.find(f=>f.id===old.id)?.policy??defaultContinuationFlowPolicy(old.id);
+-        if(!next||next.role!==old.role||next.workHash!==old.workHash||next.requests>old.requests||next.requests<s.requests.filter(r=>r.flow===old.id).length
++        if(!next||next.role!==old.role||next.workHash!==old.workHash||next.requests>old.requests||
++          next.requests+(old.id==='openclaw'?this.openClawRetry?.additionalRequests??0:0)<s.requests.filter(r=>r.flow===old.id).length
+           ||old.retired&&!next.retired||next.retired&&next.requests!==old.requests||!old.retired&&next.retired&&flowHasHistory(this.lines,old.id)
+           ||!sameContinuationFlowPolicy(next.policy,policy)||current&&next&&plan.flowCases[old.id]!==current.flowCases[old.id])refuse('REVIEWED_GRAPH_HISTORY_CHANGED');
+       }
+@@ -270,14 +416,15 @@ export class RequestBudgetLedger {
+   async selectPhase(phase: 'hermes' | 'openclaw', active: readonly string[], absoluteDeadline: number) {
+     return this.serialized(async () => {
+       if (this.snapshot().pending) refuse('UNKNOWN_PROVIDER_ATTEMPT');
+-      if (!active.length || active.some(id => !this.flows.some(f => f.id === id && !f.retired && (phase === 'openclaw' ? f.role === 'openclaw' : f.role !== 'openclaw')))) refuse('HOST_PHASE_REFUSED');
++      if (!active.length || active.some(id => this.reclaimedForRetry(id) || !this.flows.some(f => f.id === id && !f.retired && (phase === 'openclaw' ? f.role === 'openclaw' : f.role !== 'openclaw')))) refuse('HOST_PHASE_REFUSED');
+       const roles = active.map(id => this.flows.find(f => f.id === id)!.role);
+       const sameRole=new Set(roles).size!==roles.length;
+       if(sameRole&&(!this.reviewedPlan?.allowSameRoleCohorts||active.length!==2||new Set(active.map(id=>this.reviewedPlan!.flowCases[id])).size!==2)
+         ||this.reviewedPlan&&active.length>2
+-        ||active.some(id=>!this.lines.some(l=>l.kind==='binding'&&l.flow===id&&l.window===this.window)))refuse('AMBIGUOUS_OR_UNBOUND_WORK');
++        ||active.some(id=>!this.retryHistory(id).some(l=>l.kind==='binding'&&l.flow===id&&l.window===this.window)))refuse('AMBIGUOUS_OR_UNBOUND_WORK');
+       if (!Number.isSafeInteger(absoluteDeadline) || absoluteDeadline <= Date.now() || absoluteDeadline > Date.now() + 120000) refuse('NATIVE_DEADLINE_REQUIRED');
+-      if (this.lines.some(l => l.kind === 'phase' && (l.active as string[]).some(id => active.includes(id)))) refuse('NATIVE_DEADLINE_CANNOT_RESET');
++      if (active.some(id => this.retryHistory(id).some(l => l.kind === 'phase' && (l.active as string[]).includes(id)))) refuse('NATIVE_DEADLINE_CANNOT_RESET');
++      if (active.includes('openclaw') && this.retryHistory('openclaw') !== this.lines && active.length !== 1) refuse('OPENCLAW_RETRY_REVIEW_REQUIRED');
+       await this.append('phase', { phase, active, deadline: absoluteDeadline });
+     });
+   }
+@@ -286,9 +433,13 @@ export class RequestBudgetLedger {
+       const s = this.snapshot();
+       if (!s.activeDeadline || Date.now() >= s.activeDeadline) refuse('NATIVE_DEADLINE_EXPIRED');
+       if (this.denied || (s.lastPhase === 'openclaw') !== (role === 'openclaw') || !s.lastPhase) refuse('HOST_PHASE_REFUSED');
+-      const binding = this.lines.find(l => l.kind === 'binding' && l.window === this.window && l.role === role && l.nativeToken === nativeToken && s.lastActive?.includes(l.flow as string));
++      const binding = this.lines.filter(l => l.kind === 'binding' && l.window === this.window && l.role === role && l.nativeToken === nativeToken && s.lastActive?.includes(l.flow as string)).at(-1);
+       const flow = this.flows.find(f => f.id === binding?.flow && f.role === role && !f.retired);
+-      if (!flow || s.chargedAttempts >= this.modelCap || s.requests.filter(r => r.flow === flow.id).length >= flow.requests) refuse('MODEL_REQUEST_CAP_REACHED');
++      if (!flow || this.reclaimedForRetry(flow.id) || s.chargedAttempts >= this.modelCap ||
++        s.requests.filter(r => r.flow === flow.id).length >= this.requestLimit(flow)) refuse('MODEL_REQUEST_CAP_REACHED');
++      const history = this.retryHistory(flow.id);
++      if (history !== this.lines && (!history.includes(binding!) ||
++        !history.some(line => line.kind === 'phase' && (line.active as string[]).includes(flow.id)))) refuse('OPENCLAW_RETRY_REQUIRES_FRESH_NATIVE_TOKEN');
+       const attempt = randomBytes(16).toString('hex');
+       await this.append('attempt', { attempt, flow: flow.id, role, canonicalWorkHash: binding!.canonicalWorkHash });
+       return attempt;
+diff --git a/integrations/hermes/stopped-progress.test.ts b/integrations/hermes/stopped-progress.test.ts
+index b5b1aebb0e330668636b0b676a69cfac62fc2107..81b23e8e870212546169d4ddcdc69802f7c4aa55 100644
+--- a/integrations/hermes/stopped-progress.test.ts
++++ b/integrations/hermes/stopped-progress.test.ts
+@@ -836,6 +836,84 @@ it('starts a separately approved persistent workflow, preserves all history, and
+  expect(await fs.readFile(s.journalPin.path)).toEqual(journal);expect(await fs.readFile(s.d.execution.path)).toEqual(old);
+  c.stop('HUMAN_CANCELLED');expect(c.active()).toBe(false);await expect(ContinuationController.startControlledWorkflow(handle)).rejects.toThrow('PREPARED_CONTROLLED_WORKFLOW_REQUIRED');
+ });
++it('resumes the admitted Windows workflow with only the approved distinct OpenClaw work bound', async () => {
++  const s = await persistentWorkflowSetup();
++  const options = s.options;
++  const old = await ContinuationController.startControlledWorkflow(await ContinuationController.prepareControlledWorkflow(options));
++  old.stop('INERT_TERMINAL_FAILURE');
++  const requestLedger = await fs.readFile(s.filename);
++  const window = h(JSON.stringify(options.receipt));
++  const { work } = JSON.parse(await fs.readFile(options.recovery.canonicalWork.path, 'utf8'));
++  const journal = { path: s.journalPin.path, sha256: h(await fs.readFile(s.journalPin.path, 'utf8')) };
++  const checkedAt = new Date(Date.now()).toISOString();
++  options.preflight = { ...options.preflight, checkedAtMs: Date.parse(checkedAt) };
++  const events = await s.pin('terminal-events.jsonl', JSON.stringify({
++    kind: 'canonical_settlement', window, role: 'openclaw', workId: work.workId,
++    operation: 'fail', status: 'failed', atUtc: checkedAt,
++  }) + '\n');
++  const execution = await s.pin('terminal-execution.json', {
++    purpose: 'actual-controlled-checkpoint-recovery', receipt: options.receipt, window,
++    actualStartedAtUtc: options.receipt.startUtc,
++  });
++  const request = {
++    origin: 'https://sinaloa-staging.rachelgonsalves821.workers.dev', caseId: options.flowCases.openclaw,
++    senderAgentId: options.actorIds.testowner, recipientAgentId: options.actorIds.openclaw,
++    text: 'Reply with the approved fixture marker.', intent: 'request', sendLimit: 1,
++    requestId: '12345678-0000-4000-8000-000000000001',
++    idempotencyKey: 'phase-c-followup:12345678-0000-4000-8000-000000000001',
++  };
++  const workId = 'msg_' + h(request.senderAgentId + ':' + request.idempotencyKey).slice(0, 32);
++  const requestApproval = await s.pin('terminal-request-approval.json', {
++    purpose: 'phase-c-one-approved-synthetic-reply-request', state: 'approved_unsent',
++    request, preservedCheckpoint: { workId: work.workId, status: 'failed', terminalEventsSha256: events.sha256, journalSha256: journal.sha256 },
++    pending: { stagingRelease: options.receipt.serverSource },
++  });
++  const actionPath = path.join(options.releaseRoot, 'phase-c-cumulative-actions.jsonl');
++  const actionLedger = { path: actionPath, sha256: h(await fs.readFile(actionPath, 'utf8')) };
++  const allocation = await s.pin('terminal-allocation.json', {
++    requestApprovalSha256: requestApproval.sha256, currentActionLedgerSha256: actionLedger.sha256,
++    allocation: { recordedOperations: 34, remainingApprovedOperations: 20, newSendOperations: 1 },
++  });
++  const operationApproval = await s.pin('terminal-operations.json', {
++    purpose: 'phase-c-openclaw-successor-operation-approval', state: 'approved_for_one_send',
++    requestApprovalSha256: requestApproval.sha256, allocationReviewSha256: allocation.sha256, actionLedgerSha256: actionLedger.sha256,
++    operationCap: 63, normalCeiling: 55, cleanupReserve: 8, modelCap: 64,
++  });
++  const inventoryValue = {
++    database: 'sinaloa_staging', readOnly: 'on', checkedAt, caseState: 'inProgress',
++    activeWorkLeases: 0, activeCaseSessions: 0, approvedMessage: { id: workId, copies: [] },
++    failedWork: [{
++      work_id: work.workId, case_id: request.caseId, recipient_agent_id: request.recipientAgentId,
++      claim_status: 'failed', message_status: 'failed', retryable: false, reason_code: 'HANDLER_FAILED',
++      lease_expires_at: null, retry_at: null, processed_at: null,
++    }],
++    failedWorkSessions: [{ status: 'ended' }],
++  };
++  const inventory = await s.pin('terminal-inventory.json', inventoryValue);
++  const terminal = { execution, events, journal, requestApproval, operationApproval, allocation, actionLedger,
++    inventory, requestLedgerSha256: h(requestLedger.toString('utf8')) };
++  const input = { ...options, terminal, sameRoleNativeAttribution: async (binding: any) => binding };
++  const badInventory = await s.pin('terminal-inventory-wrong-id.json', {
++    ...inventoryValue, approvedMessage: { id: work.workId, copies: [] },
++  });
++  await expect(ContinuationController.resumeTerminalOpenClawWorkflow({
++    ...input, terminal: { ...terminal, inventory: badInventory },
++  })).rejects.toThrow();
++  const resumed = await ContinuationController.resumeTerminalOpenClawWorkflow(input);
++  expect(resumed.operationBounds).toEqual({ operationCap: 63, normalCeiling: 55, cleanupReserve: 8 });
++  expect(() => resumed.releaseGroup(['asset-share'])).toThrow('TERMINAL_OPENCLAW_SUCCESSOR_MUST_RUN_FIRST');
++  resumed.releaseGroup(['openclaw']);
++  expect(() => resumed.expectWork('openclaw', work.workId, h('failed'))).toThrow('PRIOR_NATIVE_WORK_MUST_NOT_REPEAT');
++  expect(() => resumed.expectWork('openclaw', 'msg_unapproved', h('unapproved'))).toThrow('CANONICAL_WORK_BINDING_CHANGED');
++  resumed.expectWork('openclaw', workId, h('canonical'));
++  const message = { ...request, id: workId };
++  expect(() => resumed.observeClaim('openclaw', 'openclaw', { workId, message: { ...message, intent: 'offer' } }, 'fixture'))
++    .toThrow('EXACT_DISTINCT_FOLLOWUP_MESSAGE_REQUIRED');
++  resumed.observeClaim('openclaw', 'openclaw', { workId, message }, 'fixture');
++  expect(await fs.readFile(s.filename)).toEqual(requestLedger);
++  expect(h(await fs.readFile(actionPath, 'utf8'))).toBe(actionLedger.sha256);
++  resumed.stop();
++});
+ it.each(['fake-hardstop','wrong-lifetime','legacy-adoption','packet-policy','budget-change','replayed-handle'] as const)('refuses invalid persistent authority before changing ledger: %s',async fault=>{
+  const s=await persistentWorkflowSetup(),o=s.options;
+  if(fault==='fake-hardstop')(o.receipt as any).hardStopUtc='2099-01-01T00:00:00.000Z';if(fault==='wrong-lifetime')(o.receipt as any).lifetime='forever';
+diff --git a/integrations/hermes/stopped-progress.ts b/integrations/hermes/stopped-progress.ts
+index 6d1d67f08e8ba211e9f9fc5c8955076399734ce1..2cd52f6a492080a0cea052d70aebface690aa722 100644
+--- a/integrations/hermes/stopped-progress.ts
++++ b/integrations/hermes/stopped-progress.ts
+@@ -183,7 +183,7 @@ export async function inspectStoppedProgressHistory(input:{releaseRoot:string;re
+   return {originalReceipt:latest.receipt,priorWindow:latest.window,priorPacketSha256:latest.packetSha as string,priorStateSha256:r.priorState.sha256,
+     priorProgramSha256:latest.state.planSha256 as string,currentLedgerSha256:hash(current),blockedFlows:[...blockedFlows],blockedWorkHashes:[...blockedWorkHashes]};
+ }
+-export function assertStoppedProgressPreflight(p:StoppedProgressPreflight,ledger:RequestBudgetLedger,now=Date.now()){
++export function assertStoppedProgressPreflight(p:StoppedProgressPreflight,ledger:RequestBudgetLedger,now=Date.now(),expectedOpenClawDispatches:0|3|4|6=0){
+   const s=ledger.snapshot();
+   if(!Number.isFinite(p.checkedAtMs)||p.checkedAtMs>now||now-p.checkedAtMs>300000||p.allSelectedHostsStopped!==true
+     ||p.activeLeases!==0||p.protectedCasePaused!==true||p.originalDispositionMatches!==true||ledger.modelCap!==64||s.pending||s.unresolvedDispatches
+@@ -192,9 +192,9 @@ export function assertStoppedProgressPreflight(p:StoppedProgressPreflight,ledger
+     ||!Number.isSafeInteger(p.canonicalEffects)||p.canonicalEffects<9||p.canonicalEffects>p.conservativeMessages
+     ||!Number.isSafeInteger(p.cases)||p.cases<4||p.cases>9||p.newInstallations!==5
+     ||!Number.isSafeInteger(p.assets)||p.assets<0||p.assets>6)refuse('FRESH_STOPPED_PROGRESS_PREFLIGHT_REQUIRED');
+-  // This bounded path reconciles the retained Hermes admissions before the
+-  // first Phase C OpenClaw processing group; other native formats fail closed.
+-  if(s.knownOpenClawDispatches!==0)refuse('PRIOR_OPENCLAW_PROGRESS_REQUIRES_SEPARATE_RECOVERY');
++  // Each caller admits its specific historical OpenClaw evidence before
++  // selecting the corresponding dispatch count.
++  if(s.knownOpenClawDispatches!==expectedOpenClawDispatches)refuse('PRIOR_OPENCLAW_PROGRESS_REQUIRES_SEPARATE_RECOVERY');
+ }
+ export async function inspectStoppedProgress(input:{releaseRoot:string;receipt:ContinuationReceipt;preflight:StoppedProgressPreflight;
+   expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string};
+diff --git a/integrations/openclaw/closed-native-child.ts b/integrations/openclaw/closed-native-child.ts
+index 2827cfa30d877d34ab99088cbd7a2647fbfa8d72..34a32296907f5640e5a116f3b1370cca50072eae 100644
+--- a/integrations/openclaw/closed-native-child.ts
++++ b/integrations/openclaw/closed-native-child.ts
+@@ -1,4 +1,5 @@
+ // Entry for a NEW exact source-reviewed owned native process; never import on an owner host.
++import path from 'node:path';
+ import {startClosedNativeGateway} from './closed-native-bootstrap';
+ import {assertRestrictedNativeConfiguration,assertRestrictedNativeEnvironment,CLOSED_NATIVE_FORBIDDEN_ENV} from './closed-native-policy';
+ import {nativeStartupDiagnostic,type NativeStartupStage} from './native-startup-diagnostics';
+@@ -21,7 +22,14 @@ process.on('message',(m:any)=>{void(async()=>{
+    recordObservation:async observation=>{const id=++sequence;await new Promise<void>((resolve,reject)=>{pending.set(id,{resolve,reject});send({kind:'observation',id,nonce,observation});});},
+    recordPhysicalOutcome:async observation=>{const id=++sequence;await new Promise<void>((resolve,reject)=>{pending.set(id,{resolve,reject});send({kind:'physical_outcome',id,nonce,observation});});},
+    authorizePhysical:async(observation,signal)=>{signal.throwIfAborted();const id=++sequence;await new Promise<void>((resolve,reject)=>{const abort=()=>{pending.delete(id);reject(signal.reason);};signal.addEventListener('abort',abort,{once:true});pending.set(id,{resolve:()=>{signal.removeEventListener('abort',abort);resolve();},reject:e=>{signal.removeEventListener('abort',abort);reject(e);}});send({kind:'physical',id,nonce,observation});});}
+-  }},undefined,stage=>{startupStage=stage;send({kind:'startup_stage',nonce,stage});});gateway=await booting;send({kind:'ready',nonce,observation:gateway.readiness()});
++  }},undefined,stage=>{
++   startupStage=stage;
++   // Only after source validation, anchor native CLI discovery to the selected
++   // package rather than the ancestors of the Envoi IPC entry. This does not
++   // execute the CLI or change how the parent launches the reviewed child.
++   if(stage==='import-host')process.argv[1]=path.join(m.bootstrap.nativeRoot,'openclaw.mjs');
++   send({kind:'startup_stage',nonce,stage});
++  });gateway=await booting;send({kind:'ready',nonce,observation:gateway.readiness()});
+  }else if(m?.nonce===nonce&&(m.kind==='physical_result'||m.kind==='observation_result'||m.kind==='physical_outcome_result')){const p=pending.get(m.id);pending.delete(m.id);if(m.error)p?.reject(new Error('NATIVE_PHYSICAL_DISPATCH_REFUSED'));else p?.resolve();
+  }else if(m?.nonce===nonce&&m.kind==='stop'){startupStage='close';control.abort();for(const p of pending.values())p.reject(new Error('OWNED_NATIVE_STOPPED'));pending.clear();await booting?.catch(()=>undefined);await gateway?.close();send({kind:'closed',nonce});process.disconnect();process.exit(0);}
+  })().catch(error=>{if(process.connected)send({kind:'failed',nonce,diagnostic:nativeStartupDiagnostic(error,startupStage)});control.abort();void gateway?.close().finally(()=>process.exit(1));});});
+diff --git a/integrations/openclaw/native-startup-diagnostics.test.ts b/integrations/openclaw/native-startup-diagnostics.test.ts
+index 2e1994e3e761a6212360e6986c5433765cab9e68..5f812992501f743e7eb138bbaeae6f5a5ce9f5d7 100644
+--- a/integrations/openclaw/native-startup-diagnostics.test.ts
++++ b/integrations/openclaw/native-startup-diagnostics.test.ts
+@@ -212,3 +212,22 @@ it.each(['environment','private-paths'] as const)('executes the built real child
+   expect(JSON.stringify(observed)).not.toContain(secret);expect(stdout+stderr).not.toContain(secret);
+  }finally{child.kill();await exited;}
+ },15000);
++it('anchors the built child’s native discovery to the reviewed package before the first native import',async()=>{
++ const f=fixture(),nativeRoot=path.join(temporary,'pinned-native'),nonce='b'.repeat(64);
++ const hostSource=`import path from 'node:path';
++ if(process.argv[1]!==path.resolve(${JSON.stringify(nativeRoot)},'openclaw.mjs'))throw Error('EINVAL');
++ throw Error('ENOENT');`;
++ for(const [role,relative] of Object.entries(CLOSED_NATIVE_BOOTSTRAP_FILES)){
++  const file=path.join(nativeRoot,relative),source=role==='host'?hostSource:role;
++  await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,source,{flag:'wx'});
++  f.options.sourceSha256[role]=hash(source);f.binding.nativeSources={...f.binding.nativeSources,[role]:hash(source)};
++ }
++ const child=spawn(process.execPath,[childEntry],{env:{SystemRoot:process.env.SystemRoot,
++  OPENCLAW_STATE_DIR:f.paths.stateDirectory,OPENCLAW_CONFIG_PATH:f.paths.configurationPath},windowsHide:true,stdio:['ignore','ignore','ignore','ipc']});
++ const exited=once(child,'exit');
++ try{
++  const failure=new Promise(resolve=>child.on('message',m=>{if((m as any)?.kind==='failed')resolve(m);}));
++  child.send({kind:'start',nonce,bootstrap:{...f.options,nativeRoot}});
++  expect(await failure).toEqual({kind:'failed',nonce,diagnostic:{version:1,stage:'import-host',reason:'ENOENT'}});
++ }finally{child.kill();await exited;}
++},15000);
+diff --git a/integrations/openclaw/per-work-native.test.ts b/integrations/openclaw/per-work-native.test.ts
+index b5c20077f8376e5e61e959f54464da4ca31e3c6f..dcac9705f4565a48fa9c5e7227e65bfe35796cf9 100644
+--- a/integrations/openclaw/per-work-native.test.ts
++++ b/integrations/openclaw/per-work-native.test.ts
+@@ -37,7 +37,7 @@ it('copies private native config only, preserves provider auth/model and origina
+  expect(config.agents).not.toHaveProperty('list');expect(config.agents.entries).toEqual({main:{workspace:path.join(s.options.workRoot,'msg_actual','workspace'),agentDir:path.join(s.options.workRoot,'msg_actual','agent-state')}});
+  expect(await fs.readFile(path.join(s.profile,'openclaw.json'))).toEqual(original);expect(await fs.readFile(path.join(s.profile,'envoi-state','history'),'utf8')).toBe('ORIGINAL_ENROLLMENT_HISTORY');expect(await fs.readdir(path.join(s.options.workRoot,'msg_actual','state'))).toEqual([]);
+  await startOwnedOpenClawWork(factory,prepared.prepared,{canonical,capabilitySha256:'1'.repeat(64),ownerSelectionSha256:'2'.repeat(64),meterToken:'FAKE_NATIVE_METER_TOKEN',environment:{},signal,authorize:vi.fn(async()=>{}),ports:{}as any});
+- expect(fake.start).toHaveBeenCalledTimes(1);const actual=fake.start.mock.calls[0][0]as any;expect(actual.pins).toMatchObject({workId:binding.workId,caseSessionId:binding.caseSessionId,capabilitySha256:'1'.repeat(64),nativeSourceSha256:pins.nativeSourceSha256});expect(actual.nativeEnvironmentFile).toBe(s.options.nativeEnvironmentFile);expect(actual.bootstrap.binding.nativeSources.packageTree).toMatch(/^[a-f0-9]{64}$/);expect(actual.environment.OPENCLAW_CONFIG_PATH).toBe(path.join(s.options.workRoot,'msg_actual','openclaw.json'));
++ expect(fake.start).toHaveBeenCalledTimes(1);const actual=fake.start.mock.calls[0][0]as any;expect(actual.pins).toMatchObject({workId:binding.workId,caseSessionId:binding.caseSessionId,capabilitySha256:'1'.repeat(64),nativeSourceSha256:pins.nativeSourceSha256});expect(actual.nativeEnvironmentFile).toBe(s.options.nativeEnvironmentFile);expect(actual.bootstrap.binding.nativeSources.packageTree).toMatch(/^[a-f0-9]{64}$/);expect(actual.environment.OPENCLAW_CONFIG_PATH).toBe(path.join(s.options.workRoot,'msg_actual','openclaw.json'));expect(actual.environment).not.toHaveProperty('OPENCLAW_DISABLE_BUNDLED_PLUGINS');
+  await expect(prepareOwnedOpenClawWork(factory,{binding,canonical,gatewayPort:41002,proxyToken:'fake',proxyIdentity:'proxy_duplicate',signal})).rejects.toThrow('NEW_EXACT_NATIVE_WORK_REQUIRED');
+ });
+ it('preserves an earlier attempt profile and supports the same logical work in a caller-pinned fresh attempt root',async()=>{
+@@ -46,13 +46,17 @@ it('preserves an earlier attempt profile and supports the same logical work in a
+  await prepareOwnedOpenClawWork(first.factory,input);
+  const oldRoot=path.join(s.options.workRoot,binding.workId),files=['openclaw.json','original-config.private.backup.json'],before=await Promise.all(files.map(file=>fs.readFile(path.join(oldRoot,file))));
+  const reopened=await prepareOwnedOpenClawFactory(s.options);await expect(prepareOwnedOpenClawWork(reopened.factory,input)).rejects.toMatchObject({code:'EEXIST'});
+- const fresh=await prepareOwnedOpenClawFactory({...s.options,workRoot:path.join(s.options.workRoot,'attempt-reviewed-2')}),next={...binding,caseSessionId:'case_session_retry',processIdentity:'process_retry'};
++ const fresh=await prepareOwnedOpenClawFactory({...s.options,workRoot:path.join(s.options.workRoot,'attempt-reviewed-2'),directClientTools:true}),next={...binding,caseSessionId:'case_session_retry',processIdentity:'process_retry'};
+  const prepared=await prepareOwnedOpenClawWork(fresh.factory,{...input,binding:next,canonical:{...canonical,fence:2},gatewayPort:41002,proxyIdentity:'proxy_retry'});
+  expect(prepared.privateTarget.binding).toMatchObject({workId:binding.workId,caseId:binding.caseId,caseSessionId:next.caseSessionId,fence:2});
+  for(let i=0;i<files.length;i++)expect(await fs.readFile(path.join(oldRoot,files[i]))).toEqual(before[i]);
+  expect(prepared.privateTarget.configurationPathSha256).not.toBe(hash(path.resolve(path.join(oldRoot,'openclaw.json'))));
++ const retryConfig=JSON.parse(await fs.readFile(path.join(s.options.workRoot,'attempt-reviewed-2',binding.workId,'openclaw.json'),'utf8'));
++ expect(retryConfig.tools).toEqual({profile:'minimal',deny:['*'],toolSearch:false});
+  expect(await fs.readFile(path.join(s.profile,'envoi-state','history'),'utf8')).toBe('ORIGINAL_ENROLLMENT_HISTORY');expect(fake.start).not.toHaveBeenCalled();
+  await expect(prepareOwnedOpenClawWork(fresh.factory,{...input,binding:next,canonical:{...canonical,fence:2}})).rejects.toThrow('NEW_EXACT_NATIVE_WORK_REQUIRED');
++ await startOwnedOpenClawWork(fresh.factory,prepared.prepared,{canonical:{...canonical,fence:2},capabilitySha256:'1'.repeat(64),ownerSelectionSha256:'2'.repeat(64),meterToken:'FAKE_NATIVE_METER_TOKEN',environment:{OPENCLAW_DISABLE_BUNDLED_PLUGINS:'0'},signal,authorize:async()=>{},ports:{}as any});
++ expect(fake.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({environment:expect.objectContaining({OPENCLAW_DISABLE_BUNDLED_PLUGINS:'1',OPENCLAW_GATEWAY_STARTUP_TRACE:'1'})}));
+ });
+ 
+ async function freePort(){const server=createServer();await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const port=(server.address()as {port:number}).port;await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));return port;}
+diff --git a/integrations/openclaw/per-work-native.ts b/integrations/openclaw/per-work-native.ts
+index b23c3c2887802ae89f5777416dfb3409179a6132..e54f79586c0e6a600bbe36a2815ec9baff95226a 100644
+--- a/integrations/openclaw/per-work-native.ts
++++ b/integrations/openclaw/per-work-native.ts
+@@ -9,6 +9,7 @@ const hash=(v:string|Uint8Array)=>createHash('sha256').update(v).digest('hex');
+ declare const factoryBrand:unique symbol;export type OwnedOpenClawFactory=Readonly<{[factoryBrand]:true}>;
+ export interface OwnedOpenClawFactoryPins{clientSource:string;nativeSourceSha256:string;factoryPolicySha256:string;}
+ export interface NativeFactoryPreparation{sourceNativeRoot:string;destinationNativeRoot:string;workRoot:string;originalProfile:string;nodeExecutable:string;nativeEnvironmentFile?:string;
++ directClientTools?: true;
+  childEntry:string;childEntrySha256:string;clientSource:string;factoryPolicySha256:string;authorize():Promise<void>;}
+ type Factory={options:NativeFactoryPreparation;pins:Readonly<OwnedOpenClawFactoryPins>;sources:Record<string,string>;prepared:Set<string>};
+ const factories=new WeakMap<object,Factory>();
+@@ -75,7 +76,7 @@ async function prepareWorkConfiguration(state:Factory,b:Pick<ClosedNativeBinding
+  const token=randomBytes(32).toString('hex');config.plugins={enabled:false,allow:[],deny:[],entries:{},load:{paths:[]},slots:{memory:'none',contextEngine:'none'}};
+  config.models={mode:'replace',providers:{anthropic:{...provider,api:'anthropic-messages',baseUrl:b.proxyOrigin,agentRuntime:{id:'openclaw'},headers:{...provider.headers,'x-phase-c-meter':input.proxyToken},models:[{...nativeModel,agentRuntime:{id:'openclaw'}}]}}};
+  config.agents=perWorkNativeAgents(b,paths);
+- config.tools={profile:'minimal',deny:['*']};config.hooks={enabled:false};config.cron={enabled:false};delete config.cloudWorkers;
++ config.tools={profile:'minimal',deny:['*'],...(state.options.directClientTools ? { toolSearch: false } : {})};config.hooks={enabled:false};config.cron={enabled:false};delete config.cloudWorkers;
+  config.gateway={...config.gateway,mode:'local',bind:'loopback',port:input.gatewayPort,auth:{...config.gateway?.auth,mode:'token',token},reload:{mode:'off'},http:{...config.gateway?.http,endpoints:{...config.gateway?.http?.endpoints,responses:{...config.gateway?.http?.endpoints?.responses,enabled:true}}}};
+  await fs.writeFile(paths.configurationPath,JSON.stringify(config,null,2),{flag:'wx',mode:0o600});
+  return{paths,token};
+@@ -131,7 +132,11 @@ export async function startOwnedOpenClawWork(factory:OwnedOpenClawFactory,prepar
+  // binds. A bind race fails startup; there is never an alternate-port fallback.
+  await work.releasePort?.();options.signal.throwIfAborted();work.reservationSignal?.throwIfAborted();
+  const handle=await startOwnedClosedNativeProcess({nodeExecutable:state.options.nodeExecutable,nativeEnvironmentFile:state.options.nativeEnvironmentFile,childEntry:state.options.childEntry,childEntrySha256:state.options.childEntrySha256,
+-  environment:{...options.environment,OPENCLAW_STATE_DIR:work.paths.stateDirectory,OPENCLAW_CONFIG_PATH:work.paths.configurationPath,OPENCLAW_CONFIG_READONLY:'1',OPENCLAW_GATEWAY_PORT:String(new URL(target.gatewayUrl).port)},
++  environment:{...options.environment,
++   // Direct client tools use the closed built-in harness. Do not discover bundled
++   // plugins or walk up the launcher path looking for a second package root.
++   ...(state.options.directClientTools ? {OPENCLAW_DISABLE_BUNDLED_PLUGINS:'1',OPENCLAW_GATEWAY_STARTUP_TRACE:'1'} : {}),
++   OPENCLAW_STATE_DIR:work.paths.stateDirectory,OPENCLAW_CONFIG_PATH:work.paths.configurationPath,OPENCLAW_CONFIG_READONLY:'1',OPENCLAW_GATEWAY_PORT:String(new URL(target.gatewayUrl).port)},
+   bootstrap:{nativeRoot:state.options.destinationNativeRoot,binding:work.binding,paths:work.paths,port:Number(new URL(target.gatewayUrl).port),sourceSha256:state.sources as any},
+   pins:{window:work.binding.window,workId:work.binding.workId,caseId:work.binding.caseId,caseSessionId:work.binding.caseSessionId,toolChannelSha256:work.binding.toolChannelSha256,processIdentity:work.binding.processIdentity,
+    clientSource:state.pins.clientSource,nativeSourceSha256:state.pins.nativeSourceSha256,capabilitySha256:options.capabilitySha256,ownerSelectionSha256:options.ownerSelectionSha256,targetSha256:openClawTargetDigest(target)},
+diff --git a/integrations/openclaw/runtime.ts b/integrations/openclaw/runtime.ts
+index 28bab0d771b9d59f885d15cfd35409fea0bff87f..b665594d14053cc505105f78393a702bac688f18 100644
+--- a/integrations/openclaw/runtime.ts
++++ b/integrations/openclaw/runtime.ts
+@@ -21,7 +21,7 @@ export interface BridgeConfiguration {
+ }
+ 
+ /** Legacy setup and Quick Connect share the durable work and reply implementation. */
+-export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number;beforeScopedTurn?:ScopedPreparationGuard;scopedReadOnlyWork?:(workId:string)=>boolean;openClawTargetResolver?:OpenClawTargetResolver;openClawTargetSelection?:OpenClawTargetSelectionAuthority } = {}) {
++export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number;beforeScopedTurn?:ScopedPreparationGuard;scopedReadOnlyWork?:(workId:string)=>boolean;openClawTargetResolver?:OpenClawTargetResolver;openClawTargetSelection?:OpenClawTargetSelectionAuthority;openClawRetainedJournalIdentity?:(workId:string)=>string|undefined } = {}) {
+   const env = await openClawRuntimeEnvironment(config.stateDir, options.env ?? process.env, config);
+   if (env.ENVOI_SCOPED_TOOLS === 'true') {
+     const store = new FileBridgeStore(config.stateDir);
+@@ -44,6 +44,7 @@ export async function createOpenClawBridge(config: BridgeConfiguration, options:
+           try {
+             if (target.binding.recipientAgentId !== saved.agentId) throw new Error('Trusted OpenClaw target names another agent');
+             return await openClawScopedTurn({ gatewayUrl: target.gatewayUrl, gatewayToken: target.gatewayToken, agentId: target.agentId, store: runs,
++              retainedIdentity: options.openClawRetainedJournalIdentity?.(workId),
+               fetch: (input, init = {}) => targets.dispatch(workId, input, init, options.fetch ?? fetch) })(turn, host);
+           } finally { targets.close(workId); }
+         },
+diff --git a/integrations/openclaw/scoped-turn.test.ts b/integrations/openclaw/scoped-turn.test.ts
+index 169c028d68ce2a15620d5b93e3e5cdada8511deb..f663f5a9a639d23a570ff9d53fe75dbf3fa77ba9 100644
+--- a/integrations/openclaw/scoped-turn.test.ts
++++ b/integrations/openclaw/scoped-turn.test.ts
+@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
+ import path from 'node:path';
+ import { describe, expect, it, vi } from 'vitest';
+ import type { ScopedModelTurn } from '../agent-bridges/scoped-turn';
++import caseToolSchema from '../../sdk/typescript/src/case-tools-schema.json';
++import { CaseToolsClient } from '../../sdk/typescript/src/case-tools';
+ import { FileScopedRunStore, type ScopedRunRecord, type ScopedRunStore } from '../grok/scoped-store';
+ import { EnvoiError } from '../../sdk/typescript/src/index';
+ import { FileBridgeStore } from '../agent-bridges/file-store';
+@@ -58,6 +60,33 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
+     expect(test.saved()?.completed).toBe(true);
+   });
+ 
++  it('sends Anthropic-compatible tool definitions while rejecting invalid calls against the canonical schema', async () => {
++    const test = harness();
++    const tools = caseToolSchema.tools.map(tool => ({ name: tool.name, inputSchema: tool.inputSchema })) as ScopedModelTurn['tools'];
++    const original = structuredClone(tools);
++    const forward = vi.fn();
++    const client = new CaseToolsClient({ forward, signal: test.controller.signal } as never);
++    const invalidAssetCall = { ...call(), name: 'envoi_case_list_assets', arguments: JSON.stringify({ includeContent: true }) };
++    let requests = 0;
++    const fetcher = vi.fn(async (_url, init) => {
++      const body = JSON.parse(String(init!.body));
++      for (const tool of body.tools) {
++        expect(tool.parameters.type).toBe('object');
++        for (const key of ['allOf', 'anyOf', 'oneOf']) expect(tool.parameters).not.toHaveProperty(key);
++        const canonical = original.find(row => row.name === tool.name)!;
++        expect(tool.parameters.properties).toEqual(canonical.inputSchema.properties);
++        expect(tool.parameters.additionalProperties).toBe(false);
++      }
++      if (++requests === 1) return response(invalidAssetCall);
++      expect(JSON.parse(body.input.at(-1).output)).toEqual({ ok: false, code: 'TOOL_ARGUMENTS_INVALID', retryable: false });
++      return done();
++    });
++    await openClawScopedTurn({ ...test.config, fetch: fetcher })({ ...test.turn, tools, callTool: client.call.bind(client) }, { workId: 'schema-work' });
++    expect(fetcher).toHaveBeenCalledTimes(2);
++    expect(forward).not.toHaveBeenCalled();
++    expect(tools).toEqual(original);
++  });
++
+   it('serializes a batch in output order and recovers only its uncertain remaining call', async () => {
+     const test = harness();
+     const first = call('first'), second = call('second');
+@@ -159,6 +188,21 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
+     expect(fetcher).not.toHaveBeenCalled();
+   });
+ 
++  it('continues the interrupted journal on a personally selected new port using the pinned prior identity', async () => {
++    const test = harness();
++    const workId = 'work_retry';
++    const failed = vi.fn(async () => { throw Error('fixture provider stopped'); });
++    await expect(openClawScopedTurn({ ...test.config, fetch: failed })(test.turn, { workId }))
++      .rejects.toMatchObject({ code: 'SCOPED_PROVIDER_UNAVAILABLE' });
++    const prior = await test.config.store.load(workId);
++    expect(prior).toMatchObject({ completed: false, providerCalls: 1 });
++    const fetcher = vi.fn(async () => done());
++    const gatewayUrl = 'http://127.0.0.1:44001';
++    await openClawScopedTurn({ ...test.config, gatewayUrl, retainedIdentity: prior!.model, fetch: fetcher })(test.turn, { workId });
++    expect(fetcher).toHaveBeenCalledWith(gatewayUrl + '/v1/responses', expect.anything());
++    expect(await test.config.store.load(workId)).toMatchObject({ model: prior!.model, providerCalls: 2, completed: true });
++  });
++
+   it('rejects duplicate batch IDs before executing any call', async () => {
+     const test = harness();
+     await expect(openClawScopedTurn({ ...test.config, fetch: vi.fn(async () => response(call(), call())) })(test.turn, { workId: 'work' }))
+diff --git a/integrations/openclaw/scoped-turn.ts b/integrations/openclaw/scoped-turn.ts
+index 66cde12148ebe340e7de39e0a231ac97f45079d5..2171083017d4b32c89d6fba059c1903456d8d9c3 100644
+--- a/integrations/openclaw/scoped-turn.ts
++++ b/integrations/openclaw/scoped-turn.ts
+@@ -1,12 +1,31 @@
+ import { responsesScopedTurn } from '../agent-bridges/responses-turn';
+ import type { ScopedRunStore } from '../grok/scoped-store';
+ 
++const conditionalToolDescriptions: Readonly<Record<string, string>> = {
++  envoi_case_list_assets: 'List assets with optional limit and before, or inspect one asset with assetRef. Use includeContent only with assetRef. Omit limit and before when using assetRef.',
++  envoi_case_decide: 'For accept, supply optionRef and authorityRef and omit terms. For counter, supply terms and omit optionRef and authorityRef. For reject, omit all three.',
++  envoi_authority_check: 'For accept_proposal, supply proposalRef and optionRef and omit result. For complete_case, supply result and omit proposalRef and optionRef.',
++};
++
++function providerTool(tool: { type: string; name: string; parameters: Readonly<Record<string, unknown>> }) {
++  // The Anthropic transport rejects root combinators in custom tool schemas.
++  // This projects the model's schema only. CaseToolsClient still validates
++  // every call against the complete canonical schema before forwarding it.
++  const { allOf, anyOf, oneOf, ...parameters } = tool.parameters;
++  if (allOf === undefined && anyOf === undefined && oneOf === undefined) return tool;
++  const description = conditionalToolDescriptions[tool.name];
++  if (!description || anyOf !== undefined || oneOf !== undefined) throw new TypeError('Unsupported OpenClaw case tool schema');
++  return { ...tool, description, parameters };
++}
++
+ export function openClawScopedTurn(options: {
+   gatewayUrl: string;
+   gatewayToken: string;
+   agentId: string;
+   store: ScopedRunStore;
+   fetch?: typeof fetch;
++  /** Exact prior journal identity after an owner-reviewed target change. */
++  retainedIdentity?: string;
+ }) {
+   const gateway = new URL(options.gatewayUrl);
+   if (gateway.username || gateway.password || gateway.search || gateway.hash || gateway.pathname !== '/'
+@@ -17,13 +36,13 @@ export function openClawScopedTurn(options: {
+   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(options.agentId)) throw new TypeError('A configured OpenClaw agent ID is required');
+   const model = `openclaw/${options.agentId}`;
+   return responsesScopedTurn({
+-    model, identity: `openclaw:${gateway.origin}:${options.agentId}`, label: 'OpenClaw', store: options.store, maxCallsPerResponse: 16,
++    model, identity: options.retainedIdentity ?? `openclaw:${gateway.origin}:${options.agentId}`, label: 'OpenClaw', store: options.store, maxCallsPerResponse: 16,
+     request: (body, signal) => (options.fetch ?? fetch)(`${gateway.origin}/v1/responses`, {
+       method: 'POST', redirect: 'error', signal,
+       headers: { authorization: `Bearer ${options.gatewayToken}`, 'content-type': 'application/json' },
+       body: JSON.stringify({
+         model: body.model, store: false, stream: false, max_output_tokens: body.max_output_tokens,
+-        tools: body.tools,
++        tools: (body.tools as Parameters<typeof providerTool>[0][]).map(providerTool),
+         input: (body.input as Array<Record<string, unknown>>).map(item => item.type === undefined && typeof item.role === 'string'
+           ? { type: 'message', ...item } : item)
+       })
+diff --git a/sdk/typescript/src/connector.ts b/sdk/typescript/src/connector.ts
+index f6c580a484a4c1550f3c27f77c0b128e8b7be07d..60edf53604c31a9b8e97840436fdb416e48e4c19 100644
+--- a/sdk/typescript/src/connector.ts
++++ b/sdk/typescript/src/connector.ts
+@@ -191,7 +191,11 @@ export interface ScopedWakeWorkDriver {
+   /** Trusted opt-in only: at most two exact, distinct case/work pairs. Claims
+    * validate serially before either handler is admitted; leases renew while
+    * waiting for that admission barrier. Outcomes remain per work. */
+-  processWorkBatch(expectations: readonly ScopedWorkExpectation[], signal?: AbortSignal): Promise<readonly ScopedWorkOutcome[]>;
++  processWorkBatch(
++    expectations: readonly ScopedWorkExpectation[],
++    signal?: AbortSignal,
++    options?: { readonly acceptHumanInstructions?: false },
++  ): Promise<readonly ScopedWorkOutcome[]>;
+   revalidateLiveLeases(signal?: AbortSignal): Promise<void>;
+   nextAvailableInMs(): number | undefined;
+ }
+@@ -1097,7 +1101,7 @@ export class EnvoiConnector {
+     assertScoped();
+     const localCancellation = (error: unknown) => error instanceof EnvoiError
+       && ['CASE_CONTROLLED', 'WORK_LEASE_STALE', 'WORK_NOT_ELIGIBLE', 'WORK_NOT_FOUND', 'CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED', 'REQUEST_CANCELLED'].includes(error.code ?? '');
+-    return Object.freeze({
++    return Object.freeze<ScopedWakeWorkDriver>({
+       processWorkOnce: (signal?: AbortSignal) => {
+         assertScoped();
+         return this.processWorkOnce(signal).catch(error => {
+@@ -1106,9 +1110,9 @@ export class EnvoiConnector {
+           throw error;
+         });
+       },
+-      processWorkBatch: (expectations: readonly ScopedWorkExpectation[], signal?: AbortSignal) => {
++      processWorkBatch: (expectations, signal, options) => {
+         assertScoped();
+-        return this.processScopedWorkBatch(expectations, signal);
++        return this.processScopedWorkBatch(expectations, signal, options?.acceptHumanInstructions !== false);
+       },
+       revalidateLiveLeases: async (signal?: AbortSignal) => {
+         assertScoped();
+@@ -1146,7 +1150,7 @@ export class EnvoiConnector {
+     return this.workInFlight;
+   }
+ 
+-  private async processScopedWorkBatch(expectations: readonly ScopedWorkExpectation[], signal?: AbortSignal): Promise<readonly ScopedWorkOutcome[]> {
++  private async processScopedWorkBatch(expectations: readonly ScopedWorkExpectation[], signal: AbortSignal | undefined, acceptHumanInstructions: boolean): Promise<readonly ScopedWorkOutcome[]> {
+     if (this.explicitScopedBatch || this.workInFlight) throw new EnvoiError('Work processing is already in flight', undefined, 'SCOPED_BATCH_IN_FLIGHT');
+     if (!Array.isArray(expectations) || expectations.length < 1 || expectations.length > 2
+       || expectations.some(e => !e || !/^msg_[A-Za-z0-9_-]+$/.test(e.workId) || !/^case_[A-Za-z0-9_-]+$/.test(e.caseId))
+@@ -1161,7 +1165,7 @@ export class EnvoiConnector {
+     try {
+       for (const item of expected) {
+         batchSignal.throwIfAborted();
+-        const work = await this.claimWorkAttempt(batchSignal);
++        const work = await this.claimWorkAttempt(batchSignal, acceptHumanInstructions);
+         if (!work || work.workId !== item.workId || work.message.caseId !== item.caseId)
+           throw new EnvoiError('Claim does not match the explicit scoped batch', undefined, 'SCOPED_BATCH_CLAIM_MISMATCH');
+         // Start the existing per-work lease lifecycle now, but neither admit nor
+@@ -1185,7 +1189,7 @@ export class EnvoiConnector {
+     return work ? this.processClaimedWork(work,signal) : false;
+   }
+ 
+-  private async claimWorkAttempt(signal?: AbortSignal): Promise<WorkLease | null> {
++  private async claimWorkAttempt(signal?: AbortSignal, acceptHumanInstructions = true): Promise<WorkLease | null> {
+     const scoped = this.options.caseSessionHandler;
+     const handler = scoped ?? this.options.handler;
+     if (!handler) throw new TypeError('A durable work handler is required');
+@@ -1199,7 +1203,7 @@ export class EnvoiConnector {
+     }
+     let claimed: { work: WorkLease | null; state?: string; nextAvailableInMs?: number };
+     if (scoped) signal?.throwIfAborted();
+-    try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions: true }, undefined, scoped ? signal : undefined); }
++    try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions }, undefined, scoped ? signal : undefined); }
+     catch (error) {
+       if (error instanceof EnvoiError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError(error.status, error.requestId);
+       throw error;
+@@ -1216,6 +1220,9 @@ export class EnvoiConnector {
+     if (!work || typeof work.workId !== 'string' || typeof work.leaseToken !== 'string' || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || typeof work.message?.id !== 'string' || !work.message.id || scoped && work.message.id !== work.workId) {
+       throw new EnvoiError('Envoi returned an invalid work claim');
+     }
++    if (!acceptHumanInstructions && isHumanInstructionMessage(work.message)) {
++      throw new EnvoiError('Claim returned an excluded human instruction', undefined, 'SCOPED_BATCH_CLAIM_MISMATCH');
++    }
+     const session = validSession(await this.store.load());
+     if (isHumanDecisionMessage(work.message)) {
+       if (!scoped) throw new EnvoiError('Human decisions require a scoped runtime', undefined, 'FEATURE_DISABLED');
+diff --git a/sdk/typescript/test/case-session-work.test.ts b/sdk/typescript/test/case-session-work.test.ts
+index fbb58a908721b00e4cc6bfba2ee4032917ee1d47..44fd2e9fe0d913f4908117eae833b0ed401a6878 100644
+--- a/sdk/typescript/test/case-session-work.test.ts
++++ b/sdk/typescript/test/case-session-work.test.ts
+@@ -79,6 +79,26 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:
+ afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+ 
+ describe('scoped trusted-host work loop', () => {
++  it('settles the expected peer work with owner instructions excluded from the claim', async () => {
++    const test = harness();
++    const expected = { workId: test.work.workId, caseId: test.work.message.caseId };
++    await expect(test.connector.scopedWakeWorkDriver().processWorkBatch([expected], undefined, { acceptHumanInstructions: false }))
++      .resolves.toEqual([{ ...expected, status: 'fulfilled', worked: true }]);
++    const claim = test.requests().find(request => request.path.endsWith('/claim'))!;
++    expect(JSON.parse(String(claim.options?.body))).toEqual({ acceptHumanInstructions: false });
++    expect(test.order).toContain('complete');
++  });
++
++  it('refuses an excluded owner instruction before acknowledgement or handler admission', async () => {
++    const test = harness();
++    test.work.message = { ...test.work.message, kind: 'humanInstruction' } as WorkLease['message'];
++    const expected = { workId: test.work.workId, caseId: test.work.message.caseId };
++    await expect(test.connector.scopedWakeWorkDriver().processWorkBatch([expected], undefined, { acceptHumanInstructions: false }))
++      .rejects.toMatchObject({ code: 'SCOPED_BATCH_CLAIM_MISMATCH' });
++    expect(test.order).toEqual(['status', 'claim']);
++    expect(test.handler.admit).not.toHaveBeenCalled();
++  });
++
+   it('records a permanent scoped failure, then processes later work with the same connector', async () => {
+     let failed = false;
+     const test = harness(async () => {
+diff --git a/sdk/typescript/test/connector-integration.test.ts b/sdk/typescript/test/connector-integration.test.ts
+index b0cb4c76a3befa180a9bd9bae1822a62d82ae932..7c97e42fafabee35c09b8bb9845b573b9dd33780 100644
+--- a/sdk/typescript/test/connector-integration.test.ts
++++ b/sdk/typescript/test/connector-integration.test.ts
+@@ -20,11 +20,11 @@ function memoryStore() {
+   } };
+ }
+ 
+-async function startServer() {
++async function startServer(env: NodeJS.ProcessEnv = {}) {
+   const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-connector-'));
+   const child = spawn(process.execPath, ['src/server.js'], {
+     cwd: process.cwd(),
+-    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_AGENT_WORK_RETRY_BASE_MS: '50' },
++    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_AGENT_WORK_RETRY_BASE_MS: '50', ...env },
+     stdio: ['ignore', 'pipe', 'pipe']
+   });
+   const baseUrl = await new Promise<string>((resolve, reject) => {
+@@ -40,12 +40,13 @@ async function startServer() {
+   return { baseUrl, dataDir, child };
+ }
+ 
+-async function request(baseUrl: string, pathname: string, browser: BrowserSession, options: { token?: string; body?: Record<string, unknown> } = {}) {
++async function request(baseUrl: string, pathname: string, browser: BrowserSession, options: { token?: string; body?: Record<string, unknown>; idempotencyKey?: string } = {}) {
+   const method = options.body ? 'POST' : 'GET';
+   const response = await fetch(`${baseUrl}${pathname}`, {
+     method,
+     headers: {
+       ...(options.body ? { 'content-type': 'application/json' } : {}),
++      ...(options.idempotencyKey ? { 'idempotency-key': options.idempotencyKey } : {}),
+       ...(!options.token ? browser.headers(baseUrl, method) : {}),
+       ...(options.token ? { authorization: `Bearer ${options.token}` } : {})
+     },
+@@ -103,6 +104,49 @@ describe('customer-hosted connector against the real local API', () => {
+     }
+   });
+ 
++  it('settles an exact peer message without taking the earlier owner instruction in the same case', async () => {
++    const server = await startServer({ ENVOI_INSTALLATIONS_V2: 'true', ENVOI_CASE_SESSIONS_V1: 'true' });
++    servers.push(server);
++    const { baseUrl } = server;
++    const senderHuman = await owner(baseUrl, 'Peer sender owner', '+14165550143');
++    const recipientHuman = await owner(baseUrl, 'Peer recipient owner', '+14165550144');
++    const sender = await enroll(baseUrl, senderHuman, 'Peer sender');
++    const recipient = await enroll(baseUrl, recipientHuman, 'Peer recipient');
++    const session = recipient.get();
++    const client = new EnvoiClient(baseUrl, sender.get().agentApiToken);
++    const caseId = newCaseId();
++    const send = (key: string, text: string) => client.sendMessage(sender.get().inboxId, key, {
++      senderAgentId: sender.get().agentId, recipientEmail: session.address, caseId, text,
++    });
++    const readMessages = async () => (await request(baseUrl, `/api/inboxes/${session.inboxId}/messages`, recipientHuman.browser, { token: session.agentApiToken })).payload as any[];
++    const waitForDelivery = (id: string) => eventually(async () => (await readMessages()).find(message => message.id === id && message.status === 'delivered') || null);
++    const processed: string[] = [];
++    const connector = new EnvoiConnector(baseUrl, recipient.store, {
++      caseSessionHandler: { admit: async () => {}, process: async (_channel, context) => { processed.push(context.workId!); } },
++    });
++    const seed = await send('peer-seed', 'Open the test case.');
++    await waitForDelivery(seed.id);
++    expect(await connector.processWorkOnce()).toBe(true);
++
++    const instruction = await request(baseUrl, `/api/inboxes/${session.inboxId}/cases/${caseId}/instructions`, recipientHuman.browser, {
++      body: { text: 'Owner instruction to preserve.' }, idempotencyKey: 'owner-instruction',
++    });
++    expect(instruction.status).toBe(201);
++    const peer = await send('peer-follow-up', 'Synthetic file request.');
++    await waitForDelivery(peer.id);
++    const expectation = { workId: peer.id, caseId };
++    const driver = connector.scopedWakeWorkDriver();
++    await expect(driver.processWorkBatch([expectation], undefined, { acceptHumanInstructions: false }))
++      .resolves.toEqual([{ ...expectation, status: 'fulfilled', worked: true }]);
++    expect(processed).toEqual([seed.id, peer.id]);
++    const messages = await readMessages();
++    expect(messages.find(message => message.id === peer.id)?.status).toBe('processed');
++    expect(messages.find(message => message.id === instruction.payload.id)?.status).toBe('delivered');
++    const receipts = await request(baseUrl, `/api/inboxes/${session.inboxId}/delivery-receipts`, recipientHuman.browser, { token: session.agentApiToken });
++    expect((receipts.payload as any[]).filter(receipt => receipt.messageId === peer.id && receipt.state === 'processed')).toHaveLength(1);
++    expect((receipts.payload as any[]).some(receipt => receipt.messageId === instruction.payload.id)).toBe(false);
++  }, 20_000);
++
+   it('keeps identity and queued work through offline delivery and a recipient process restart', async () => {
+     const server = await startServer();
+     servers.push(server);
+diff --git a/integrations/gates/phase-c/MAIN-PROMOTION.md b/integrations/gates/phase-c/MAIN-PROMOTION.md
+new file mode 100644
+--- /dev/null
++++ b/integrations/gates/phase-c/MAIN-PROMOTION.md
+@@ -0,0 +1,38 @@
++# Phase C source promotion review
++
++Compared fetched `main` at `18453efe302ae092b784ecda5283054b252599f3` with `integration/agent-native` at `fc809259081d35e25b344d21ff91c31b5ed0e2f8` on November 13, 2026. The comparison uses exact commit ancestry, stable patch IDs for rebased or equivalent patches, and the current source at both tips. Release presence here means source presence in the branch.
++
++## Product and runtime changes
++
++| Candidate | Main | Integration | Behavior and regression to carry |
++| --- | --- | --- | --- |
++| PostgreSQL acquisition deadline, #356 `74695f7` | Missing | Equivalent `df1f230`, identical stable patch ID | Rechecks the shared deadline before transaction startup and after asynchronous acquisition, preventing a late lock response from entering the protected operation. Carry `test/postgres-lock-budget.test.js`. The #356 generated HTML is outside this fix. [PR #356](https://github.com/rachelgonsalves821/Envoi/pull/356) |
++| Hermes gateway restart recovery, `6e34943` and `32f7fb9` | Missing. The main scoped host has its own terminal-state handling, and owner-confirmed gateway reselection is absent | Both commits present | Reselects a restarted local gateway with owner confirmation and preserves terminal journals under the same enrollment. Carry `integrations/hermes/reselect.test.ts` and the matching `scoped-runtime.test.ts` cases. |
++| Hermes editor tool names, #285 `43171f7` | Exact patch absent. The current shipped Hermes host’s applicability needs checking | Present | Matches the pinned native tool names for eager editor tool discovery. Carry `integrations/hermes/vendor-request-gate/test_request_gate.py` and its pinned fixtures if the shipped host adopts this vendor request gate. [PR #285](https://github.com/rachelgonsalves821/Envoi/pull/285) |
++| Two-party case tool shape, #313 `c3d88ef` | Missing both the model-facing field removal and the SDK rejection before forwarding. Main already has group reply support | Present | Keeps group-only assignment fields out of two-party replies and rejects them locally. Carry `integrations/agent-bridges/scoped-turn.test.ts` and `sdk/typescript/test/case-tools.test.ts`. [PR #313](https://github.com/rachelgonsalves821/Envoi/pull/313) |
++| Owned OpenClaw config and workspace, #331 `59132dc` and #336 `025ae28` | Owned native policy and workspace launch code absent. The original-beta scoped runtime and its admission guards are already present | Present through `e5454de` and `7ee302e` | Projects and validates canonical native config, then starts the owned child in its reviewed private workspace. Carry `integrations/openclaw/closed-native-policy.test.ts`, `closed-native.test.ts`, and the real-child working-directory case in `native-startup-diagnostics.test.ts`. [PR #331](https://github.com/rachelgonsalves821/Envoi/pull/331), [PR #336](https://github.com/rachelgonsalves821/Envoi/pull/336) |
++| OpenClaw Anthropic schema projection, saved R2 client bundle `f6327d8e…` and the working-tree patch in `integrations/openclaw/scoped-turn.ts` | Missing | Missing | Prevents HTTP 400 from root schema combinators for the reviewed case tools. The canonical SDK still validates conditional inputs. Carry the provider-schema and canonical-validation test in `integrations/openclaw/scoped-turn.test.ts`. This was used in the successful live R2 run. |
++| OpenClaw pinned package discovery, saved R2 child `4ca3ff05…` and working-tree changes to `closed-native-child.ts` and `per-work-native.ts` | Missing | Missing | Anchors discovery to the reviewed package and disables bundled discovery on the direct-client-tools path. The corrected restricted cold start blocked zero outside-root reads. Carry the package-anchor regression in `native-startup-diagnostics.test.ts` and the factory regression in `per-work-native.test.ts`. This does not establish the cause of the earlier live timeout. |
++| Existing-work journal identity across a reviewed OpenClaw target change, saved R2 client bundle and working-tree changes to `runtime.ts` and `scoped-turn.ts` | Missing | Missing | Carries the exact previously admitted journal identity instead of treating an owner-reviewed port change as a new turn. Keep the changed-port regression in `integrations/openclaw/scoped-turn.test.ts`, the exact-work guard in `integrations/hermes/terminal-openclaw-continuation.test.ts`, and the retry accounting tests. Review with the owned native runtime change. |
++| Optional peer-work claim mode, working-tree changes to SDK and connector/receiver adapters | Server filter present. SDK claim still always opts into human instructions | Same split | Allows the selected receiver to leave the unrelated owner instruction delivered while processing peer work. Carry the new cases in `sdk/typescript/test/case-session-work.test.ts` and `integrations/hermes/continuation-receiver-batch.test.ts`. Verified locally for deferred R3. Live R3 evidence remains pending. |
++
++## Phase C continuation and diagnostics
++
++These changes support reviewed acceptance tooling or the selected owned-runtime profile. A release SHA in main does not establish that a private runner or its behavior shipped.
++
++| Candidate | Branch comparison | Scope and regression |
++| --- | --- | --- |
++| #274 `3224c88` | Integration present, main lacks the Phase C continuation controller | Native continuation, including the held decline decision path. Carry `continuation-controller.test.ts`, `continuation-receiver.test.ts`, `request-budget.test.ts` and `scoped-runtime.test.ts` if adopting this controller. The R4 live decline-resumption check is deferred. [PR #274](https://github.com/rachelgonsalves821/Envoi/pull/274) |
++| #288 `e16ae33` | Integration present, main lacks this controller path | Limits recovery refusal to the proven stopped window and keeps prior model accounting. Carry `continuation-retained-followups.test.ts`. [PR #288](https://github.com/rachelgonsalves821/Envoi/pull/288) |
++| #335 `b853393` | Integration merge `3b187c4` present. Main lacks the persistent continuation and preclaim modules | Allows untimed owner target review before claim, with bounded active work, retained timeout evidence and request-gate checks. Carry `preclaim-selection.test.ts`, `continuation-receiver.test.ts`, `stopped-progress.test.ts` and the gate tests. [PR #335](https://github.com/rachelgonsalves821/Envoi/pull/335) |
++| #336 `025ae28` and #338 `4718a6c` | Integration merges `7ee302e` and `5d40cc2` present. Main lacks the workflow bootstrap module | Preserves an accepted work item through pre-native startup failure and verifies the legacy parent without rewriting history. Carry `stopped-progress.test.ts` and `workflow-parent-lineage.test.ts`. The owned workspace change from #336 is also a runtime candidate above. [PR #336](https://github.com/rachelgonsalves821/Envoi/pull/336), [PR #338](https://github.com/rachelgonsalves821/Envoi/pull/338) |
++| #357 `6151df3` and #360 `71fa619` | Both open. Neither full series is in either branch. The first three patches in #360 have the same stable patch IDs as #357 | #357 validates an exact staging server adoption and retains the pre-native stop. #360 adds reattachment after that stop and validates resource limits. Carry `accepted-checkpoint-retention.test.ts` and `stopped-progress.test.ts`. Reconcile the shared patches once. R1/R2 retained #357 client lineage and used a separately sealed successor. [PR #357](https://github.com/rachelgonsalves821/Envoi/pull/357), [PR #360](https://github.com/rachelgonsalves821/Envoi/pull/360) |
++| #364 `167e7d7` | Neither branch contains the patch. Integration has the earlier #329 diagnostic base | Adds redacted startup-stage reporting and timeout timing, parallel source verification before import, and cleanup when startup outlives the scope. Carry `integrations/openclaw/native-startup-diagnostics.test.ts`. The later package-anchor repair is separate. [PR #364](https://github.com/rachelgonsalves821/Envoi/pull/364) |
++| Later R2 Windows sealed operator and controller | Private artifacts and local test-support patch | Exact accepted-work admission, capped retry accounting, cleanup after a failed turn, exclusive fresh attempt directories, and one-shot dispatch reconciliation. Preserve the successful seal and retained artifacts. Carry `terminal-openclaw-continuation.test.ts`, `request-budget.test.ts`, `Terminal-R2-Native-Startup.test.mjs`, `Terminal-OpenClaw-Receiver.test.mjs` and `Terminal-R2-Retry-Run.test.mjs` with this tooling if reused. Launcher and fixture changes do not need to ship with the product. |
++
++## Already in main
++
++- `ba131ba` is the original R2 send release. `4ac3b68` is the verified reply/settlement release and contains #383 attachment routing and byte-preservation regression in `test/shared-case-integration.test.js`. Both exact commits are in main and absent from integration ancestry. Attachment behavior on integration remains unverified by the R2 receipt. [PR #383](https://github.com/rachelgonsalves821/Envoi/pull/383)
++- `8f5788d`, `7abe4e6` and `ac6b7de` are in both branches. They already provide baseline OpenClaw scoped Responses support and admission checks. These commits do not include the later R2 provider-schema or owned startup repairs.
++
++The reviewed branches and the local candidate patches are preserved. This review does not certify packaging, CI or deployment of a promoted combination.
+diff --git a/integrations/hermes/r3-file-admission.ts b/integrations/hermes/r3-file-admission.ts
+new file mode 100644
+--- /dev/null
++++ b/integrations/hermes/r3-file-admission.ts
+@@ -0,0 +1,85 @@
++import assert from 'node:assert/strict';
++import { createHash } from 'node:crypto';
++import fs from 'node:fs/promises';
++import path from 'node:path';
++import type { RequestBudgetLedger } from './request-budget';
++import type { ProgressPin } from './stopped-progress';
++
++export type R2CloseoutPins = Readonly<{
++  accepted: ProgressPin;
++  settlement: ProgressPin;
++  ownerReadback: ProgressPin;
++  queueReadback: ProgressPin;
++  actionLedger: ProgressPin;
++  requestLedgerSha256: string;
++}>;
++
++const sha = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
++const digest = /^[a-f0-9]{64}$/;
++export const r3FileRequestId = 'fa6ff3d3-e4e1-4dcc-b6e1-a6f32c66a912';
++
++async function readPin(pin: ProgressPin) {
++  assert(path.isAbsolute(pin.path) && digest.test(pin.sha256), 'R3_CLOSEOUT_PIN_REQUIRED');
++  const stat = await fs.lstat(pin.path);
++  assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size < 2_000_000, 'R3_BOUNDED_CLOSEOUT_REQUIRED');
++  const raw = await fs.readFile(pin.path);
++  assert.equal(sha(raw), pin.sha256, 'R3_CLOSEOUT_PIN_CHANGED');
++  return raw.toString('utf8');
++}
++
++export async function inspectR2Closeout(pins: R2CloseoutPins, ledger: RequestBudgetLedger, releaseRoot: string) {
++  assert.equal(path.resolve(pins.actionLedger.path), path.resolve(releaseRoot, 'phase-c-cumulative-actions.jsonl'));
++  const [accepted, settlement, owner, queue] = await Promise.all(
++    [pins.accepted, pins.settlement, pins.ownerReadback, pins.queueReadback].map(async pin => JSON.parse(await readPin(pin))),
++  );
++  assert.equal(accepted.workId, 'msg_4ecc398cb4c68c59afc11e8476678103');
++  assert.equal(owner.replyId, 'msg_tool_ef60c1cd8536df43bda64ff9f3268b3f69ab12f2');
++  assert.equal(owner.state, 'r2_reply_settlement_and_owner_readback_verified');
++  assert.equal(settlement.state, 'r2_accepted_work_reply_and_settlement_verified');
++  assert.equal(owner.ownerInboxReadback, 'verified');
++  assert.equal(owner.ownerWebsiteReadback, 'verified');
++  assert.equal(settlement.ownerWebsiteReadback, 'pending');
++  assert.deepEqual(owner, { ...settlement, state: owner.state, ownerWebsiteReadback: 'verified' });
++  assert.deepEqual(accepted, { requestId: owner.requestId, workId: owner.workId, caseId: owner.caseId });
++  assert.match(owner.settlementSha256, digest);
++  assert.equal(owner.modelCallsAdded, 2);
++  assert.equal(queue.state, 'r3_testowner_marker_settlement_readback_verified');
++  assert.equal(queue.roles.testowner.status, 'processed');
++  assert.equal(queue.roles.testowner.derivedReplies, 0);
++  assert.equal(queue.roles.openclaw.status, 'delivered');
++  assert.equal(queue.budgetsUnchanged, true);
++
++  const usage = ledger.snapshot();
++  assert.equal(ledger.contentSha256, pins.requestLedgerSha256, 'R3_REQUEST_LEDGER_CHANGED');
++  const requestBytes = await ledger.readInspectionBytes();
++  assert.equal(sha(requestBytes), pins.requestLedgerSha256, 'R3_REQUEST_LEDGER_CHANGED');
++  assert.deepEqual([usage.chargedAttempts, usage.knownOpenClawDispatches, usage.pending, usage.unresolvedDispatches, usage.modelCap], [41, 6, 0, 0, 64]);
++  const openClaw = requestBytes.toString('utf8').trimEnd().split('\n').map(line => JSON.parse(line))
++    .filter(row => row.kind === 'attempt' && row.flow === 'openclaw');
++  assert.equal(openClaw.length, 6);
++  assert(openClaw.every(row => row.canonicalWorkHash === sha(accepted.workId)));
++  const actionBytes = await readPin(pins.actionLedger);
++  const lines = actionBytes.trimEnd().split('\n');
++  const actions = lines.map(line => JSON.parse(line));
++  assert.equal(actions[0].kind, 'seed');
++  const anchor = JSON.parse(await fs.readFile(path.join(releaseRoot, 'phase-c-action-ledger.anchor'), 'utf8'));
++  assert.equal(anchor.seedSha256, sha(lines[0] + '\n'));
++  assert.equal(actions[0].previous, '0'.repeat(64));
++  assert(actions.slice(1).every((row, index) => row.previous === sha(lines[index] + '\n')));
++  assert.equal(actions[0].prior.possibleHostMessageEffects, 22);
++  assert.equal(actions.length, 19);
++  assert(actions.slice(1).every(row => row.kind === 'operation'));
++  const r2 = actions.filter(row => row.workId === accepted.workId);
++  assert.equal(r2.length, 6);
++  assert.equal(r2[0].operationKind, 'message');
++  assert(r2.every(row => row.caseId === accepted.caseId));
++  assert(r2.slice(1).every(row => row.operationKind === 'tool' && row.tool === 'envoi_case_reply'));
++  return {
++    caseId: accepted.caseId as string,
++    serverSource: owner.retainedControllerServerSource as string,
++    operationsUsed: actions[0].prior.possibleHostMessageEffects + actions.length - 1,
++    assetShareWorkId: 'msg_' + sha(ledger.reviewedPlan!.actorIds.openclaw + ':phase-c-followup:' + r3FileRequestId).slice(0, 32),
++    blockedWorkIds: [accepted.workId, owner.replyId, 'msg_dd4b760932c0f1c070f0caf89c3482a8',
++      'msg_61043afbde307cce0aff61d5bdd1452f', 'msg_instruction_4f4363f79a3587cf0a473047a024f016be94abbc'] as string[],
++  };
++}
+diff --git a/integrations/hermes/terminal-openclaw-continuation.test.ts b/integrations/hermes/terminal-openclaw-continuation.test.ts
+new file mode 100644
+--- /dev/null
++++ b/integrations/hermes/terminal-openclaw-continuation.test.ts
+@@ -0,0 +1,96 @@
++import fs from 'node:fs/promises';
++import os from 'node:os';
++import path from 'node:path';
++import { createHash, randomUUID } from 'node:crypto';
++import { expect, it } from 'vitest';
++import { inspectAcceptedOpenClawRetry } from './terminal-openclaw-continuation';
++
++const sha = (input: string) => createHash('sha256').update(input).digest('hex');
++
++it('admits only the pinned startup-only attempt after the original retryable settlement', async () => {
++  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'envoi-r2-admission-'));
++  try {
++    const pin = async (name: string, data: unknown, lines = false) => {
++      const file = path.join(dir, name);
++      const bytes = lines ? (data as unknown[]).map(row => JSON.stringify(row)).join('\n') + '\n' : JSON.stringify(data);
++      await fs.writeFile(file, bytes, { flag: 'wx' });
++      return { path: file, sha256: sha(bytes) };
++    };
++    const window = 'a'.repeat(64), checkedAt = '2026-11-13T01:40:00Z';
++    const requestId = randomUUID(), idempotencyKey = 'phase-c-followup:' + requestId;
++    const caseId = 'case_fixture', senderAgentId = 'agent_sender', recipientAgentId = 'agent_recipient';
++    const workId = 'msg_' + sha(senderAgentId + ':' + idempotencyKey).slice(0, 32);
++    const request = { requestId, idempotencyKey, caseId, senderAgentId, recipientAgentId, text: 'Fixture',
++      intent: 'request', sendLimit: 1, origin: 'https://sinaloa-staging.rachelgonsalves821.workers.dev' };
++    const ended = (endedAt: string, endedReason = 'work_settled') => ({ status: 'ended', endedReason, endedAt });
++    const inventory = { checkedAt, database: 'sinaloa_staging', readOnly: 'on', workId, attempts: 2, claimStatus: 'retryable',
++      failureCode: 'HANDLER_FAILED', messageStatus: 'acknowledged', retryAt: '2026-11-13T01:36:10Z', activeSessions: 0,
++      activeWorkLeases: 0, activeCaseSessions: 0, protectedCaseState: 'paused', originalDispositionMatches: true,
++      leaseExpiresAt: null, processedAt: null, replyCount: 0, previousStatus: 'failed', originalStatus: 'failed',
++      sessions: [ended('2026-11-13T01:20:00Z'), ended('2026-11-13T01:36:00Z', 'ended_by_host')] };
++    const wrap = (row: unknown) => [{ phase_c_r2_accepted_work_readonly: row }];
++    const journal = { workId, model: 'openclaw:http://127.0.0.1:41234:main', providerCalls: 2, completed: false, pending: [] };
++    const settlement = (atUtc: string) => ({ atUtc, window, workId, kind: 'canonical_settlement', role: 'openclaw', operation: 'fail', status: 'retryable' });
++    const events = [
++      { window, workId, kind: 'actual_canonical_context', atUtc: '2026-11-13T01:34:00Z' },
++      { window, kind: 'receiver_startup_transport_failure', atUtc: '2026-11-13T01:35:59Z', method: 'POST', path: '/v1/responses',
++        causes: [{ name: 'Error', code: 'OWNED_NATIVE_BOOTSTRAP_TIMEOUT' }] },
++      settlement('2026-11-13T01:36:01Z'),
++    ];
++    const retry = {
++      sendReceipt: await pin('send', { requestId, workId, caseId }), retryInventory: await pin('inventory', wrap(inventory)),
++      interruptedJournal: await pin('journal', journal), attemptEvents: await pin('first', [settlement('2026-11-13T01:20:01Z')], true),
++      startupOnlyAttempt: { events: await pin('second', events, true), previousJournal: await pin('backup', { ...journal, providerCalls: 1 }) },
++    };
++    const input = { retry, caseId, senderAgentId, recipientAgentId, window, now: Date.parse(checkedAt) + 1000,
++      requestApproval: await pin('approval', { request, preservedCheckpoint: { workId: 'msg_failed' } }) };
++    await expect(inspectAcceptedOpenClawRetry(input)).resolves.toMatchObject({ workId, journalIdentity: journal.model });
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...retry, startupOnlyAttempt: undefined } })).rejects.toThrow();
++    const premature = await pin('premature-host-end', wrap({ ...inventory,
++      sessions: [inventory.sessions[0], ended('2026-11-13T01:35:58Z', 'ended_by_host')] }));
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...retry, retryInventory: premature } }))
++      .rejects.toThrow('R2_HOST_END_MUST_FOLLOW_STARTUP_FAILURE');
++    const unrelated = await pin('unrelated-end', wrap({ ...inventory,
++      sessions: [inventory.sessions[0], ended('2026-11-13T01:36:00Z', 'agent_paused')] }));
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...retry, retryInventory: unrelated } }))
++      .rejects.toThrow('R2_UNEXPECTED_SESSION_END_REASON');
++    const forwarded = await pin('forwarded', [...events, { window, kind: 'native-physical' }], true);
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...retry, startupOnlyAttempt: { ...retry.startupOnlyAttempt, events: forwarded } } }))
++      .rejects.toThrow('EXACT_STARTUP_ONLY_ATTEMPT_REQUIRED');
++    const replied = await pin('replied', wrap({ ...inventory, replyCount: 1 }));
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...retry, retryInventory: replied } })).rejects.toThrow();
++    const thirdEvents = events.map(event => ({ ...event, atUtc: event.atUtc.replace('01:34:', '01:37:').replace('01:35:', '01:38:').replace('01:36:', '01:39:') }));
++    const subsequentStartupOnlyAttempt = { events: await pin('third', thirdEvents, true), previousJournal: retry.interruptedJournal };
++    const threeAttempts = { ...retry, subsequentStartupOnlyAttempt, interruptedJournal: await pin('journal-third', { ...journal, providerCalls: 3 }),
++      retryInventory: await pin('inventory-third', wrap({ ...inventory, attempts: 3, sessions: [...inventory.sessions, ended('2026-11-13T01:39:00Z', 'ended_by_host')] })) };
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: threeAttempts })).resolves.toMatchObject({ workId });
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...threeAttempts, startupOnlyAttempt: undefined } }))
++      .rejects.toThrow('R2_STARTUP_ATTEMPT_CHAIN_REQUIRED');
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...threeAttempts, subsequentStartupOnlyAttempt: { ...subsequentStartupOnlyAttempt, events: retry.startupOnlyAttempt.events } } })).rejects.toThrow();
++    const sessionId = 'case_session_schema_failure', processIdentity = 'fixture-process';
++    const authority = { window, workId, caseId, processIdentity, caseSessionId: sessionId };
++    const requestRawBytes = JSON.stringify({ tools: [{ name: 'envoi_case_list_assets', parameters: { allOf: [{}] } }] });
++    const responseRawBytes = JSON.stringify({ error: { message: 'input_schema does not support oneOf, allOf, or anyOf at the top level' } });
++    const transcript = { workId, caseId, pins: authority, path: '/v1/responses', httpStatus: 400,
++      requestRawBytes, responseRawBytes, requestSha256: sha(requestRawBytes), responseSha256: sha(responseRawBytes) };
++    const dispatch = { ...authority, kind: 'actual_native_physical_dispatch', physicalSequence: 2, intentId: 'fixture',
++      bodySha256: sha('fixture') };
++    const outcome = { ...dispatch, kind: 'actual_native_physical_outcome', stage: 'body_drained', httpStatus: 400 };
++    const fourth = [
++      { window, workId, caseId, kind: 'actual_canonical_context', role: 'openclaw', atUtc: '2026-11-13T01:39:20Z',
++        session: { id: sessionId, agentId: recipientAgentId, caseId, workId } },
++      { window, workId, kind: 'owned_native_bootstrap_admitted', processIdentity, atUtc: '2026-11-13T01:39:30Z' },
++      settlement('2026-11-13T01:39:51Z'),
++    ];
++    const schemaRejectedAttempt = { events: await pin('fourth', fourth, true), previousJournal: threeAttempts.interruptedJournal,
++      transcript: await pin('transcript', transcript), dispatch: await pin('dispatch', dispatch), outcome: await pin('outcome', outcome) };
++    const fourAttempts = { ...threeAttempts, schemaRejectedAttempt,
++      interruptedJournal: await pin('journal-fourth', { ...journal, providerCalls: 4 }),
++      retryInventory: await pin('inventory-fourth', wrap({ ...inventory, attempts: 4, sessions: [...inventory.sessions,
++        ended('2026-11-13T01:39:00Z', 'ended_by_host'), ended('2026-11-13T01:39:50Z')] })) };
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: fourAttempts })).resolves.toMatchObject({ workId });
++    await expect(inspectAcceptedOpenClawRetry({ ...input, retry: { ...fourAttempts, schemaRejectedAttempt: {
++      ...schemaRejectedAttempt, outcome: await pin('unrelated-outcome', { ...outcome, workId: 'msg_other' }),
++    } } })).rejects.toThrow();
++  } finally { await fs.rm(dir, { recursive: true, force: true }); }
++});
+diff --git a/integrations/hermes/terminal-openclaw-continuation.ts b/integrations/hermes/terminal-openclaw-continuation.ts
+new file mode 100644
+--- /dev/null
++++ b/integrations/hermes/terminal-openclaw-continuation.ts
+@@ -0,0 +1,312 @@
++import assert from 'node:assert/strict';
++import { createHash } from 'node:crypto';
++import fs from 'node:fs/promises';
++import path from 'node:path';
++import type { ContinuationWorkflowReceipt } from './continuation-controller';
++import type { ProgressPin, StoppedProgressPreflight } from './stopped-progress';
++
++const sha = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
++const digest = /^[a-f0-9]{64}$/;
++const requestId = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
++
++export type TerminalOpenClawEvidence = Readonly<{
++  requestApproval: ProgressPin;
++  operationApproval: ProgressPin;
++  allocation: ProgressPin;
++  actionLedger: ProgressPin;
++  requestLedgerSha256: string;
++  execution: ProgressPin;
++  events: ProgressPin;
++  journal: ProgressPin;
++  inventory: ProgressPin;
++}>;
++
++export type AcceptedOpenClawRetryEvidence = Readonly<{
++  sendReceipt: ProgressPin;
++  retryInventory: ProgressPin;
++  interruptedJournal: ProgressPin;
++  attemptEvents: ProgressPin;
++  startupOnlyAttempt?: Readonly<{ events: ProgressPin; previousJournal: ProgressPin }>;
++  subsequentStartupOnlyAttempt?: Readonly<{ events: ProgressPin; previousJournal: ProgressPin }>;
++  schemaRejectedAttempt?: Readonly<{
++    events: ProgressPin;
++    previousJournal: ProgressPin;
++    transcript: ProgressPin;
++    dispatch: ProgressPin;
++    outcome: ProgressPin;
++  }>;
++}>;
++
++async function read(pin: ProgressPin) {
++  assert(path.isAbsolute(pin.path) && digest.test(pin.sha256), 'EXACT_TERMINAL_CONTINUATION_PIN_REQUIRED');
++  const stat = await fs.lstat(pin.path);
++  assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 2_000_000, 'BOUNDED_TERMINAL_CONTINUATION_PIN_REQUIRED');
++  const bytes = await fs.readFile(pin.path);
++  assert.equal(sha(bytes), pin.sha256, 'TERMINAL_CONTINUATION_BYTES_CHANGED');
++  return bytes.toString('utf8');
++}
++
++export async function inspectTerminalOpenClaw({ receipt, preflight, flowCases, actorIds, terminal }: {
++  receipt: ContinuationWorkflowReceipt;
++  preflight: StoppedProgressPreflight;
++  flowCases: Readonly<Record<string, string>>;
++  actorIds: Readonly<Record<string, string>>;
++  terminal: TerminalOpenClawEvidence;
++}) {
++  const [approval, operation, allocation, execution, inventory] = await Promise.all(
++    [terminal.requestApproval, terminal.operationApproval, terminal.allocation, terminal.execution, terminal.inventory]
++      .map(async pin => JSON.parse(await read(pin))),
++  );
++  const { request, preservedCheckpoint } = approval;
++  assert.equal(approval.purpose, 'phase-c-one-approved-synthetic-reply-request');
++  assert.equal(approval.state, 'approved_unsent');
++  assert.equal(approval.pending.stagingRelease, receipt.serverSource);
++  assert.equal(request.origin, 'https://sinaloa-staging.rachelgonsalves821.workers.dev');
++  assert.equal(request.caseId, flowCases.openclaw);
++  assert.equal(request.senderAgentId, actorIds.testowner);
++  assert.equal(request.recipientAgentId, actorIds.openclaw);
++  assert.equal(request.intent, 'request');
++  assert.equal(request.sendLimit, 1);
++  assert(typeof request.text === 'string' && request.text.length > 0 && request.text.length <= 2000);
++  assert(requestId.test(request.requestId));
++  assert.equal(request.idempotencyKey, 'phase-c-followup:' + request.requestId);
++  const workId = 'msg_' + sha(request.senderAgentId + ':' + request.idempotencyKey).slice(0, 32);
++  const failedWorkId = preservedCheckpoint.workId;
++  assert(/^msg_[A-Za-z0-9_-]+$/.test(failedWorkId) && failedWorkId !== workId);
++  assert.equal(preservedCheckpoint.status, 'failed');
++  assert.equal(terminal.events.sha256, preservedCheckpoint.terminalEventsSha256);
++  assert.equal(terminal.journal.sha256, preservedCheckpoint.journalSha256);
++  assert.equal(execution.purpose, 'actual-controlled-checkpoint-recovery');
++  assert.deepEqual(execution.receipt, receipt);
++  assert.equal(execution.window, sha(JSON.stringify(receipt)));
++  assert.equal(execution.actualStartedAtUtc, receipt.startUtc);
++  const [events] = await Promise.all([read(terminal.events), read(terminal.journal), read(terminal.actionLedger)]);
++  const settlements = events.trimEnd().split(/\r?\n/).map(line => JSON.parse(line)).filter(event =>
++    event.kind === 'canonical_settlement' && event.workId === failedWorkId);
++  assert.equal(settlements.length, 1);
++  const [settlement] = settlements;
++  assert.equal(settlement.window, execution.window);
++  assert.equal(settlement.role, 'openclaw');
++  assert.equal(settlement.operation, 'fail');
++  assert.equal(settlement.status, 'failed');
++  assert(Date.parse(settlement.atUtc) >= Date.parse(receipt.startUtc), 'CURRENT_TERMINAL_SETTLEMENT_REQUIRED');
++
++  assert.equal(operation.purpose, 'phase-c-openclaw-successor-operation-approval');
++  assert.equal(operation.state, 'approved_for_one_send');
++  assert.equal(operation.requestApprovalSha256, terminal.requestApproval.sha256);
++  assert.equal(operation.allocationReviewSha256, terminal.allocation.sha256);
++  assert.equal(operation.actionLedgerSha256, terminal.actionLedger.sha256);
++  assert.equal(allocation.currentActionLedgerSha256, terminal.actionLedger.sha256);
++  assert.equal(allocation.requestApprovalSha256, terminal.requestApproval.sha256);
++  assert.deepEqual([operation.operationCap, operation.normalCeiling, operation.cleanupReserve, operation.modelCap], [63, 55, 8, 64]);
++  assert.equal(allocation.allocation.recordedOperations, preflight.conservativeMessages);
++  assert.equal(allocation.allocation.newSendOperations, 1);
++  assert.equal(allocation.allocation.remainingApprovedOperations + 1 + preflight.conservativeMessages, operation.normalCeiling);
++
++  assert.equal(inventory.database, 'sinaloa_staging');
++  assert.equal(inventory.readOnly, 'on');
++  assert.equal(Date.parse(inventory.checkedAt), preflight.checkedAtMs);
++  assert(Date.parse(inventory.checkedAt) >= Date.parse(settlement.atUtc), 'POST_SETTLEMENT_INVENTORY_REQUIRED');
++  assert.equal(inventory.caseState, 'inProgress');
++  assert.equal(inventory.activeWorkLeases, 0);
++  assert.equal(inventory.activeCaseSessions, 0);
++  assert.deepEqual(inventory.approvedMessage, { id: workId, copies: [] });
++  const rows = inventory.failedWork.filter((row: { work_id: string }) => row.work_id === failedWorkId);
++  assert.equal(rows.length, 1);
++  const [failed] = rows;
++  assert.equal(failed.case_id, request.caseId);
++  assert.equal(failed.recipient_agent_id, request.recipientAgentId);
++  assert.equal(failed.claim_status, 'failed');
++  assert.equal(failed.message_status, 'failed');
++  assert.equal(failed.retryable, false);
++  assert.equal(failed.reason_code, 'HANDLER_FAILED');
++  assert.equal(failed.lease_expires_at, null);
++  assert.equal(failed.retry_at, null);
++  assert.equal(failed.processed_at, null);
++  assert(inventory.failedWorkSessions.every((session: { status: string }) => session.status === 'ended'));
++
++  return { workId, failedWorkId, request: {
++    caseId: request.caseId as string, text: request.text as string, intent: 'request' as const,
++    senderAgentId: request.senderAgentId as string, recipientAgentId: request.recipientAgentId as string,
++  } };
++}
++
++export async function inspectAcceptedOpenClawRetry(input: {
++  requestApproval: ProgressPin;
++  retry: AcceptedOpenClawRetryEvidence;
++  caseId: string;
++  senderAgentId: string;
++  recipientAgentId: string;
++  window: string;
++  now?: number;
++}) {
++  const { retry, window } = input;
++  const [approvalRaw, receiptRaw, inventoryRaw, journalRaw, eventsRaw] = await Promise.all(
++    [input.requestApproval, retry.sendReceipt, retry.retryInventory, retry.interruptedJournal, retry.attemptEvents].map(read),
++  );
++  assert(!retry.subsequentStartupOnlyAttempt || retry.startupOnlyAttempt, 'R2_STARTUP_ATTEMPT_CHAIN_REQUIRED');
++  const startupOnlyAttempts = [retry.startupOnlyAttempt, retry.subsequentStartupOnlyAttempt].filter(attempt => attempt !== undefined);
++  assert(!retry.schemaRejectedAttempt || startupOnlyAttempts.length === 2, 'R2_STARTUP_ATTEMPT_CHAIN_REQUIRED');
++  const expectedAttempts = 1 + startupOnlyAttempts.length + Number(!!retry.schemaRejectedAttempt);
++  const { request, preservedCheckpoint } = JSON.parse(approvalRaw);
++  assert.equal(request.origin, 'https://sinaloa-staging.rachelgonsalves821.workers.dev');
++  assert.equal(request.caseId, input.caseId);
++  assert.equal(request.senderAgentId, input.senderAgentId);
++  assert.equal(request.recipientAgentId, input.recipientAgentId);
++  assert.equal(request.intent, 'request');
++  assert.equal(request.sendLimit, 1);
++  assert(requestId.test(request.requestId));
++  assert.equal(request.idempotencyKey, 'phase-c-followup:' + request.requestId);
++  const workId = 'msg_' + sha(request.senderAgentId + ':' + request.idempotencyKey).slice(0, 32);
++  assert.notEqual(workId, preservedCheckpoint.workId);
++  assert.deepEqual(JSON.parse(receiptRaw), { requestId: request.requestId, workId, caseId: request.caseId });
++  const rows = JSON.parse(inventoryRaw);
++  assert(Array.isArray(rows) && rows.length === 1 && Object.keys(rows[0]).join() === 'phase_c_r2_accepted_work_readonly',
++    'EXACT_R2_ACCEPTED_WORK_INVENTORY_REQUIRED');
++  const entry = rows[0].phase_c_r2_accepted_work_readonly;
++  const inventory = typeof entry === 'string' ? JSON.parse(entry) : entry;
++  const checkedAt = Date.parse(inventory.checkedAt), now = input.now ?? Date.now();
++  assert(Number.isFinite(checkedAt) && checkedAt <= now && now - checkedAt < 300_000, 'FRESH_R2_ACCEPTED_WORK_INVENTORY_REQUIRED');
++  assert.equal(inventory.database, 'sinaloa_staging');
++  assert.equal(inventory.readOnly, 'on');
++  assert.equal(inventory.workId, workId);
++  assert.equal(inventory.claimStatus, 'retryable');
++  assert.equal(inventory.failureCode, 'HANDLER_FAILED');
++  assert.equal(inventory.messageStatus, 'acknowledged');
++  assert.equal(inventory.attempts, expectedAttempts);
++  assert(Number.isFinite(Date.parse(inventory.retryAt)) && Date.parse(inventory.retryAt) <= checkedAt);
++  assert.equal(inventory.activeSessions, 0);
++  assert.equal(inventory.activeWorkLeases, 0);
++  assert.equal(inventory.activeCaseSessions, 0);
++  assert.equal(inventory.protectedCaseState, 'paused');
++  assert.equal(inventory.originalDispositionMatches, true);
++  assert.equal(inventory.leaseExpiresAt, null);
++  assert.equal(inventory.processedAt, null);
++  assert.equal(inventory.replyCount, 0);
++  assert.equal(inventory.previousStatus, 'failed');
++  assert.equal(inventory.originalStatus, 'failed');
++  assert.equal(inventory.sessions.length, expectedAttempts);
++  const ended = inventory.sessions.map((session: { status: string; endedReason: string; endedAt: string }, index: number) => {
++    assert.equal(session.status, 'ended');
++    // A failed native startup can end its session explicitly before the work
++    // failure is recorded. Only the pinned startup-only attempt may do this.
++    assert(session.endedReason === 'work_settled' || (index > 0 && session.endedReason === 'ended_by_host'),
++      'R2_UNEXPECTED_SESSION_END_REASON');
++    const at = Date.parse(session.endedAt);
++    assert(Number.isFinite(at) && at <= checkedAt);
++    return at;
++  });
++  assert(ended.every((at: number, index: number) => index === 0 || ended[index - 1] < at), 'R2_ATTEMPT_ORDER_REQUIRED');
++  const journal = JSON.parse(journalRaw);
++  assert.equal(journal.workId, workId);
++  assert.equal(journal.completed, false);
++  assert.deepEqual(journal.pending, []);
++  // The local journal counts an attempted response even if startup prevents
++  // dispatch. The controller separately pins the unchanged physical-call ledger.
++  assert.equal(journal.providerCalls, expectedAttempts);
++  assert(/^openclaw:http:\/\/127\.0\.0\.1:\d{1,5}:[A-Za-z0-9_-]{1,128}$/.test(journal.model));
++  const parseEvents = (raw: string) => raw.trimEnd().split(/\r?\n/).map(line => JSON.parse(line));
++  const assertSettlement = (events: ReturnType<typeof parseEvents>, index: number) => {
++    const settlements = events.filter(event => event.kind === 'canonical_settlement' && event.workId === workId);
++    assert.equal(settlements.length, 1);
++    const [settlement] = settlements;
++    assert.equal(settlement.window, window);
++    assert.equal(settlement.role, 'openclaw');
++    assert.equal(settlement.operation, 'fail');
++    assert.equal(settlement.status, 'retryable');
++    const at = Date.parse(settlement.atUtc);
++    assert(at <= checkedAt && at >= ended[index] && (index + 1 === ended.length || at < ended[index + 1]));
++    return at;
++  };
++  let previousSettlementAt = assertSettlement(parseEvents(eventsRaw), 0);
++  for (const [offset, startupOnly] of startupOnlyAttempts.entries()) {
++    const index = offset + 1;
++    const [raw, prior] = await Promise.all([read(startupOnly.events), read(startupOnly.previousJournal)]);
++    const previous = JSON.parse(prior);
++    assert.equal(previous.workId, workId);
++    assert.equal(previous.model, journal.model);
++    assert.equal(previous.completed, false);
++    assert.deepEqual(previous.pending, []);
++    assert.equal(previous.providerCalls, index);
++    const events = parseEvents(raw);
++    const settlementAt = assertSettlement(events, index);
++    assert(events.every(event => event.window === window && [
++      'actual_session_started_awaiting_personal_gateway_addresses', 'owned_native_factory_ready', 'existing_receiver_ready',
++      'actual_canonical_context', 'actual_bounded_case_snapshot', 'receiver_startup_transport_failure', 'canonical_settlement',
++    ].includes(event.kind)), 'EXACT_STARTUP_ONLY_ATTEMPT_REQUIRED');
++    assert(events.some(event => event.kind === 'actual_canonical_context' && event.workId === workId));
++    const failure = events.filter(event => event.kind === 'receiver_startup_transport_failure');
++    assert.equal(failure.length, 1);
++    const [timeout] = failure;
++    assert.equal(timeout.method, 'POST');
++    assert.equal(timeout.path, '/v1/responses');
++    assert.deepEqual(timeout.causes, [{ name: 'Error', code: 'OWNED_NATIVE_BOOTSTRAP_TIMEOUT' }]);
++    const timeoutAt = Date.parse(timeout.atUtc);
++    assert(timeoutAt > previousSettlementAt && timeoutAt <= settlementAt);
++    if (inventory.sessions[index].endedReason === 'ended_by_host') {
++      assert(timeoutAt <= ended[index], 'R2_HOST_END_MUST_FOLLOW_STARTUP_FAILURE');
++    }
++    previousSettlementAt = settlementAt;
++  }
++  if (retry.schemaRejectedAttempt) {
++    const { events, previousJournal, transcript, dispatch, outcome } = retry.schemaRejectedAttempt;
++    const index = expectedAttempts - 1;
++    const [raw, previous, exchange, sent, drained] = await Promise.all([
++      read(events),
++      ...[previousJournal, transcript, dispatch, outcome].map(async pin => JSON.parse(await read(pin))),
++    ]);
++    const attempt = parseEvents(raw);
++    const settlementAt = assertSettlement(attempt, index);
++    assert.equal(previous.workId, workId);
++    assert.equal(previous.model, journal.model);
++    assert.equal(previous.completed, false);
++    assert.deepEqual(previous.pending, []);
++    assert.equal(previous.providerCalls, index);
++    const contexts = attempt.filter(event => event.kind === 'actual_canonical_context');
++    const boots = attempt.filter(event => event.kind === 'owned_native_bootstrap_admitted');
++    assert.equal(contexts.length, 1);
++    assert.equal(boots.length, 1);
++    const context = contexts[0], boot = boots[0], sessionId = context.session?.id;
++    assert(typeof sessionId === 'string' && sessionId.startsWith('case_session_'));
++    assert(attempt.every(event => event.window === window));
++    assert.equal(context.role, 'openclaw');
++    assert.equal(context.session.agentId, input.recipientAgentId);
++    assert.equal(context.session.caseId, input.caseId);
++    assert.equal(context.session.workId, workId);
++    assert(Date.parse(context.atUtc) > previousSettlementAt && Date.parse(context.atUtc) <= Date.parse(boot.atUtc)
++      && Date.parse(boot.atUtc) <= settlementAt, 'R2_SCHEMA_REJECTION_ORDER_REQUIRED');
++    assert.equal(boot.workId, workId);
++    for (const proof of [context, exchange, sent, drained]) {
++      assert.equal(proof.workId, workId);
++      assert.equal(proof.caseId, input.caseId);
++    }
++    for (const proof of [exchange.pins, sent, drained]) {
++      assert.equal(proof.window, window);
++      assert.equal(proof.caseSessionId, sessionId);
++      assert.deepEqual(proof.processIdentity, boot.processIdentity);
++    }
++    assert.equal(sent.kind, 'actual_native_physical_dispatch');
++    assert.equal(drained.kind, 'actual_native_physical_outcome');
++    assert.equal(drained.stage, 'body_drained');
++    assert(Number.isSafeInteger(sent.physicalSequence) && sent.physicalSequence > 0);
++    assert.equal(drained.physicalSequence, sent.physicalSequence);
++    assert.equal(drained.intentId, sent.intentId);
++    assert(digest.test(sent.bodySha256) && drained.bodySha256 === sent.bodySha256);
++    assert.equal(drained.httpStatus, 400);
++    assert.equal(exchange.httpStatus, 400);
++    assert.equal(exchange.path, '/v1/responses');
++    const requestBytes = Buffer.from(exchange.requestRawBytes, 'utf8');
++    const responseBytes = Buffer.from(exchange.responseRawBytes, 'utf8');
++    assert.equal(sha(requestBytes), exchange.requestSha256);
++    assert.equal(sha(responseBytes), exchange.responseSha256);
++    const tools = JSON.parse(requestBytes.toString('utf8')).tools;
++    assert(tools.some((tool: { name: string; parameters: { allOf?: unknown[] } }) =>
++      tool.name === 'envoi_case_list_assets' && Array.isArray(tool.parameters?.allOf)), 'R2_REJECTED_TOOL_SCHEMA_REQUIRED');
++    assert(JSON.parse(responseBytes.toString('utf8')).error?.message?.includes(
++      'input_schema does not support oneOf, allOf, or anyOf at the top level'), 'R2_REJECTED_TOOL_SCHEMA_REQUIRED');
++  }
++  return { workId, checkedAt, priorWorkId: preservedCheckpoint.workId, journalIdentity: journal.model as string, request: {
++    caseId: request.caseId as string, text: request.text as string, intent: 'request' as const,
++    senderAgentId: request.senderAgentId as string, recipientAgentId: request.recipientAgentId as string,
++  } };
++}

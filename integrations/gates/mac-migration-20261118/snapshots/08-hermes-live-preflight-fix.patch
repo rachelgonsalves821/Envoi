@@ -1,0 +1,129 @@
+diff --git a/integrations/gates/B-C-HOSTED-PROVIDER-ACCEPTANCE.md b/integrations/gates/B-C-HOSTED-PROVIDER-ACCEPTANCE.md
+new file mode 100644
+--- /dev/null
++++ b/integrations/gates/B-C-HOSTED-PROVIDER-ACCEPTANCE.md
+@@ -0,0 +1,87 @@
++> Deferred from the initial testing release by Je's 2026-10-24 scope decision. Hermes/OpenClaw-only release readiness is tracked in HERMES-OPENCLAW-TESTING-RELEASE.md. The additional-provider gates below are retained for later work and do not block that release.
++
++# Phase B/C hosted provider acceptance checklist after 7e189c2
++
++Prepared 2026-10-24 America/New_York. Planning only: no hosted, provider, release or settings operation is authorized or performed by this checklist.
++
++## Credited work and closure definition
++
++- Exact source candidate: `7e189c25ea79434c77d89826d9e71fd293a167f1`, integration of approved #225 head `643704134257e3b6e3f4d7bb99d0ab10e37f1f8e` once.
++- Full integration CI [40153408458](https://github.com/rachelgonsalves821/Envoi/actions/runs/40153408458) and both local lane suites passed. [Integration receipt](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6392417049).
++- Existing Hermes/OpenClaw B/C acceptance remains complete and credited under [human countersign 6330847176](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6330847176). Do not require blanket repetition, invent historical run identifiers, or treat old open PR copies as missing implementation.
++- Approved #215 MCP wake, #216 provider events/Grok transport, #217 native gateway work and #218 option-A Muse tool packet are integrated. The historical requests for these contracts/implementations in B-C-CLOSEOUT.md, DOTS-GROK-ACCEPTANCE.md and INSTINCT-SCHEDULED-HTTPS-REQUEST.md are superseded for those selected boundaries. No repeat contract approval is needed.
++- MCP events protocol support (historical D3) is implemented and tested in source; negotiation and invocation by a real provider remain hosted evidence. A reusable host client is not an actual provider's credential store, scheduler or canonical work driver.
++- Outstanding scope: the selected multi-route breadth gate (cloud MCP, reviewed connector and trusted HTTPS) and each additional advertised product's actual installation/exchange/recovery; automatic reachability additionally needs that exact product's closed-app proof. This is separate from the credited core B/C gate.
++- No new production rollout is needed to call source integration complete. Hosting for acceptance and eventual production rollout have separate approvals.
++
++## Accountability
++
++| Owner | Responsibility |
++| --- | --- |
++| Je / pjsk02 | Sole approver; select eligible account and test scope, authorize concrete hosting/settings/provider actions, approve exact per-item human decisions, countersign results and final rollout separately. |
++| Lane A / Claude, or explicitly delegated release owner | Exact staging release/configuration and paired Worker/container rollback inventory; server/canonical queue evidence; private test access; rollback rehearsal; board GATE receipt and defect integration. |
++| Lane B / Codex | Host capability checklist, client/adapter binding, installed/served artifact verification where applicable, host-side observations and changed-behavior tests, evidence reconciliation and accurate setup/presence copy. |
++| Rachel | Muse reviewed-platform/business/tool decisions and Instinct account/scheduler observations with the actual eligible account; owner consent and continuity checks for her account. No sole-approver authority is transferred. |
++| Je + actual ChatGPT/Grok/xAI account owner | Proposed operators for those account probes and permitted host runs. Record who actually owns each eligible account before any access; do not assume a shared login or account entitlement. |
++| Provider reviewer/support | External capability/review decisions; Lane A/B cannot manufacture these results. |
++
++## Per-provider exits
++
++| Product / selected route | Remaining checks | Accountable owner | Exit evidence |
++| --- | --- | --- | --- |
++| ChatGPT/Dots: remote MCP and, if available, MCP events | D1 eligible account/workspace and installable event-enabled plugin; D2 actual callback origin. Read exact client metadata/redirects; prove PKCE/resource/scope handling, private custody/refresh/revoke, 2026-07-28 event negotiation and old-protocol tool compatibility. Prove durable event receipt/cursor replay, catch-up and trusted execution. | Je + account owner; Lane B host; Lane A protocol/evidence | Real installation, canonical reply/settlement, lifecycle, and two separately timed closed-app executions for an automatic claim. Only observed callback origins may be proposed. D3 is no longer a source implementation backlog. |
++| Grok automation | G4 eligible product/plan/account; G2 actual trigger origin; G1 automation or supported trusted bridge privately authenticates to Envoi and performs canonical work; G3 repeated event-ID behavior, retry, payload isolation. Use the same authorized execution path for trigger and reply. | Je + account owner; Lane B consumer/bridge; Lane A sender/canonical evidence | Actual authenticated fetch/claim/reply/settlement plus closed-app/recovery tests. A webhook 202 is receipt only. If no private execution path exists, remain blocked and do not enable the sender. |
++| Instinct: owner-delegated native gateway work | Supported persistent private browser/session and native scheduler; recorded task ID/readback, cadence/timezone/expiry; explicit native_work grant; old-cookie denial and owner-confirmed repair of the same installation. Bind the actual host to the implemented native client. | Rachel + account owner; Lane B host; Lane A gateway | Read/reply/settle with host closed, two distinct arrivals, missed tick/restart, duplicate/uncertain action, denied write, pause/resume/revoke and late-action denial. A schedule or HTTP 200 alone is insufficient. No public REST scheduled-polling exception or email bridge is selected. |
++| Muse: selected reviewed/listed Connector Platform | M1 final tool classifications; M2 provider acceptance of approved option A, including honest work-capable envoi.agent; M3 actual auth/client/redirect/private custody; M4 supported closed-app trigger/origins; M5 per-use reply approval and unattended-operation limit. Complete business/privacy/support/test-account packet before separately authorized submission. | Rachel + provider reviewer; Lane A/B auth/tool/host evidence | Approved exact ten-tool set, actual private installation/exchange, lifecycle, and closed-app evidence if unattended reachability is claimed. A provider prompt never replaces Envoi's exact owner decision. No Custom Connector fallback or invented read-only scope. |
++| xAI Responses API bridge, if retained in advertised breadth | Actual persistent operator host, private xAI key and Envoi grant, selected scoped tools and case path, two cases, restart/renewal/pause/revoke. Record product and route independently. | Je + actual API/host owner; Lane B adapter; Lane A canonical evidence | Exact API-bridge gate. This cannot certify the Grok consumer app, automation or Bot. |
++| Generic trusted HTTPS route | Private host custody, registration/owner consent/activation, permitted canonical work path and current route availability; interruption/reconnect and lifecycle. Reuse a qualifying provider/bridge only when its exact route actually satisfies this breadth row. | Lane B + operator; Lane A authorization | Trusted HTTPS breadth evidence, without introducing a scheduled-polling mode the public REST contract does not offer. |
++
++## Ordered hosted checklist
++
++All boxes below are pending for the new selected provider profiles. Previously accepted Hermes/OpenClaw gates are not reset.
++
++| Check | Owner | Required observation / pass criterion |
++| --- | --- | --- |
++| [ ] 1. Capability and scope inventory | Account owner + Lane B | Exact product/build/plan/account/workspace, route, private credential mechanism, supported trigger/scheduler and actual constraints. Observe callbacks/redirects; do not guess origins. Read-only discovery first; no install, consent grant, task, test message or submission without the operational approval. |
++| [ ] 2. Provider host binding | Lane B + supported provider host | Bind durable subscription/cursor/pending-hint storage, private credential callback, trusted scheduler and canonical work driver as required. Prove persistence rather than using in-memory test substitutes. If the provider cannot supply this boundary, record a blocker; do not expose bearer/cookie/CSRF/signing keys to the model. Any necessary code fix gets an isolated draft, checks and exact-head integration approval. |
++| [ ] 3. Exact release and recovery plan | Lane A | Pin full candidate, staging origin, Worker/container/image/config versions, current secret binding names, exact config diff, original flag values, private test access, rollback target and operator window. Confirm fresh recoverability and both existing owner/workspace mappings. Review existing recovery evidence and identify only changed operations. No assumed old live inventory. |
++| [ ] 4. Operational approval | Je | Review exact deployment/config diff, account/registration/consent/task operations, test identities, allowed synthetic sends/faults/revokes, model/API spend ceiling and rollback procedure. Each chosen host has a finite run; unrelated flags remain OFF. |
++| [ ] 5. Staging/artifact preflight | Lane A + Lane B | After the separately approved staging deployment, /health and /ready show the exact candidate and critical dependencies. Served and actually installed bytes match that release, wherever artifacts apply. Do not invent helper hashes for cloud-only routes. Production owners/workspaces remain continuous. |
++| [ ] 6. Admission and identity | Je/Rachel + Lane A/B | Fresh disposable test agent/installation in the approved test scope; attributable owner claim/consent; expected workspace/address/scopes. Pending/rejected/expired/wrong-owner consent has no operational authority; reconnect preserves the same identity. Real owners are not replaced for testing. |
++| [ ] 7. Canonical Phase C exchange | Lane B + Lane A | Authorized snapshot/read, claim and scoped action, current policy and any required owner/provider approval, canonical reply receipt AND fenced settlement. Both owner perspectives agree. Separate model invocation count from canonical effect count. |
++| [ ] 8. Closed-app delivery | Operator + Lane B | For each automatic claim: two distinct arrivals at different recorded times with app/chat closed, actual host invocation and authenticated fetch, one intended canonical effect for each logical action, and settled work. Provider receipt, notification, saved task or listing alone does not pass. Record human intervention if required. |
++| [ ] 9. Lost/duplicate/restart recovery | Lane A/B | Missed trigger/tick, host/server restart, duplicate/reordered delivery, cursor gap/truncation where applicable, lost claim/action/settlement response and overlapping run. Canonical work is caught up without loss or duplicate effect; uncertain operations reuse stable IDs/keys. |
++| [ ] 10. Authority/lifecycle | Lane A/B + owner | Private refresh/lost-response recovery where supported, pause/held work/no action, explicit resume, scope reduction, current case control and revoke. Reject stale sessions, generations, fences and late callbacks/actions; no silent reenrollment. |
++| [ ] 11. Native gateway limits, if used | Lane A/B + owner | Explicit native_work upgrade and same-identity repair; old cookie rejected; enforced run/lease/item/byte limits; denied/expired/changed-detail human decisions cannot send; session/generation recovery preserves canonical effects. |
++| [ ] 12. Tenant/data/asset boundary | Lane A/B | Wrong tenant/case/recipient, scope elevation, unscanned/ungranted asset and forged approval fail closed. Wake content stays opaque; model-visible transcript and sanitized evidence contain no credentials or private operational tokens. Test assets only on routes that expose approved asset operations; native gateway snapshots remain metadata-only. |
++| [ ] 13. Disable and paired recovery | Lane A + operator | On the approved staging scope, disable the selected profile, stop its scheduled/late work and reconcile outstanding canonical leases/queue. Rehearse restoring the pinned paired Worker/image/config where changed, without resurrecting revoked authority or replacing owner/workspace identities. Keep Builds paused throughout. |
++| [ ] 14. Evidence and claims | Lane A/B | Separate packet per actual product/version/route, one exact release per complete gate; timestamps, artifact/config pins, private proof references, canonical receipt/audit IDs and expected/actual results. Correct old preparation snapshots and owner-facing availability claims; no automatic label inferred from a 202 or a last-seen timestamp. |
++| [ ] 15. Countersign and closure | Lane A posts; Je approves | Review all applicable observations and external provider decisions; Je countersigns GATE PASS with scope and source. Failed new gate: fix/re-integrate and rerun that complete affected gate. Do not rerun unrelated historical accepted gates or combine partial results across source versions. Production rollout is approved separately. |
++
++A provider that only passes on-demand behavior may be described only within its approved route/presence scope. Unsupported automatic behavior remains open unless Je explicitly changes the advertised scope. Provider capability failure is not an Envoi test pass. A truly different auth/action boundary requires reviewed contract work; do not request reapproval of the existing four contracts as a substitute.
++
++## Exactly what Je should approve next
++
++Recommended next authorization, limited to discovery/preparation:
++
++> Approve read-only capability checks in the existing eligible ChatGPT/Dots, Grok, Instinct and Muse owner sessions, and preparation of the exact staging acceptance plan for 7e189c25ea79434c77d89826d9e71fd293a167f1. Record actual client/redirect/callback/trigger metadata and private host/scheduler support without exposing secrets. Prepare the per-host configuration diff, recovery inventory, synthetic test scope, run/spend limits and rollback procedure for my review. Keep all flags OFF and Builds paused. Preserve both owners and workspaces. No deploy, settings changes, provider installation/submission, task or trigger creation, messages/model runs, key rotation or Production changes.
++
++This expands the current restriction against provider operations only to bounded read-only discovery. It does not authorize an installation or consent grant. Je/Rachel use their own eligible existing sessions; any interactive login, secret entry or provider review stays with the owner.
++
++After discovery, return one concrete operational approval packet containing:
++
++1. Exact staging candidate/origin and paired Worker/container recovery versions, with fresh readiness and continuity inventory.
++2. Exact per-profile flags and only observed allowlist origins; dependencies from src/onboarding-flags.js included. No blanket enable-all request. Source defaults remain OFF.
++3. Named account operators, selected route and any provider-supported durable host/scheduler binding; actual auth/redirect/scopes; approved synthetic identities/cases, data and intended effects.
++4. Exact bounded installation/subscription/task/consent/send/fault/pause/revoke/recovery operations; who executes them; API/model spend ceiling; existing secrets reused privately, no rotation.
++5. Rollback/disable/cleanup instructions, Builds kept paused, and explicit exclusion of Production rollout.
++6. Muse separately: completed business/privacy/support and secure test-account material, exact ten-tool classification and auth submission preview. Provider submission/review and external timing are an independent approval/critical path; do not block other host tests on that review.
++
++Only after Je approves that packet should staging deployment, profile settings, provider setup or hosted execution begin. No final Production cutover is requested by this checklist.
++
++## Current blockers and useful parallel work
++
++The remaining blockers are unobserved real-account capabilities and trusted host bindings, missing exact staging/config/rollback operational inventory for this release, the unapproved hosted execution window, and Muse's external review/auth/approval decisions. The completed source integration and tests are not blockers.
++
++Lane A can prepare release/recovery inventory while Lane B prepares per-host evidence forms and bindings from observed capability. Rachel can fill Muse's non-secret submission requirements and arrange supported-account access with Je; read-only provider inspection follows the next authorization. Any runtime/provider/account action remains within its exact approval. Phase D is Rachel's separate scope and is not blocked by transcription of old B/C evidence; independent work must follow its own approved contracts and dependencies.
++
+diff --git a/integrations/gates/HERMES-OPENCLAW-TESTING-RELEASE.md b/integrations/gates/HERMES-OPENCLAW-TESTING-RELEASE.md
+new file mode 100644
+--- /dev/null
++++ b/integrations/gates/HERMES-OPENCLAW-TESTING-RELEASE.md
+@@ -0,0 +1,32 @@
++> Released and verified: staging and Production now serve 7e189c25ea79434c77d89826d9e71fd293a167f1 with only INSTALLATIONS_V2, AGENT_REGISTRATION_V2 and CASE_SESSIONS_V1 ON. Builds stays paused; both owners/workspaces and current auth/keys are preserved. Main CI40156302831 green. Live /connect displays the three actionable onboarding steps. The pre-release diagnosis below is retained as history; it no longer describes live availability. First-cohort package now uses release-build manifest a19d033234b5b729b2d3b49d92a80b89f4eca71f803bf07becd8e22f33dcbdad; old Windows659642 review pin is superseded for distribution. Named tester admission/private kit delivery remain user operations; no new real-model/runtime gate is claimed.
++# Hermes/OpenClaw initial testing release
++
++Scope changed by Je on 2026-10-24: release a working Hermes + OpenClaw testing experience first; defer ChatGPT/Dots, consumer Grok/automations, Instinct, Muse and wider-provider acceptance. Their missing acceptance does not block this release. Existing approved contracts and implemented source remain retained, OFF and available for later work.
++
++## Verified implementation and live state
++
++- Approved #215-#218 work is integrated once through #225 at 7e189c25ea79434c77d89826d9e71fd293a167f1. Full local/integration CI40153408458 green. The earlier list of missing source/conflicting publication heads is historical and resolved.
++- Prior Hermes/OpenClaw B/C acceptance remains credited under board countersign6330847176. Do not reopen the complete old gate.
++- Read-only Production observation2026-10-25T02:32-02:34Z: /health and /ready200, release9ddfae969fa706e7ed5104dd2286af6b6dfd4e0b; database/deployment identity/object-storage read/scanner readiness all green.
++- /api/onboarding/routes200: registrationEnabled=false, installationsEnabled=false and every route/mode unavailable. /connect renders 'Agent setup is not available here yet'; /connect/skill.json404. This is the intended disabled-route behavior, not a missing ConnectPage implementation or proof of a broken server.
++- Core root config still defaults flags OFF. Source integration did not activate production onboarding. Removing the UI notice without enabling the approved backend would hide the real issue.
++
++## Concrete preparation completed
++
++- Locally prepared reviewed private helper/connector/launcher package from7e189c2, including existing explicit-path installers. It is not published, installed or connected. No new global installer, npm publication, automatic upgrade or background-service execution is needed for the initial approved testers.
++- Manifest SHA256659642b7794ca7f2846d847087194dddad74e0eca781fdf4de8eb7f233d57320. Source acceptance and this package integrity pin are recorded independently of historical private manifest schema metadata.
++- Focused frontend onboarding/claim/reconnect47/47; distribution67pass/3platform skips. The approved source's full suites remain credited; no runtime implementation changed in this preparation.
++- Review-only release profile validated with existing canonical flag/route functions: enable ENVOI_INSTALLATIONS_V2, ENVOI_AGENT_REGISTRATION_V2 and ENVOI_CASE_SESSIONS_V1. Offer only local_helper + envoi_link. HTTP wake, REST, remote OAuth, provider connectors, provider events, Grok and native gateway remain OFF. Core defaults are unchanged.
++
++## Remaining work and owner
++
++1. Lane A/release owner: reconcile the current namespace/exports transition, actual paired Worker/image/config recovery inventory and live secret binding names against the new source; prepare exact staging then beta commands with the reviewed three-flag override. Existing deployment helpers do not automatically enable that profile; do not run them unchanged and assume onboarding will open. Keep root defaults OFF and Builds paused. Obtain explicit approval before a live settings/deployment or main promotion.
++2. Je: approve the bounded release/profile and permitted synthetic first-tester operations. Staging uses explicit-source guards; Production promotion follows the existing fetched-main/clean-source guards and human main-promotion authority. No guard is bypassed. Existing owners/workspaces and Production WorkOS identities/keys remain continuous.
++3. Je/Rachel: nominate and approve the first tester accounts through existing admission rules. A signup/waitlist entry or verified WorkOS account alone is not admission: the current source checks ENVOI_BETA_INVITED_EMAILS. Preserve the signup/request-approval product choice and securely deliver the reviewed helper to approved testers. No email address is invented, invitation sent or allowlist edited here.
++4. Lane B + actual operators: after separately approved staging/production release, verify served source/artifacts and that /connect offers real instructions, /claim works, one Hermes and one OpenClaw can claim/activate with explicit host confirmation, workspace identity is right, a synthetic canonical exchange settles, reconnect preserves identity, pause/revoke refuses late actions, and wrong-owner access is denied. This is targeted current-release smoke, not a repeat of every historical B/C row. Real models/hosts require their bounded operator approval.
++5. Je: approve opening the cohort after the smoke and recovery checks pass. Collect onboarding failures, time-to-first-message and runtime/reconnect feedback before expanding providers. Production access remains approval-based; builds stays paused.
++
++## Conditions retained
++
++No deployment, live flag or account setting, main/integration update, secret rotation, real model call, provider registration, invitation, owner/workspace write or existing runtime operation occurred during preparation. Foreground helper plus running runtime is the supported first-test operating mode; do not promise work while the host is asleep/off or automatic service installation. Later provider breadth is deferred scope rather than an initial-release blocker.
++

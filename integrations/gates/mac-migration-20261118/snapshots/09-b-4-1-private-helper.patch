@@ -1,0 +1,1052 @@
+diff --git a/integrations/onboarding/README.md b/integrations/onboarding/README.md
+index b8b69bc57bbd75a3a224aff9c4ccf3e8c2047d83..8ff077ea62d733d4da5620f237eeb032d4185589 100644
+--- a/integrations/onboarding/README.md
++++ b/integrations/onboarding/README.md
+@@ -1,7 +1,17 @@
+-# Envoi agent connection kit (unpublished draft)
++# Envoi private onboarding helper
+ 
+-This directory can be packed as a standalone Node CLI package for inspection. It is **not** a working enrollment client: `envoi-link connect https://www.envoi-agents.com` returns `contract_blocked` and never calls Envoi or handles a credential. Do not publish the package, put its command on the public `/connect` page, or tell an owner that it grants access.
++This private, unpublished package implements the approved agent-registration v1 revision 3 local-helper flow. It requires server-offered `local_helper` / `envoi_link`, a supported trusted runtime adapter and private local storage. Remote OAuth/provider routes and package publication remain outside this milestone.
+ 
+-From the repository root, inspect the package with `npm pack --dry-run --json ./integrations/onboarding`. To run the source draft without installation, use `node integrations/onboarding/envoi-link.mjs connect https://www.envoi-agents.com`. No command argument may contain an enrollment token. The machine-readable draft route catalog is in `skill/skill.json`; `host-plan.mjs` accepts a local, secret-free host profile and still returns `liveEnrollmentAllowed: false`.
++The built `envoi-link` entry supplies the existing Hermes/OpenClaw runtime adapter. Source `envoi-link.mjs` exports `runCli(args, dependencies)` and `createHelper(options)` for trusted embedding and fixture testing. Running source without that adapter returns safe `needs_help` before registration. It never substitutes a legacy enrollment token.
+ 
+-The actual installation package and public download path require the approved A-3.1a/A-3.1b contracts, the A-4.x server implementation, the hosted Phase A gate, and route-specific security and real-host tests. See `skill/HOST-SETUP-PROBES.md` for host-specific capability checks that can be done without Envoi credentials.
++Commands accept `connect`, `resume`, `status` or `doctor`, then the HTTPS server origin, and optionally `--runtime hermes|openclaw`. `connect` returns a safe claim URL and code; after approving in Envoi, run `resume` to confirm the approver, workspace, agent and permissions in the private host prompt. `--show-code` repeats an unexpired pending code only when explicitly requested. `connect --new` starts a replacement registration only after the previous setup definitively ended; it cannot bypass unresolved activation recovery.
++
++No token belongs in a command argument, chat or model output. The helper's stdout contains only the approved projection. Private details and raw exceptions are never printed. Without an interactive native prompt the helper stays at confirmation; an embedding may provide an explicit human confirmation interface, which must accurately describe any model-mediated answer as advisory.
++
++The helper saves bootstrap state in `helper-state.json`, an activation ID and exact request before activation, and operational `session.json` plus `_onboarding` completion metadata before clearing bootstrap state. Only trusted in-process code receives `adopt(activationResponse, {origin, runtime, stateDirectory, completionId})`. A committed matching session takes precedence after a crash; adoption resumes without reactivating. Adapter adoption must preserve the marker and existing rotated credentials. Authenticated status is required before reporting connected; paused agents stay paused and closed-app wake remains unverified.
++
++Private writes use exclusive temporary files, file sync and atomic rename, with directory sync on POSIX. Windows uses account-only ACLs and full system-helper paths. Node does not expose Windows directory flushing, so this implementation does not claim power-loss durability on every Windows filesystem. An unsafe directory, a concurrent connector, corrupt state or a failed save prevents activation and preserves recoverable state. Do not delete an uncertain journal to retry.
++
++Tests inject transport, clocks, confirmation, adoption and crash points and consume canonical fixtures directly. The source loader reads the canonical schema; the distribution build injects that same JSON into the bundle. Keep this package private and unpublished until the required implementation, real-service and human runtime checkpoints pass. No source test enrolls, sends a live message, runs a real host, changes a flag or installs a service.
++
++Build with the repository's `npm run build`, which emits the standalone private helper at `integrations/onboarding/dist/envoi-link.mjs` and its sibling connector bundle. The package `bin` points at this local bundle. At the required human runtime checkpoint, use `node integrations/onboarding/dist/envoi-link.mjs connect https://www.envoi-agents.com --runtime hermes` (or `openclaw`) or install the local private package after building. These artifacts are local and unpublished; no public helper download is created. The bundled entry handles pending polling and keeps the receiving connector in the foreground after confirmed activation; it does not install a service automatically.
+diff --git a/integrations/onboarding/envoi-link.mjs b/integrations/onboarding/envoi-link.mjs
+index 67c78f387eaf740c2dbcae8ac8902bd9d241af83..6377ca660b7f4d62e581bf034fe8cc0b95ed5fbb 100644
+--- a/integrations/onboarding/envoi-link.mjs
++++ b/integrations/onboarding/envoi-link.mjs
+@@ -1,30 +1,51 @@
+ #!/usr/bin/env node
+-import { readFile } from 'node:fs/promises';
+-import { resolve } from 'node:path';
++import { readFileSync } from 'node:fs';
++import { resolve, join } from 'node:path';
++import { homedir } from 'node:os';
++import { createHash } from 'node:crypto';
+ import { pathToFileURL } from 'node:url';
++import { createHelper } from './helper/state.mjs';
++import { loadContract, failureOutput } from './helper/output.mjs';
++import { validateOrigin } from './helper/transport.mjs';
++export { createHelper } from './helper/state.mjs';
+ 
+-const manifest = JSON.parse(await readFile(new URL('./skill/skill.json', import.meta.url), 'utf8'));
+-
++// Retained for callers inspecting the old unpublished draft API. The executable
++// entry below uses runCli; bundled runtime integration injects adopt/preflight.
+ export function draftConnect(args) {
++  const manifest = JSON.parse(readFileSync(new URL('./skill/skill.json', import.meta.url), 'utf8'));
+   if (args.length !== 2 || args[0] !== 'connect' || args[1] !== 'https://www.envoi-agents.com'
+-    || manifest.connectUrl !== 'https://www.envoi-agents.com/connect'
+-    || manifest.helperCommand !== 'envoi-link connect https://www.envoi-agents.com'
+-    || manifest.published !== false || manifest.status !== 'draft') {
+-    throw new Error('Only the unpublished Envoi connect draft is available');
+-  }
+-  return {
+-    schemaVersion: 'draft-1',
+-    state: 'contract_blocked',
+-    liveEnrollmentAllowed: false,
+-    nextAction: 'Wait for the Phase B server, the hosted Phase A gate, and an offered connection route. The planned local flow requires explicit human confirmation of the approver, workspace, agent and permissions before activation. No Envoi access was granted.',
+-  };
++    || manifest.published !== false || manifest.status !== 'draft') throw new Error('Only the unpublished Envoi connect draft is available');
++  return { schemaVersion: 'draft-1', state: 'contract_blocked', liveEnrollmentAllowed: false,
++    nextAction: 'Wait for the Phase B server, the hosted Phase A gate, and an offered connection route. The planned local flow requires explicit human confirmation of the approver, workspace, agent and permissions before activation. No Envoi access was granted.' };
+ }
+ 
+-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
++/** Returns one safe projection. It never writes raw diagnostics or credentials. */
++export async function runCli(args, dependencies = {}) {
++  const contract = await loadContract(dependencies.contract);
+   try {
+-    process.stdout.write(`${JSON.stringify(draftConnect(process.argv.slice(2)))}\n`);
+-  } catch {
+-    process.stderr.write('Envoi connect draft rejected the command. No Envoi access was granted.\n');
+-    process.exitCode = 1;
+-  }
++    const [command, suppliedOrigin, ...flags] = args;
++    if (!['connect', 'resume', 'status', 'doctor'].includes(command) || !suppliedOrigin) throw new Error('INVALID_COMMAND');
++    let runtimeType = dependencies.runtime?.type ?? 'hermes';
++    let showCode = false, fresh = false;
++    for (let index = 0; index < flags.length; index++) {
++      if (flags[index] === '--runtime' && ['hermes', 'openclaw'].includes(flags[index + 1])) runtimeType = flags[++index];
++      else if (flags[index] === '--show-code') showCode = true;
++      else if (flags[index] === '--new' && command === 'connect') fresh = true;
++      else throw new Error('INVALID_COMMAND');
++    }
++    const origin = validateOrigin(suppliedOrigin);
++    if (typeof dependencies.adopt !== 'function' && !dependencies.store) return failureOutput(contract);
++    const runtime = { type: runtimeType, version: dependencies.runtime?.version ?? 'unknown' };
++    const directory = dependencies.directory ?? join(homedir(), '.envoi', 'onboarding', createHash('sha256').update(`${origin}:${runtime.type}`).digest('hex').slice(0, 24));
++    const helper = await createHelper({ ...dependencies, contract, origin, runtime, directory });
++    return await helper[command]({ showCode, fresh });
++  } catch { return failureOutput(contract); }
+ }
++
++if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
++  const result = await runCli(process.argv.slice(2));
++  process.stdout.write(`${JSON.stringify(result)}\n`);
++  if (result.state === 'needs_help') process.exitCode = 1;
++}
++
++
+diff --git a/integrations/onboarding/package.json b/integrations/onboarding/package.json
+index 1f7bbf168a47c609e4a15d30ae23734e4a477e09..1dd7e2aa0bcb59ecb5742f91ce0e9e358136be63 100644
+--- a/integrations/onboarding/package.json
++++ b/integrations/onboarding/package.json
+@@ -3,9 +3,9 @@
+   "version": "0.0.0-draft",
+   "private": true,
+   "type": "module",
+-  "description": "Unpublished, contract-blocked Envoi agent onboarding helper skeleton",
++  "description": "Private Envoi registration, confirmation and activation helper",
+   "bin": {
+-    "envoi-link": "./envoi-link.mjs"
++    "envoi-link": "./dist/envoi-link.mjs"
+   },
+   "files": [
+     "README.md",
+@@ -13,6 +13,8 @@
+     "host-plan.mjs",
+     "skill/*.md",
+     "skill/skill.json",
+-    "profiles/unverified-host.json"
++    "profiles/unverified-host.json",
++    "helper/*.mjs",
++    "dist/*.mjs"
+   ]
+ }
+diff --git a/integrations/onboarding/test/envoi-link.test.mjs b/integrations/onboarding/test/envoi-link.test.mjs
+index a7d876f726efeb5b3f0655c79ca9f68a6f740352..9a8908ed248aceb9c99636e9dfe9cfe7d40bb226 100644
+--- a/integrations/onboarding/test/envoi-link.test.mjs
++++ b/integrations/onboarding/test/envoi-link.test.mjs
+@@ -2,32 +2,34 @@ import assert from 'node:assert/strict';
+ import { spawnSync } from 'node:child_process';
+ import test from 'node:test';
+ import { fileURLToPath } from 'node:url';
+-import { draftConnect } from '../envoi-link.mjs';
+-
++import { draftConnect, runCli } from '../envoi-link.mjs';
+ const command = fileURLToPath(new URL('../envoi-link.mjs', import.meta.url));
+ const origin = 'https://www.envoi-agents.com';
+ 
+-test('draft connect has a fixed safe result and grants no access', () => {
+-  assert.deepEqual(draftConnect(['connect', origin]), {
+-    schemaVersion: 'draft-1', state: 'contract_blocked', liveEnrollmentAllowed: false,
+-    nextAction: 'Wait for the Phase B server, the hosted Phase A gate, and an offered connection route. The planned local flow requires explicit human confirmation of the approver, workspace, agent and permissions before activation. No Envoi access was granted.',
+-  });
++test('source entry without trusted runtime returns safe unavailable output before any request', async () => {
++  let fetched = false;
++  const output = await runCli(['connect', origin], { fetch: async () => { fetched = true; throw new Error('must not call'); } });
++  assert.equal(output.state, 'needs_help'); assert.equal(fetched, false);
+   const result = spawnSync(process.execPath, [command, 'connect', origin], { encoding: 'utf8' });
+-  assert.equal(result.status, 0, result.stderr);
+-  assert.deepEqual(JSON.parse(result.stdout), draftConnect(['connect', origin]));
++  assert.equal(result.status, 1); assert.equal(result.stderr, ''); assert.deepEqual(JSON.parse(result.stdout), output);
++  assert.doesNotMatch(result.stdout, /contract_blocked|liveEnrollmentAllowed|envoi_reg_/);
+ });
+ 
+-test('draft connect rejects token-bearing or noncanonical arguments without echoing them', () => {
++test('entry rejects token-bearing, malformed and unsupported arguments without echoing them', () => {
+   for (const args of [
+-    ['connect', `${origin}/connect`], ['connect', 'https://evil.example'],
+-    ['connect', `${origin}?token=secret-never-output`],
+-    ['connect', origin, '--token', 'secret-never-output'],
+-    ['status', origin],
++    ['connect', `${origin}/connect`], ['connect', `${origin}?token=secret-never-output`],
++    ['connect', origin, '--token', 'secret-never-output'], ['connect', 'https://user:secret-never-output@example.com'],
++    ['connect', origin, '--runtime', 'unsupported-secret-never-output'], ['send', origin],
+   ]) {
+-    assert.throws(() => draftConnect(args), /unpublished Envoi connect draft/);
+     const result = spawnSync(process.execPath, [command, ...args], { encoding: 'utf8' });
+-    assert.equal(result.status, 1);
+-    assert.equal(result.stdout, '');
+-    assert.doesNotMatch(result.stderr, /secret-never-output|evil\.example/);
++    assert.equal(result.status, 1); assert.equal(result.stderr, ''); assert.equal(JSON.parse(result.stdout).state, 'needs_help');
++    assert.doesNotMatch(result.stdout, /secret-never-output|user:|unsupported-secret|example\.com/);
++  }
++});
++
++test('legacy unpublished draft API still rejects foreign origins and tokens without granting access', () => {
++  assert.equal(draftConnect(['connect', origin]).liveEnrollmentAllowed, false);
++  for (const args of [['connect', 'https://evil.example'], ['connect', `${origin}?token=secret-never-output`], ['connect', origin, '--token', 'secret-never-output']]) {
++    assert.throws(() => draftConnect(args), /unpublished Envoi connect draft/);
+   }
+ });
+diff --git a/integrations/onboarding/helper/confirmation.mjs b/integrations/onboarding/helper/confirmation.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/helper/confirmation.mjs
+@@ -0,0 +1,18 @@
++import { createInterface } from 'node:readline/promises';
++import { stdin, stderr } from 'node:process';
++
++/** Model/tool execution without a private terminal never manufactures consent. */
++export async function nativeConfirmation(details, { input = stdin, output = stderr, now = Date.now } = {}) {
++  if (!input.isTTY || !output.isTTY) return null;
++  const remaining = Date.parse(details.activationExpiresAt) - now();
++  if (!(remaining > 0)) return false;
++  const prompt = createInterface({ input, output });
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), remaining);
++  try {
++    const answer = await prompt.question(`Confirm approver ${details.approverEmailHint}, workspace ${details.workspaceName}, agent ${details.agentName} (${details.agentAddress}), permissions ${details.permissionSummary.join(', ')}? Type yes to activate: `, { signal: controller.signal });
++    return answer.trim().toLowerCase() === 'yes' && now() < Date.parse(details.activationExpiresAt);
++  } catch { return false; }
++  finally { clearTimeout(timer); prompt.close(); }
++}
++
+diff --git a/integrations/onboarding/helper/output.mjs b/integrations/onboarding/helper/output.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/helper/output.mjs
+@@ -0,0 +1,37 @@
++import { readFile } from 'node:fs/promises';
++
++export async function loadContract(supplied) {
++  if (supplied) return supplied;
++  // Source development reads the canonical publication; the distribution injects
++  // this same JSON at build time rather than maintaining a second policy table.
++  return JSON.parse(await readFile(new URL('../../../test/contract-fixtures/agent-registration/schemas.json', import.meta.url), 'utf8'));
++}
++
++export function safeOutput(contract, values, secrets = []) {
++  const policy = contract['x-model-visible'];
++  const allowed = new Set([...Object.keys(policy.serverDerived), ...Object.keys(policy.helperDerived)]);
++  const result = {};
++  for (const [key, value] of Object.entries(values)) {
++    if (!allowed.has(key) || value === undefined) continue;
++    const strings = Array.isArray(value) ? value : [value];
++    if (strings.some(item => typeof item === 'string' && (
++      /[\u0000-\u001f\u007f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f]/u.test(item)
++      || (key !== 'state' && /envoi_(?:reg|agent_access|agent_refresh|mcp)_|(?:registration|installation|credential_family|inbox|agent)_[A-Za-z0-9]/.test(item))
++      || secrets.some(secret => typeof secret === 'string' && secret.length >= 8 && item.includes(secret))
++      || (key !== 'agentAddress' && /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i.test(item))
++    ))) throw new Error('UNSAFE_PROJECTION');
++    if (['agentName', 'workspaceName'].includes(key) && (typeof value !== 'string' || !value || value.length > 80)) throw new Error('INVALID_PROJECTION');
++    const rule = policy.helperDerived[key];
++    if (rule?.enum && !rule.enum.includes(value)) throw new Error('INVALID_PROJECTION');
++    if (rule?.maxLength && (typeof value !== 'string' || value.length > rule.maxLength)) throw new Error('INVALID_PROJECTION');
++    result[key] = value;
++  }
++  return result;
++}
++
++export function failureOutput(contract, state = 'needs_help', guidance = 'update_helper') {
++  return safeOutput(contract, { schemaVersion: '1', state, guidance,
++    nextAction: state === 'degraded' ? 'Envoi is unavailable. Resume this saved setup after its retry delay.'
++      : 'Setup needs attention. Preserve the private state and ask the owner to review the connection.' });
++}
++
+diff --git a/integrations/onboarding/helper/state.mjs b/integrations/onboarding/helper/state.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/helper/state.mjs
+@@ -0,0 +1,253 @@
++import { randomUUID } from 'node:crypto';
++import { loadContract, safeOutput, failureOutput } from './output.mjs';
++import { createTransport, offered, ProtocolError, validateOrigin } from './transport.mjs';
++import { nativeConfirmation } from './confirmation.mjs';
++import { PrivateStore } from './store.mjs';
++
++const validDate = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
++const identifier = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
++const statuses = ['pending_claim', 'approved', 'activated', 'rejected', 'expired', 'withdrawn'];
++const sleepDefault = ms => new Promise(resolve => setTimeout(resolve, ms));
++
++export async function createHelper(options) {
++  const contract = await loadContract(options.contract);
++  const limits = contract['x-limits'];
++  const origin = validateOrigin(options.origin);
++  const runtime = options.runtime;
++  if (!runtime || !['hermes', 'openclaw'].includes(runtime.type) || typeof runtime.version !== 'string' || !runtime.version || runtime.version.length > 80) throw new Error('RUNTIME_REQUIRED');
++  const store = options.store ?? await new PrivateStore(options.directory).init();
++  const request = options.request ?? createTransport(origin, options.fetch);
++  const now = options.now ?? Date.now;
++  const sleep = options.sleep ?? sleepDefault;
++  const confirm = options.confirm ?? nativeConfirmation;
++  const project = (values, state) => safeOutput(contract, { schemaVersion: '1', ...values }, [state?.bootstrapToken, state?.activationId]);
++  const save = value => store.write('helper-state.json', value);
++  const base = { version: 1, origin, runtime };
++  function ensureState(state) {
++    if (!state || state.version !== 1 || state.origin !== origin || state.runtime?.type !== runtime.type
++      || !['pending', 'confirming', 'activating', 'completed', 'ended', 'cooldown'].includes(state.phase)) throw new Error('STATE_INVALID');
++    if (['pending', 'confirming', 'activating'].includes(state.phase)
++      && (!identifier(state.registrationId) || typeof state.bootstrapToken !== 'string' || !state.bootstrapToken.startsWith('envoi_reg_') || !validDate(state.expiresAt))) throw new Error('STATE_INVALID');
++    if (state.phase === 'activating' && (!identifier(state.activationId) || !validDate(state.attemptStartedAt)
++      || state.activationRequest?.activationId !== state.activationId || state.activationRequest?.registrationId !== state.registrationId
++      || state.activationRequest?.deliveryMode !== 'envoi_link' || Object.keys(state.activationRequest).length !== 3)) throw new Error('STATE_INVALID');
++    return state;
++  }
++  function pendingOutput(state, showCode) {
++    const unexpired = now() < Date.parse(state.expiresAt);
++    return project({ state: unexpired ? 'pending_approval' : 'registration_ended', registrationStatus: unexpired ? 'pending_claim' : 'expired',
++      ...(showCode && unexpired ? { claimUrl: state.claim.url, verificationCode: state.claim.verificationCode,
++        expiresInSeconds: Math.max(0, Math.floor((Date.parse(state.expiresAt) - now()) / 1000)) } : {}),
++      nextAction: unexpired ? 'Open the claim URL and type the code in Envoi. After approval, run resume to confirm locally.' : 'This setup expired. Ask the human before starting a new registration.' }, state);
++  }
++  function approvalOutput(body, state) {
++    if (!body.agent || !['new_agent', 'existing_agent'].includes(body.target) || !validDate(body.activationExpiresAt)
++      || typeof body.workspaceName !== 'string' || !/^[^@\s]\*\*\*@[^@\s]+$/.test(body.approverEmailHint)
++      || !Array.isArray(body.effectivePermissions) || !body.effectivePermissions.includes('receive_agent_messages')
++      || body.effectivePermissions.some(permission => !contract['x-permission-labels'][permission])
++      || typeof body.agent.name !== 'string' || typeof body.agent.address !== 'string') throw new ProtocolError('INVALID_RESPONSE');
++    return project({ state: 'confirm_approval', registrationStatus: 'approved', workspaceName: body.workspaceName,
++      approverEmailHint: body.approverEmailHint, agentName: body.agent.name, agentAddress: body.agent.address,
++      permissionSummary: body.effectivePermissions.map(permission => contract['x-permission-labels'][permission]),
++      nextAction: 'Confirm the approver, workspace, agent and permissions in the private host prompt. Never answer for the human.' }, state);
++  }
++  async function end(state, status, guidance) {
++    await save({ ...base, phase: 'ended', status, guidance });
++    return project({ state: status === 'revoked' ? 'revoked' : status === 'needs_reconnect' ? 'needs_reconnect' : 'registration_ended', guidance,
++      ...(statuses.includes(status) ? { registrationStatus: status } : {}), nextAction: guidance === 'check_owner_agents'
++        ? 'Ask the owner whether the agent appears in Envoi. Reconnect it if it does; register again only if the owner confirms it does not.'
++        : 'Ask the owner to review this setup before reconnecting or starting another registration.' }, state);
++  }
++  async function protocolFailure(error, state, unresolved = false) {
++    if (['CREDENTIAL_REVOKED', 'REFRESH_REPLAY'].includes(error.code)) return end(state, 'revoked', error.reason === 'replaced' ? 'replaced_by_reconnect' : 'owner_reenroll');
++    if (['CREDENTIAL_EXPIRED', 'REFRESH_TOKEN_INVALID', 'REFRESH_RECOVERY_EXPIRED', 'ROTATION_ID_REQUIRED'].includes(error.code)) return end(state, 'needs_reconnect', error.code === 'ROTATION_ID_REQUIRED' ? 'update_connector' : 'owner_reconnect');
++    const row = contract['x-codes'][error.code]?.bySurface?.helper;
++    const guidance = row?.guidanceByHelperState?.[unresolved ? 'activation_unresolved' : ''] ?? row?.guidanceByReason?.[error.reason] ?? row?.guidance;
++    if (error.code === 'ACTIVATION_RECOVERY_EXPIRED') return end(state, 'needs_reconnect', 'owner_reconnect');
++    if (error.code === 'ACTIVATION_REPLAY') return end(state, 'revoked', 'owner_reconnect');
++    if (error.code === 'REGISTRATION_TOKEN_INVALID') return end(state, 'invalid', unresolved ? 'check_owner_agents' : 'register_again');
++    if (error.code === 'REGISTRATION_ENDED') return end(state, error.reason ?? 'withdrawn', guidance ?? 'approval_ended');
++    if (row?.lifecycle === 'REGISTRATION_ENDED') return end(state, 'ended', guidance);
++    if (row?.retry === 'after_retry_after') {
++      await save({ ...(state ?? { ...base, phase: 'cooldown' }), retryAt: now() + error.retryAfterSeconds * 1000 });
++      return failureOutput(contract, 'degraded', guidance);
++    }
++    if (!error.status || error.status >= 500) return failureOutput(contract, 'degraded', 'service_unavailable');
++    return failureOutput(contract, 'needs_help', guidance ?? 'update_helper');
++  }
++  function validActivation(body) {
++    if (!identifier(body.agent?.id) || !identifier(body.inboxId) || !identifier(body.installation?.id)
++      || body.installation.connectionRoute !== 'local_helper' || body.installation.deliveryMode !== 'envoi_link'
++      || body.installation.status !== 'active' || body.installation.agentId !== body.agent.id || body.installation.legacy !== false || !['active', 'paused'].includes(body.agent.status)
++      || typeof body.agent.address !== 'string' || typeof body.agent.name !== 'string'
++      || !body.agentApiToken?.startsWith('envoi_agent_access_') || !body.agentRefreshToken?.startsWith('envoi_agent_refresh_')
++      || !validDate(body.agentTokenExpiresAt) || !validDate(body.agentRefreshTokenExpiresAt) || body.tokenType !== 'Bearer'
++      || !Array.isArray(body.effectivePermissions) || !body.effectivePermissions.includes('receive_agent_messages')) throw new ProtocolError('INVALID_RESPONSE');
++    // Validate every possible public projection before persisting or prompting.
++    project({ agentName: body.agent.name, agentAddress: body.agent.address }, { bootstrapToken: body.agentApiToken, activationId: body.agentRefreshToken });
++    return body;
++  }
++  async function finishSession(session) {
++    const marker = session?._onboarding;
++    if (!marker || marker.origin !== origin || marker.runtime?.type !== runtime.type || !identifier(marker.completionId) || !marker.agent || !marker.installation
++      || session.agentId !== marker.agent.id || session.address !== marker.agent.address) throw new Error('STATE_INVALID');
++    const activation = validActivation({ ...marker, ...session, agent: marker.agent, installation: marker.installation });
++    if (typeof options.adopt !== 'function') return failureOutput(contract, 'needs_help', 'update_helper');
++    // No bootstrap or raw response ever crosses a subprocess/model boundary.
++    await options.adopt(activation, { origin, runtime, stateDirectory: store.directory ?? options.directory, completionId: marker.completionId });
++    await save({ ...base, phase: 'completed', completionId: marker.completionId });
++    return authenticatedStatus(await store.read('session.json') ?? session);
++  }
++  async function authenticatedStatus(session) {
++    if (!session?.agentApiToken) throw new Error('STATE_INVALID');
++    const status = options.operationalStatus
++      ? await options.operationalStatus({ origin, runtime, stateDirectory: store.directory ?? options.directory, completionId: session._onboarding?.completionId })
++      : await request('GET', '/api/agent/status', { token: session.agentApiToken });
++    if (!['active', 'paused'].includes(status.state) || status.agent?.status !== status.state || status.agent?.id !== session.agentId || status.agent?.address !== session.address
++      || status.installation?.connectionRoute !== 'local_helper' || status.installation.deliveryMode !== 'envoi_link'
++      || status.installation.id !== session._onboarding?.installation?.id) throw new ProtocolError('INVALID_RESPONSE');
++    return project({ state: status.state === 'paused' ? 'paused' : 'connected', reachability: 'not_verified_closed_app',
++      agentAddress: status.agent.address, agentStatus: status.agent.status, connectionRoute: 'local_helper', deliveryMode: 'envoi_link',
++      nextAction: status.state === 'paused' ? 'Paused. Wait for the owner to resume this existing agent.' : 'Connected while this host runs. Closed-app wake has not been tested.' });
++  }
++  async function activate(state) {
++    const deadline = Date.parse(state.attemptStartedAt) + limits.activationRecoverySeconds * 1000 - 1000;
++    // Five attempts per invocation, persisted total of five across restarts.
++    while ((state.attempts ?? 0) < 5 && now() < deadline) {
++      if (state.retryAt > now()) {
++        if (state.retryAt >= deadline) break;
++        await sleep(state.retryAt - now());
++      }
++      if (now() >= deadline) break;
++      state = { ...state, attempts: (state.attempts ?? 0) + 1 };
++      await save(state);
++      let body;
++      try { body = validActivation(await request('POST', '/api/agent-installations/activate', { token: state.bootstrapToken, body: state.activationRequest })); }
++      catch (error) {
++        if (!(error instanceof ProtocolError)) throw error;
++        if (error.status >= 400 && error.status < 500) {
++          // These definitive activation outcomes resolve this attempt. Retain
++          // bootstrap only when the contract says the approval remains live.
++          if (['ACTIVATION_INVALID', 'ACTIVATION_ID_REQUIRED', 'DELIVERY_MODE_NOT_AVAILABLE', 'REGISTRATION_PENDING'].includes(error.code)) {
++            const { activationId, activationRequest, attemptStartedAt, attempts, retryAt, ...resolved } = state;
++            await save({ ...resolved, phase: 'pending' });
++          }
++          return protocolFailure(error, state, true);
++        }
++        if (error.code === 'INVALID_RESPONSE') return failureOutput(contract);
++        const ceiling = Math.min(16_000, 500 * 2 ** state.attempts);
++        state = { ...state, retryAt: now() + Math.round(ceiling / 2 + ceiling / 2 * (options.random ?? Math.random)()) };
++        await save(state);
++        continue;
++      }
++      const session = { agentId: body.agent.id, inboxId: body.inboxId, address: body.agent.address, cursor: null,
++        agentApiToken: body.agentApiToken, agentRefreshToken: body.agentRefreshToken, agentTokenExpiresAt: body.agentTokenExpiresAt,
++        agentRefreshTokenExpiresAt: body.agentRefreshTokenExpiresAt, tokenType: body.tokenType,
++        _onboarding: { completionId: state.activationId, origin, runtime, agent: body.agent, installation: body.installation, effectivePermissions: body.effectivePermissions } };
++      await store.write('session.json', session);
++      await options.fault?.('credentials_committed');
++      return finishSession(session);
++    }
++    // One reconciliation read before giving up. Do not call creation here.
++    let status;
++    try { status = await request('GET', `/api/agent-registrations/${state.registrationId}`, { token: state.bootstrapToken }); }
++    catch (error) { return protocolFailure(error, state, true); }
++    if (status.status === 'activated') return end(state, 'needs_reconnect', 'owner_reconnect');
++    if (status.status === 'approved' || status.status === 'pending_claim') {
++      const { activationId, activationRequest, attemptStartedAt, attempts, retryAt, ...resolved } = state;
++      await save({ ...resolved, phase: 'pending', nextPollAt: now() + limits.pollAfterSeconds * 1000 });
++      return failureOutput(contract, 'degraded', 'service_unavailable');
++    }
++    if (['rejected', 'expired', 'withdrawn'].includes(status.status)) return end(state, status.status, status.status === 'withdrawn' ? 'approval_ended' : status.status === 'rejected' ? 'owner_rejected' : 'register_again');
++    throw new ProtocolError('INVALID_RESPONSE');
++  }
++  async function advance(state, allowActivation, showCode) {
++    if (state.phase === 'ended') return project({ state: state.status === 'needs_reconnect' ? 'needs_reconnect' : state.status === 'revoked' ? 'revoked' : 'registration_ended', guidance: state.guidance,
++      nextAction: 'Ask the owner to review this setup. A new registration requires an explicit fresh request.' });
++    if (state.retryAt > now() && state.phase !== 'activating') return failureOutput(contract, 'degraded', 'service_busy');
++    if (state.phase === 'activating') return allowActivation ? activate(state) : project({ state: 'degraded', nextAction: 'An activation outcome is unresolved. Run resume to recover the same saved request.' });
++    if (state.nextPollAt > now() && state.phase === 'pending') return pendingOutput(state, showCode);
++    state = { ...state, nextPollAt: now() + limits.pollAfterSeconds * 1000 };
++    await save(state);
++    const body = await request('GET', `/api/agent-registrations/${state.registrationId}`, { token: state.bootstrapToken });
++    if (body.registrationId !== state.registrationId || !statuses.includes(body.status)) throw new ProtocolError('INVALID_RESPONSE');
++    if (['expired', 'rejected', 'withdrawn'].includes(body.status)) return end(state, body.status, body.status === 'withdrawn' ? 'approval_ended' : body.status === 'rejected' ? 'owner_rejected' : 'register_again');
++    if (body.status === 'pending_claim') {
++      if (!validDate(body.expiresAt) || !Number.isFinite(body.pollAfterSeconds) || body.pollAfterSeconds < limits.pollMinIntervalSeconds) throw new ProtocolError('INVALID_RESPONSE');
++      state = { ...state, phase: 'pending', expiresAt: body.expiresAt, nextPollAt: now() + body.pollAfterSeconds * 1000 }; await save(state);
++      return pendingOutput(state, showCode);
++    }
++    if (body.status === 'activated') return end(state, 'needs_reconnect', 'owner_reconnect');
++    const visible = approvalOutput(body, state);
++    await save({ ...state, phase: 'confirming' });
++    if (!allowActivation) return visible;
++    if (now() >= Date.parse(body.activationExpiresAt)) return end(state, 'expired', 'register_again');
++    const answer = await confirm({ ...visible, activationExpiresAt: body.activationExpiresAt }, { now });
++    if (answer === null || answer === undefined) return visible;
++    if (answer !== true || now() >= Date.parse(body.activationExpiresAt)) return end(state, 'expired', 'register_again');
++    const activationId = (options.randomId ?? randomUUID)();
++    state = { ...state, phase: 'activating', activationId, activationRequest: { registrationId: state.registrationId, activationId, deliveryMode: 'envoi_link' },
++      attemptStartedAt: new Date(now()).toISOString(), attempts: 0 };
++    await save(state);
++    await options.fault?.('activation_saved');
++    return activate(state);
++  }
++  async function run(command, { showCode = false, fresh = false } = {}) {
++    return store.lock(async () => {
++      let state;
++      try {
++        state = await store.read('helper-state.json');
++        if (state) ensureState(state);
++        const session = await store.read('session.json');
++        let previousCompletionId;
++        if (command === 'doctor') return project({ state: session?._onboarding ? 'needs_help' : state?.phase === 'pending' ? 'pending_approval' : 'needs_help',
++          nextAction: 'Private storage is readable. Run status for authenticated status or resume for saved setup recovery.' });
++        if (state?.phase === 'cooldown') {
++          if (state.retryAt > now()) return failureOutput(contract, 'degraded', 'service_busy');
++          state = null;
++        }
++        if (state?.phase === 'ended' && session) {
++          if (command === 'connect' && fresh) { previousCompletionId = session._onboarding?.completionId; state = null; }
++          else return await advance(state, false, false);
++        }
++        const priorEndedSession = !!session && !!state?.previousCompletionId && state.previousCompletionId === session._onboarding?.completionId
++          && ['pending', 'confirming', 'activating'].includes(state.phase);
++        if (session && !previousCompletionId && !priorEndedSession) {
++          if (!session._onboarding || !state || (state.phase === 'completed' && state.completionId !== session._onboarding.completionId)
++            || (state.phase === 'activating' && state.activationId !== session._onboarding.completionId)) throw new Error('STATE_INVALID');
++          return await (state.phase === 'completed' || command === 'status' ? authenticatedStatus(session) : finishSession(session));
++        }
++        if (state?.phase === 'completed') throw new Error('STATE_INVALID');
++        if (state?.phase === 'ended' && command === 'connect' && fresh) state = null;
++        if (!state) {
++          if (command !== 'connect') return failureOutput(contract, 'needs_help', 'register_again');
++          if (typeof options.adopt !== 'function') return failureOutput(contract, 'needs_help', 'update_helper');
++          if (!offered(await request('GET', '/api/onboarding/routes'))) return project({ state: 'needs_help', guidance: 'route_unavailable', nextAction: 'This server does not currently offer the local helper route.' });
++          await options.preflight?.({ origin, runtime, stateDirectory: store.directory ?? options.directory });
++          const permissions = options.requestedPermissions ?? ['send_agent_messages', 'receive_agent_messages'];
++          const body = await request('POST', '/api/agent-registrations', { body: {
++            requestedName: options.requestedName ?? 'Envoi agent', requestedPermissions: permissions, connectionRoute: 'local_helper', runtime,
++            deliveryCapabilities: { persistentProcess: true, outboundHttps: true, sse: true, webhook: false, scheduledPolling: false, a2a: false },
++            helper: { name: 'envoi-link', version: '1.0.0' } } });
++          if (!identifier(body.registrationId) || body.status !== 'pending_claim' || typeof body.bootstrapToken !== 'string' || !body.bootstrapToken.startsWith('envoi_reg_')
++            || body.claim?.url !== `${origin}/claim` || !/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/.test(body.claim?.verificationCode)
++            || !validDate(body.expiresAt) || body.claim.expiresAt !== body.expiresAt || !Number.isFinite(body.pollAfterSeconds) || body.pollAfterSeconds < limits.pollMinIntervalSeconds) throw new ProtocolError('INVALID_RESPONSE');
++          state = { ...base, phase: 'pending', ...(previousCompletionId ? { previousCompletionId } : {}), registrationId: body.registrationId, bootstrapToken: body.bootstrapToken, claim: body.claim,
++            expiresAt: body.expiresAt, nextPollAt: now() + body.pollAfterSeconds * 1000 };
++          await save(state);
++          return pendingOutput(state, true);
++        }
++        return await advance(state, ['connect', 'resume'].includes(command), showCode);
++      } catch (error) {
++        if (error instanceof ProtocolError || typeof error?.code === 'string' && ['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED', 'REFRESH_REPLAY', 'REFRESH_TOKEN_INVALID', 'REFRESH_RECOVERY_EXPIRED', 'ROTATION_ID_REQUIRED'].includes(error.code)) return await protocolFailure(error, state, state?.phase === 'activating');
++        // Filesystem, prompt and adapter failures preserve the private journal.
++        return failureOutput(contract);
++      }
++    });
++  }
++  return { connect: args => run('connect', args), resume: args => run('resume', args), status: args => run('status', args), doctor: args => run('doctor', args) };
++}
++
++
++
++
+diff --git a/integrations/onboarding/helper/store.mjs b/integrations/onboarding/helper/store.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/helper/store.mjs
+@@ -0,0 +1,113 @@
++import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
++import path from 'node:path';
++import { randomUUID } from 'node:crypto';
++import { execFile } from 'node:child_process';
++import { promisify } from 'node:util';
++const execute = promisify(execFile);
++
++export function windowsExecutable(name, env = process.env) {
++  const root = Object.entries(env).find(([key]) => key.toLowerCase() === 'systemroot')?.[1]
++    ?? Object.entries(env).find(([key]) => key.toLowerCase() === 'windir')?.[1];
++  if (!root || !/^[A-Za-z]:[\\/]/.test(root) || /[\x00-\x1f<>"|?*]/.test(root)) throw new Error('PRIVATE_STORAGE_UNAVAILABLE');
++  return name === 'powershell.exe' ? path.win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', name) : path.win32.join(root, 'System32', name);
++}
++
++export async function secureDirectory(directory, { platform = process.platform, run = execute, env = process.env } = {}) {
++  const absolute = path.resolve(directory);
++  await mkdir(absolute, { recursive: true, mode: 0o700 });
++  const canonical = path.resolve(await realpath(absolute));
++  if ((await lstat(absolute)).isSymbolicLink() || (platform === 'win32' ? canonical.toLowerCase() !== absolute.toLowerCase() : canonical !== absolute)) throw new Error('PRIVATE_STORAGE_UNAVAILABLE');
++  if (platform === 'win32') {
++    const { stdout } = await run(windowsExecutable('whoami.exe', env), ['/user', '/fo', 'csv', '/nh'], { windowsHide: true, timeout: 10_000 });
++    const sid = stdout.match(/\bS-1-[0-9]+(?:-[0-9]+)+\b/)?.[0];
++    if (!sid) throw new Error('PRIVATE_STORAGE_UNAVAILABLE');
++    const script = `$ErrorActionPreference='Stop'; $p='${absolute.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${sid}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
++    await run(windowsExecutable('powershell.exe', env), ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 20_000 });
++    // Existing explicit child ACLs must not retain older broad grants.
++    if ((await readdir(absolute)).length) await run(windowsExecutable('icacls.exe', env), [path.join(absolute, '*'), '/reset', '/T', '/L', '/Q'], { windowsHide: true, timeout: 20_000 });
++  } else await chmod(absolute, 0o700);
++  return absolute;
++}
++
++async function syncDirectory(directory) {
++  // Windows FlushFileBuffers is used on each file. Node cannot open directory
++  // handles for flushing on Windows; do not claim power-loss guarantees there.
++  if (process.platform === 'win32') return;
++  const handle = await open(directory, 'r');
++  try { await handle.sync(); } finally { await handle.close(); }
++}
++
++export class PrivateStore {
++  constructor(directory, options = {}) { this.directory = path.resolve(directory); this.options = options; }
++  async init() { await (this.options.secureDirectory ?? secureDirectory)(this.directory); return this; }
++  filename(name) {
++    if (!['helper-state.json', 'session.json', 'helper.lock'].includes(name)) throw new Error('STATE_INVALID');
++    return path.join(this.directory, name);
++  }
++  async read(name) {
++    const filename = this.filename(name);
++    let stat;
++    try { stat = await lstat(filename); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
++    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 128_000) throw new Error('STATE_INVALID');
++    const value = JSON.parse(await readFile(filename, 'utf8'));
++    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('STATE_INVALID');
++    return value;
++  }
++  async write(name, value) {
++    const filename = this.filename(name);
++    const prior = await lstat(filename).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
++    if (prior && (!prior.isFile() || prior.isSymbolicLink())) throw new Error('STATE_INVALID');
++    const temporary = path.join(this.directory, `.helper-${randomUUID()}.tmp`);
++    const handle = await open(temporary, 'wx', 0o600);
++    try {
++      try {
++        await handle.writeFile(JSON.stringify(value));
++        await handle.sync();
++        await this.options.fault?.('after_file_sync', name);
++      } finally { await handle.close(); }
++      await rename(temporary, filename);
++      await syncDirectory(this.directory);
++      await this.options.fault?.('after_rename', name);
++    } finally { await rm(temporary, { force: true }); }
++  }
++  async lock(operation) {
++    const filename = this.filename('helper.lock');
++    const nonce = randomUUID();
++    let handle;
++    for (let attempt = 0; attempt < 2; attempt++) {
++      try { handle = await open(filename, 'wx', 0o600); break; }
++      catch (error) {
++        if (error.code !== 'EEXIST') throw error;
++        const owner = await this.read('helper.lock');
++        if (!Number.isSafeInteger(owner?.pid) || owner.pid <= 0 || typeof owner.nonce !== 'string') throw new Error('STATE_LOCK_INVALID');
++        try { process.kill(owner.pid, 0); throw new Error('STATE_BUSY'); }
++        catch (probe) {
++          if (probe.code !== 'ESRCH') throw probe;
++          // Atomic rename claims exactly this stale lock. A competing contender
++          // must never delete a newly acquired successor's lock.
++          const recovery = `${filename}.recovery`;
++          const recoveryHandle = await open(recovery, 'wx', 0o600).catch(() => null);
++          if (!recoveryHandle) throw new Error('STATE_BUSY');
++          try {
++            const latest = await this.read('helper.lock');
++            if (latest?.nonce === owner.nonce) await rm(filename);
++          } finally { await recoveryHandle.close(); await rm(recovery, { force: true }); }
++        }
++      }
++    }
++    if (!handle) throw new Error('STATE_BUSY');
++    try {
++      await handle.writeFile(JSON.stringify({ pid: process.pid, nonce })); await handle.sync();
++      // A running legacy connector must never share the credential writer.
++      const connector = await lstat(path.join(this.directory, 'connector.lock')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
++      if (connector) throw new Error('STATE_BUSY');
++      return await operation();
++    } finally {
++      await handle.close();
++      const owner = await this.read('helper.lock');
++      if (owner?.nonce === nonce) await rm(filename);
++    }
++  }
++}
++
++
+diff --git a/integrations/onboarding/test/helper-state.test.mjs b/integrations/onboarding/test/helper-state.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/test/helper-state.test.mjs
+@@ -0,0 +1,200 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { readFile } from 'node:fs/promises';
++import { createHelper } from '../helper/state.mjs';
++import { ProtocolError } from '../helper/transport.mjs';
++import { nativeConfirmation } from '../helper/confirmation.mjs';
++const fixture = async name => JSON.parse(await readFile(new URL(`../../../test/contract-fixtures/agent-registration/${name}.json`, import.meta.url), 'utf8'));
++// Test inputs come directly from the canonical publication, never local copies.
++const contract = await fixture('schemas');
++const origin = 'https://www.envoi-agents.com';
++const runtime = { type: 'hermes', version: '0.9.0' };
++const clone = value => structuredClone(value);
++function memory() {
++  const records = new Map();
++  return { directory: 'private-test-directory', records,
++    read: async name => clone(records.get(name) ?? null), write: async (name, value) => { records.set(name, clone(value)); }, lock: fn => fn() };
++}
++async function harness(sequence = [], extra = {}) {
++  let time = Date.parse('2026-10-12T12:00:00.000Z');
++  const calls = [], adopted = [], store = extra.store ?? memory();
++  const options = { origin, runtime, contract, store, now: () => time, sleep: async ms => { time += ms; }, confirm: async () => true,
++    random: () => 1, randomId: () => 'activation_7f3c9a1e', adopt: async (activation, context) => { adopted.push({ activation, context }); },
++    request: async (method, path, supplied = {}) => {
++      calls.push({ method, path, ...clone(supplied) });
++      const next = sequence.shift();
++      assert.ok(next, `unexpected private request ${method} ${path}`);
++      if (next instanceof Error) throw next;
++      const entry = typeof next === 'string' ? await fixture(next) : next;
++      assert.equal(method, entry.request.method); assert.equal(path, entry.request.path);
++      assert.equal(supplied.token, entry.request.headers?.authorization?.slice('Bearer '.length));
++      if (entry.request.body) assert.deepEqual(supplied.body, entry.request.body);
++      if (entry.response.status >= 400) throw new ProtocolError(entry.response.body.code, entry.response.status, entry.response.body, entry.response.headers?.['retry-after']);
++      return clone(entry.response.body);
++    }, ...extra };
++  return { helper: await createHelper(options), options, store, calls, adopted, tick: ms => { time += ms; }, sequence };
++}
++
++
++// registration-created has a requestedLocalPart; helper supports selecting only a
++// safe name/permissions. Compare creation against its authoritative response and
++// explicitly test its client-owned request fields separately.
++function createResponseFixture(entry) {
++  if (typeof entry !== 'string') return entry;
++  return fixture(entry);
++}
++async function started(extra = {}, suffix = []) {
++  const created = await createResponseFixture('registration-created');
++  delete created.request.body.requestedLocalPart;
++  created.request.body.requestedName = 'Envoi agent';
++  const h = await harness(['routes-available', created, ...suffix], extra);
++  const result = await h.helper.connect();
++  assert.equal(result.state, 'pending_approval');
++  h.tick(5000);
++  return { ...h, initial: result };
++}
++
++test('actual helper creates only an offered route and saves bootstrap before safe claim output', async () => {
++  const h = await started();
++  assert.equal(h.initial.claimUrl, `${origin}/claim`); assert.equal(h.initial.verificationCode, 'F7KQ-PM4D');
++  const state = await h.store.read('helper-state.json');
++  assert.equal(state.phase, 'pending'); assert.equal(state.bootstrapToken, 'envoi_reg_PLACEHOLDER_example');
++  assert.equal(h.calls[1].body.connectionRoute, 'local_helper');
++  assert.deepEqual(h.calls[1].body.deliveryCapabilities, { persistentProcess: true, outboundHttps: true, sse: true, webhook: false, scheduledPolling: false, a2a: false });
++  assert.doesNotMatch(JSON.stringify(h.initial), /envoi_reg_|registration_example|private-test-directory/);
++});
++
++test('approval prompts with canonical approver, workspace and permissions before activation, then verifies status', async () => {
++  let prompted = false;
++  const h = await started({ confirm: async details => {
++    prompted = true; assert.equal(details.approverEmailHint, 'o***@example.com'); assert.equal(details.workspaceName, 'Example workspace');
++    assert.deepEqual(details.permissionSummary, ['send agent messages', 'receive agent messages']); return true;
++  } }, ['registration-approved', 'activation-created', 'agent-status-installation']);
++  const result = await h.helper.resume();
++  assert.equal(prompted, true); assert.equal(result.state, 'connected'); assert.equal(result.reachability, 'not_verified_closed_app');
++  assert.equal(h.adopted.length, 1); assert.equal(h.adopted[0].context.completionId, 'activation_7f3c9a1e');
++  const session = await h.store.read('session.json'); assert.equal(session._onboarding.origin, origin);
++  assert.equal(session._onboarding.runtime.type, 'hermes');
++  const finished = await h.store.read('helper-state.json'); assert.equal(finished.phase, 'completed');
++  assert.equal(finished.bootstrapToken, undefined); assert.equal(finished.activationId, undefined);
++  assert.doesNotMatch(JSON.stringify(result), /envoi_agent_|installation_example|activation_7f3c9a1e|agent_example|inbox_example/);
++});
++
++test('pending status and ordinary resume do not repeat the code; explicit show-code does', async () => {
++  const h = await started({}, ['registration-pending']);
++  assert.equal((await h.helper.resume()).verificationCode, undefined);
++  assert.equal((await h.helper.status({ showCode: true })).verificationCode, 'F7KQ-PM4D');
++  assert.equal(h.calls.length, 3);
++});
++
++test('disabled route never creates registration or adopts a runtime', async () => {
++  const h = await harness(['routes-disabled']); const output = await h.helper.connect();
++  assert.equal(output.guidance, 'route_unavailable'); assert.equal(h.calls.length, 1); assert.equal(h.adopted.length, 0);
++});
++
++test('unavailable runtime fails before registration or route request', async () => {
++  const h = await harness([], { adopt: undefined }); assert.equal((await h.helper.connect()).state, 'needs_help'); assert.equal(h.calls.length, 0);
++});
++
++for (const [name, answer] of [['declined', false], ['advisory answer unavailable', null]]) {
++  test(`${name} cannot activate`, async () => {
++    const h = await started({ confirm: async () => answer }, ['registration-approved']);
++    const result = await h.helper.resume(); assert.equal(result.state, answer === null ? 'confirm_approval' : 'registration_ended');
++    assert.equal(h.calls.filter(call => call.path.includes('/activate')).length, 0);
++    assert.equal((await h.store.read('helper-state.json')).bootstrapToken === undefined, answer === false);
++  });
++}
++
++test('native confirmation without a private terminal never manufactures an answer', async () => {
++  assert.equal(await nativeConfirmation({ activationExpiresAt: '2099-01-01T00:00:00Z' }, { input: { isTTY: false }, output: { isTTY: false } }), null);
++});
++
++test('confirmation deadline passing while human considers it prevents activation', async () => {
++  let h;
++  h = await started({ confirm: async () => { h.tick(20 * 60_000); return true; } }, ['registration-approved']);
++  assert.equal((await h.helper.resume()).state, 'registration_ended');
++  assert.equal((await h.store.read('helper-state.json')).bootstrapToken, undefined);
++  assert.equal(h.calls.filter(call => call.path.includes('/activate')).length, 0);
++});
++
++test('lost response repeats the exact persisted activation request and recovers one credential set', async () => {
++  const h = await started({}, ['registration-approved', new ProtocolError('NETWORK_ERROR'), 'activation-recovered', 'agent-status-installation']);
++  assert.equal((await h.helper.resume()).state, 'connected');
++  const attempts = h.calls.filter(call => call.path.includes('/activate')); assert.equal(attempts.length, 2); assert.deepEqual(attempts[0], attempts[1]);
++  assert.equal(h.calls.filter(call => call.path === '/api/agent-registrations' && call.method === 'POST').length, 1);
++});
++
++test('crash after activation journal commit resumes same activation ID without prompting twice', async () => {
++  const h = await started({ fault: async stage => { if (stage === 'activation_saved') throw new Error('simulated process exit'); } }, ['registration-approved']);
++  assert.equal((await h.helper.resume()).state, 'needs_help');
++  assert.equal(h.calls.filter(call => call.path.includes('/activate')).length, 0);
++  // Reuse harness's fixture transport with the saved clock and journal.
++  const retry = await harness(['activation-created', 'agent-status-installation'], { store: h.store, now: h.options.now,
++    confirm: async () => { throw new Error('must not ask twice'); } });
++  assert.equal((await retry.helper.resume()).state, 'connected');
++  assert.equal(retry.calls[0].body.activationId, 'activation_7f3c9a1e');
++});
++
++test('crash after credentials commit adopts matching session without another activation', async () => {
++  const h = await started({ fault: async stage => { if (stage === 'credentials_committed') throw new Error('simulated process exit'); } }, ['registration-approved', 'activation-created']);
++  assert.equal((await h.helper.resume()).state, 'needs_help');
++  assert.ok((await h.store.read('helper-state.json')).bootstrapToken);
++  const retry = await harness(['agent-status-installation'], { store: h.store, now: h.options.now });
++  assert.equal((await retry.helper.resume()).state, 'connected'); assert.equal(retry.calls.length, 1); assert.equal(retry.adopted.length, 1);
++  assert.equal((await h.store.read('helper-state.json')).bootstrapToken, undefined);
++});
++
++test('failed credential save leaves activation recovery identifiers intact', async () => {
++  const store = memory(); const original = store.write;
++  store.write = async (name, value) => { if (name === 'session.json') throw new Error('disk full secret-never-print'); return original(name, value); };
++  const h = await started({ store }, ['registration-approved', 'activation-created']);
++  const output = await h.helper.resume(); assert.equal(output.state, 'needs_help'); assert.doesNotMatch(JSON.stringify(output), /disk full|secret-never-print/);
++  assert.equal((await store.read('helper-state.json')).activationId, 'activation_7f3c9a1e'); assert.equal(await store.read('session.json'), null);
++  store.write = original;
++  const retry = await harness(['activation-recovered', 'agent-status-installation'], { store, now: h.options.now });
++  assert.equal((await retry.helper.resume()).state, 'connected');
++});
++
++test('expired recovery guides owner reconnect without creating another registration', async () => {
++  const h = await started({}, ['registration-approved', 'activation-recovery-expired']);
++  const output = await h.helper.resume(); assert.equal(output.state, 'needs_reconnect'); assert.equal(output.guidance, 'owner_reconnect');
++  assert.equal((await h.store.read('helper-state.json')).bootstrapToken, undefined);
++});
++
++test('token cleanup while activation unresolved requires checking owner agents, not automatic registration', async () => {
++  const h = await started({}, ['registration-approved', 'activation-token-invalid-unresolved']);
++  const output = await h.helper.resume(); assert.equal(output.guidance, 'check_owner_agents');
++  assert.equal((await h.helper.connect()).guidance, 'check_owner_agents'); assert.equal(h.calls.filter(call => call.method === 'POST' && call.path === '/api/agent-registrations').length, 1);
++});
++
++test('bounded activation failures reconcile once using bootstrap status and never register', async () => {
++  const h = await started({}, ['registration-approved', ...Array.from({ length: 5 }, () => new ProtocolError('NETWORK_ERROR')), 'registration-activated']);
++  assert.equal((await h.helper.resume()).state, 'needs_reconnect');
++  assert.equal(h.calls.filter(call => call.path.includes('/activate')).length, 5);
++  assert.equal(h.calls.filter(call => call.method === 'GET' && call.path.includes('/api/agent-registrations/')).length, 2);
++});
++
++test('paused activation stays paused after authenticated status and never resumes server', async () => {
++  const paused = await fixture('agent-status-installation'); paused.response.body.state = 'paused'; paused.response.body.agent.status = 'paused';
++  const h = await started({}, ['registration-approved', 'activation-paused-agent', paused]);
++  const output = await h.helper.resume(); assert.equal(output.state, 'paused'); assert.equal(output.agentStatus, 'paused');
++  assert.equal(h.calls.some(call => call.path.includes('resume')), false);
++});
++
++test('invalid activation keeps approval live but resolves and clears invalid activation identifier', async () => {
++  const invalid = await fixture('activation-invalid');
++  // This fixture's intentionally invalid request is not what a correct helper
++  // sends; its approved error response still drives helper handling.
++  invalid.request.body = (await fixture('activation-created')).request.body;
++  const h = await started({}, ['registration-approved', invalid]);
++  const output = await h.helper.resume(); assert.equal(output.guidance, 'update_helper');
++  const saved = await h.store.read('helper-state.json'); assert.equal(saved.activationId, undefined); assert.ok(saved.bootstrapToken);
++});
++
++test('malicious approved display values fail closed before prompt and never echo private text', async () => {
++  const malicious = await fixture('registration-approved'); malicious.response.body.workspaceName = 'envoi_reg_PRIVATE_secret';
++  const h = await started({ confirm: async () => { throw new Error('must not prompt'); } }, [malicious]);
++  const result = await h.helper.resume(); assert.equal(result.state, 'needs_help'); assert.doesNotMatch(JSON.stringify(result), /PRIVATE|secret/);
++});
++
++
+diff --git a/integrations/onboarding/helper/transport.mjs b/integrations/onboarding/helper/transport.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/helper/transport.mjs
+@@ -0,0 +1,50 @@
++export class ProtocolError extends Error {
++  constructor(code, status = 0, body = {}, retryAfter = 0) {
++    super('Envoi protocol operation did not complete');
++    this.code = code; this.status = status;
++    this.reason = typeof body.reason === 'string' ? body.reason : undefined;
++    this.retryAfterSeconds = Math.max(0, Number(body.retryAfterSeconds) || 0, Number(retryAfter) || 0);
++  }
++}
++
++export function validateOrigin(value) {
++  const url = new URL(value);
++  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('INVALID_ORIGIN');
++  return url.origin;
++}
++
++export function createTransport(origin, fetcher = globalThis.fetch) {
++  return async (method, path, { token, body } = {}) => {
++    let response;
++    try {
++      response = await fetcher(`${origin}${path}`, { method, redirect: 'error', signal: AbortSignal.timeout(15_000),
++        headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
++        ...(body ? { body: JSON.stringify(body) } : {}) });
++    } catch { throw new ProtocolError('NETWORK_ERROR'); }
++    let text;
++    try { text = await response.text(); } catch { throw new ProtocolError('NETWORK_ERROR'); }
++    if (text.length > 128_000) throw new ProtocolError('INVALID_RESPONSE');
++    let payload;
++    try { payload = JSON.parse(text); } catch { throw new ProtocolError(response.status >= 500 ? 'INTERNAL_SERVER_ERROR' : 'INVALID_RESPONSE', response.status); }
++    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new ProtocolError('INVALID_RESPONSE', response.status);
++    if (!response.ok) throw new ProtocolError(typeof payload.code === 'string' ? payload.code : response.status >= 500 ? 'INTERNAL_SERVER_ERROR' : 'INVALID_RESPONSE', response.status, payload, response.headers.get('retry-after'));
++    return payload;
++  };
++}
++
++export function offered(snapshot) {
++  if (snapshot?.contract?.id !== 'agent-registration' || snapshot.contract.version !== 1
++    || typeof snapshot.registrationEnabled !== 'boolean' || typeof snapshot.installationsEnabled !== 'boolean'
++    || !Array.isArray(snapshot.routes) || !Array.isArray(snapshot.deliveryModes)) throw new ProtocolError('INVALID_RESPONSE');
++  const routes = ['local_helper', 'authenticated_rest', 'remote_mcp_oauth', 'provider_connector'];
++  const modes = ['provider', 'webhook', 'envoi_link', 'poll', 'on_demand', 'a2a'];
++  for (const [items, key, expected] of [[snapshot.routes, 'connectionRoute', routes], [snapshot.deliveryModes, 'deliveryMode', modes]]) {
++    if (items.length !== expected.length || new Set(items.map(item => item?.[key])).size !== expected.length
++      || items.some(item => !expected.includes(item?.[key]) || typeof item.available !== 'boolean')) throw new ProtocolError('INVALID_RESPONSE');
++  }
++  const enabled = snapshot.registrationEnabled && snapshot.installationsEnabled;
++  if (snapshot.routes.some(item => item.available && (!enabled || ['remote_mcp_oauth', 'provider_connector'].includes(item.connectionRoute)))
++    || snapshot.deliveryModes.some(item => item.available && (!enabled || item.deliveryMode !== 'envoi_link'))) throw new ProtocolError('INVALID_RESPONSE');
++  return enabled && snapshot.routes.find(item => item.connectionRoute === 'local_helper')?.available === true
++    && snapshot.deliveryModes.find(item => item.deliveryMode === 'envoi_link')?.available === true;
++}
+diff --git a/integrations/onboarding/test/helper-store.test.mjs b/integrations/onboarding/test/helper-store.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/test/helper-store.test.mjs
+@@ -0,0 +1,91 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { mkdtemp, rm, writeFile, readFile, lstat, symlink, readdir } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++import { PrivateStore, secureDirectory, windowsExecutable } from '../helper/store.mjs';
++const fixtureDirectory = async fn => {
++  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-helper-test-'));
++  try { return await fn(directory); } finally { await rm(directory, { recursive: true, force: true }); }
++};
++const localSecurity = directory => secureDirectory(directory, { platform: 'posix' });
++
++test('private store writes a whole synced record and leaves no partial temporary file', async () => fixtureDirectory(async directory => {
++  const events = [];
++  const store = await new PrivateStore(directory, { secureDirectory: localSecurity, fault: async (stage, name) => events.push(`${stage}:${name}`) }).init();
++  await store.write('helper-state.json', { version: 1, bootstrapToken: 'private' });
++  assert.deepEqual(await store.read('helper-state.json'), { version: 1, bootstrapToken: 'private' });
++  assert.deepEqual(events, ['after_file_sync:helper-state.json', 'after_rename:helper-state.json']);
++  assert.deepEqual(await readdir(directory), ['helper-state.json']);
++  if (process.platform !== 'win32') { assert.equal((await lstat(directory)).mode & 0o777, 0o700); assert.equal((await lstat(path.join(directory, 'helper-state.json'))).mode & 0o777, 0o600); }
++}));
++
++test('rename boundary failure preserves committed record and readable recovery state', async () => fixtureDirectory(async directory => {
++  const store = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
++  await store.write('session.json', { version: 1 });
++  store.options.fault = async stage => { if (stage === 'after_file_sync') throw new Error('crash'); };
++  await assert.rejects(store.write('session.json', { version: 2 }));
++  assert.deepEqual(await store.read('session.json'), { version: 1 });
++}));
++
++test('malformed, null and oversized state fail closed without overwrite', async () => fixtureDirectory(async directory => {
++  const store = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
++  for (const value of ['{broken', 'null', '[]', 'x'.repeat(128_001)]) {
++    await writeFile(path.join(directory, 'helper-state.json'), value);
++    await assert.rejects(store.read('helper-state.json'));
++    assert.equal(await readFile(path.join(directory, 'helper-state.json'), 'utf8'), value);
++  }
++  assert.throws(() => store.filename('../session.json'));
++}));
++
++test('only one helper may use the state directory and release preserves lock ownership', async () => fixtureDirectory(async directory => {
++  const first = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
++  const second = new PrivateStore(directory, { secureDirectory: localSecurity });
++  await first.lock(async () => {
++    await assert.rejects(second.lock(async () => assert.fail('must not acquire live lock')), /STATE_BUSY/);
++    assert.equal((await first.read('helper.lock')).pid, process.pid);
++  });
++  await second.lock(async () => {});
++  assert.equal(await second.read('helper.lock'), null);
++}));
++
++test('dead helper lock recovers once; incomplete lock is preserved for inspection', async () => fixtureDirectory(async directory => {
++  const store = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
++  await writeFile(path.join(directory, 'helper.lock'), JSON.stringify({ pid: 2147483647, nonce: 'dead-owner' }));
++  await store.lock(async () => assert.equal((await store.read('helper.lock')).pid, process.pid));
++  await writeFile(path.join(directory, 'helper.lock'), '');
++  await assert.rejects(store.lock(async () => {}));
++  assert.equal(await readFile(path.join(directory, 'helper.lock'), 'utf8'), '');
++}));
++
++test('existing connector lock prevents a second credential writer', async () => fixtureDirectory(async directory => {
++  const store = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
++  await writeFile(path.join(directory, 'connector.lock'), JSON.stringify({ pid: process.pid, nonce: 'runtime' }));
++  await assert.rejects(store.lock(async () => assert.fail('must not run')), /STATE_BUSY/);
++  assert.equal(await store.read('helper.lock'), null);
++}));
++
++test('symbolic link files cannot redirect state reads or writes', async () => fixtureDirectory(async directory => {
++  const store = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
++  await writeFile(path.join(directory, 'target.json'), '{"private":true}');
++  try { await symlink(path.join(directory, 'target.json'), path.join(directory, 'helper-state.json')); }
++  catch (error) { if (error.code === 'EPERM') return; throw error; }
++  await assert.rejects(store.read('helper-state.json'), /STATE_INVALID/);
++  await assert.rejects(store.write('helper-state.json', { overwritten: true }), /STATE_INVALID/);
++  assert.equal(await readFile(path.join(directory, 'target.json'), 'utf8'), '{"private":true}');
++}));
++
++test('Windows privacy uses absolute system helpers, account SID and terminating ACL errors', async () => fixtureDirectory(async directory => {
++  await writeFile(path.join(directory, 'existing.json'), '{}');
++  const calls = [];
++  const run = async (command, args, options) => { calls.push({ command, args, options }); return { stdout: command.endsWith('whoami.exe') ? '"user","S-1-5-21-123"' : '' }; };
++  await secureDirectory(directory, { platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, run });
++  assert.equal(calls.length, 3); assert.equal(calls[0].command, 'C:\\Windows\\System32\\whoami.exe');
++  assert.match(calls[1].args.at(-1), /SetAccessRuleProtection\(\$true,\$false\)/);
++  assert.match(calls[1].args.at(-1), /SetOwner/); assert.match(calls[1].args.at(-1), /S-1-5-21-123/);
++  assert.equal(calls[2].command, 'C:\\Windows\\System32\\icacls.exe'); assert.ok(calls.every(call => call.options.windowsHide));
++  await assert.rejects(secureDirectory(directory, { platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, run: async command => {
++    if (command.endsWith('whoami.exe')) return { stdout: '"user","S-1-5-21-123"' }; throw new Error('ACL denied');
++  } }), /ACL denied/);
++  assert.throws(() => windowsExecutable('whoami.exe', { SystemRoot: 'unsafe-root' }));
++}));
+diff --git a/integrations/onboarding/test/helper-transport.test.mjs b/integrations/onboarding/test/helper-transport.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/test/helper-transport.test.mjs
+@@ -0,0 +1,49 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { readFile } from 'node:fs/promises';
++import { createTransport, offered, validateOrigin, ProtocolError } from '../helper/transport.mjs';
++import { safeOutput } from '../helper/output.mjs';
++const fixture = async name => JSON.parse(await readFile(new URL(`../../../test/contract-fixtures/agent-registration/${name}.json`, import.meta.url), 'utf8'));
++const origin = 'https://www.envoi-agents.com';
++
++test('transport confines bootstrap to explicit authenticated request, rejects redirects and logs nothing', async () => {
++  const saved = await fixture('registration-approved'); let observed;
++  const request = createTransport(origin, async (url, options) => { observed = { url, options }; return new Response(JSON.stringify(saved.response.body)); });
++  assert.equal((await request('GET', saved.request.path, { token: 'envoi_reg_private' })).status, 'approved');
++  assert.equal(observed.options.redirect, 'error'); assert.equal(observed.options.headers.authorization, 'Bearer envoi_reg_private');
++  assert.equal(observed.url, `${origin}${saved.request.path}`);
++  const failed = createTransport(origin, async () => { throw new Error('raw private token secret'); });
++  await assert.rejects(failed('GET', '/api/onboarding/routes'), error => error instanceof ProtocolError && !error.message.includes('secret'));
++});
++
++test('transport derives retry delay from canonical body/header and treats malformed edge failure as outage', async () => {
++  const saved = await fixture('registration-rate-limited');
++  const request = createTransport(origin, async () => new Response(JSON.stringify(saved.response.body), { status: 429, headers: { 'retry-after': '2000' } }));
++  await assert.rejects(request('POST', saved.request.path, { body: saved.request.body }), error => error.code === 'RATE_LIMITED' && error.retryAfterSeconds === 2000 && error.reason === 'registration_limit');
++  const edge = createTransport(origin, async () => new Response('<html>private raw gateway failure</html>', { status: 502 }));
++  await assert.rejects(edge('GET', '/api/onboarding/routes'), error => error.code === 'INTERNAL_SERVER_ERROR' && !error.message.includes('private'));
++  const oversized = createTransport(origin, async () => new Response(JSON.stringify({ raw: 'x'.repeat(130_000) })));
++  await assert.rejects(oversized('GET', '/api/onboarding/routes'), error => error.code === 'INVALID_RESPONSE');
++});
++
++test('only canonical offered local route and delivery can be selected', async () => {
++  assert.equal(offered((await fixture('routes-available')).response.body), true);
++  assert.equal(offered((await fixture('routes-available-rest')).response.body), true);
++  assert.equal(offered((await fixture('routes-disabled')).response.body), false);
++  for (const mutate of [body => body.routes.push(body.routes[0]), body => body.routes[0].available = 'true',
++    body => body.routes.find(item => item.connectionRoute === 'remote_mcp_oauth').available = true,
++    body => body.deliveryModes.find(item => item.deliveryMode === 'poll').available = true]) {
++    const body = (await fixture('routes-available')).response.body; mutate(body); assert.throws(() => offered(body), /protocol operation/);
++  }
++  for (const value of [`${origin}/connect`, `${origin}?token=secret`, 'https://user:secret@www.envoi-agents.com', 'http://www.envoi-agents.com']) assert.throws(() => validateOrigin(value));
++});
++
++test('projection strips unknown fields and rejects secret-bearing free text, UUIDs and invalid helper states', async () => {
++  const contract = await fixture('schemas');
++  const safe = safeOutput(contract, { state: 'connected', raw: 'never-public', bootstrapToken: 'envoi_reg_private' });
++  assert.deepEqual(safe, { state: 'connected' });
++  for (const values of [{ nextAction: 'token envoi_agent_access_secret' }, { workspaceName: 'bad\nworkspace' }, { nextAction: 'id 12345678-1234-1234-1234-123456789abc' }, { state: 'automatic' }, { nextAction: 'secret-fragment' }]) {
++    assert.throws(() => safeOutput(contract, values, ['secret-fragment']));
++  }
++  assert.equal(safeOutput(contract, { agentAddress: '12345678-1234-1234-1234-123456789abc@envoi.mail' }).agentAddress, '12345678-1234-1234-1234-123456789abc@envoi.mail');
++});
+diff --git a/integrations/onboarding/test/helper.test.ts b/integrations/onboarding/test/helper.test.ts
+new file mode 100644
+--- /dev/null
++++ b/integrations/onboarding/test/helper.test.ts
+@@ -0,0 +1,10 @@
++import { spawnSync } from 'node:child_process';
++import { fileURLToPath } from 'node:url';
++import { expect, test } from 'vitest';
++
++test('private helper consumes canonical fixtures and passes recovery, privacy and CLI checks', () => {
++  const files = ['helper-state.test.mjs', 'helper-store.test.mjs', 'helper-transport.test.mjs', 'envoi-link.test.mjs']
++    .map(name => fileURLToPath(new URL(name, import.meta.url)));
++  const result = spawnSync(process.execPath, ['--test', ...files], { encoding: 'utf8', timeout: 60_000 });
++  expect(result.status, result.stderr + result.stdout).toBe(0);
++});

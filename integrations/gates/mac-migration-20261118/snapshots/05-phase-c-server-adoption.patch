@@ -1,0 +1,46 @@
+diff --git a/integrations/hermes/accepted-checkpoint-retention.test.ts b/integrations/hermes/accepted-checkpoint-retention.test.ts
+index 5ce8c782a88be75f7974515b15e10b694ac1e59b..4d367646e4095e604f9fe0ee7144dd5d269543cb 100644
+--- a/integrations/hermes/accepted-checkpoint-retention.test.ts
++++ b/integrations/hermes/accepted-checkpoint-retention.test.ts
+@@ -24,14 +24,14 @@ it('uses verified archived rows at their original retention boundary without syn
+ it('retains the existing current-ended-row behavior without using an archive',async()=>{
+  const s=await fixture();s.current.sessions=[{status:'ended'}];expect(await inspectAcceptedCheckpointSessions(s.current,s.canonical)).toEqual({basis:'current_ended_session_rows',currentRowsSynthesized:0});
+ });
+-it.each(['missing-proof','proof-drift','before-retention','current-before-archive','active-lease','active-session','current-live-session','unknown-session','wrong-attempt','changed-failure','wrong-work','processed','nonretryable','active-archive','missing-archive-session','wrong-session-work','live-archive-session','missing-expiry','future-end','invalid-fence','duplicate-session'] as const)('refuses unsafe retention evidence without mutation: %s',async fault=>{
++it.each(['missing-proof','proof-drift','before-retention','current-before-archive','active-lease','active-session','current-live-session','unknown-session','wrong-attempt','changed-failure','wrong-work','wrong-case','wrong-agent','processed','nonretryable','active-archive','missing-archive-session','wrong-session-work','live-archive-session','missing-expiry','future-end','invalid-fence','duplicate-session'] as const)('refuses unsafe retention evidence without mutation: %s',async fault=>{
+  const s=await fixture();let pin:any=s.pin;
+  if(fault==='before-retention')s.canonical.checkedAt=new Date(Date.parse(s.archived.sessions[0].expiresAt)+CHECKPOINT_SESSION_RETENTION_MS-1).toISOString();
+  if(fault==='current-before-archive')s.canonical.checkedAt=new Date(Date.parse(s.archived.checkedAt)-1).toISOString();
+  if(fault==='active-lease')s.canonical.activeWorkLeases=1;if(fault==='active-session')s.canonical.activeCaseSessions=1;
+  if(fault==='current-live-session')s.current.sessions=[{status:'active'}];if(fault==='unknown-session')delete s.current.sessions;
+  if(fault==='wrong-attempt')s.archived.work[0].attempts=3;if(fault==='changed-failure')s.archived.work[0].failure={...s.current.failure,createdAt:'changed'};
+- if(fault==='wrong-work')s.archived.work[0].workId='msg_other';if(fault==='processed')s.current.processedAt=new Date().toISOString();if(fault==='nonretryable')s.current.failure={...s.current.failure,retryable:false};
++ if(fault==='wrong-work')s.archived.work[0].workId='msg_other';if(fault==='wrong-case')s.archived.work[0].caseId='case_other';if(fault==='wrong-agent')s.archived.work[0].agentId='agent_other';if(fault==='processed')s.current.processedAt=new Date().toISOString();if(fault==='nonretryable')s.current.failure={...s.current.failure,retryable:false};
+  if(fault==='active-archive')s.archived.activeCaseSessions=1;if(fault==='missing-archive-session')s.archived.sessions=[];
+  if(fault==='wrong-session-work')s.archived.sessions[0].workId='msg_other';if(fault==='live-archive-session')s.archived.sessions[0].status='active';
+  if(fault==='missing-expiry')delete s.archived.sessions[0].expiresAt;if(fault==='future-end')s.archived.sessions[0].endedAt=new Date(Date.parse(s.archived.checkedAt)+1).toISOString();
+diff --git a/integrations/hermes/accepted-checkpoint-retention.ts b/integrations/hermes/accepted-checkpoint-retention.ts
+index a85b12c60076525506a5469c3f134e368e9bf0c8..708c8c482ecfd787ef83957ad25262e2d7afbe21 100644
+--- a/integrations/hermes/accepted-checkpoint-retention.ts
++++ b/integrations/hermes/accepted-checkpoint-retention.ts
+@@ -18,7 +18,7 @@ export async function inspectAcceptedCheckpointSessions(current:any,canonical:an
+  const observed=time(archived.checkedAt),checked=time(canonical.checkedAt),works=archived.work?.filter((w:any)=>w.workId===current.workId);
+  if(archived.database!=='sinaloa_staging'||archived.readOnly!=='on'||archived.activeWorkLeases!==0||archived.activeCaseSessions!==0
+   ||!Number.isFinite(observed)||!Number.isFinite(checked)||checked<observed||checked>Date.now()||works?.length!==1
+-  ||['workId','status','attempts','failure','retryAt','leaseExpiresAt','messageStatus','processedAt'].some(k=>!equal(current[k],works[0][k])))refuse();
++  ||['workId','caseId','agentId','status','attempts','failure','retryAt','leaseExpiresAt','messageStatus','processedAt'].some(k=>!equal(current[k],works[0][k])))refuse();
+  const sessions=archived.sessions;
+  if(!Array.isArray(sessions)||sessions.some((s:any)=>s.status!=='ended'))refuse();
+  const prior=sessions.filter((s:any)=>s.workId===current.workId);
+diff --git a/integrations/hermes/stopped-progress.test.ts b/integrations/hermes/stopped-progress.test.ts
+index 473cbfd47d5bfc68dfebff3e44460fc9c8b02f29..0bfe494c5365f9193a6015e39394c6a6bbaaf7eb 100644
+--- a/integrations/hermes/stopped-progress.test.ts
++++ b/integrations/hermes/stopped-progress.test.ts
+@@ -947,6 +947,7 @@ it('preserves one failed persistent bootstrap, real preclaim review and separate
+ });
+ it('preserves a verified bootstrap checkpoint after ended session retention without inventing current rows or replaying its send',async()=>{
+  const s=await workflowBootstrapStopSetup(),o=s.options,r=o.recovery,archived=Date.parse(s.q.checkedAt);
++ Object.assign(s.q.work[0],{caseId:s.caseId,agentId:o.actorIds.openclaw});
+  for(const[index,row]of s.q.sessions.entries()){row.id??='case_session_retained_fixture_'+index;row.fence??=1;row.createdAt=new Date(archived-10000).toISOString();row.endedAt=new Date(archived-1000).toISOString();row.expiresAt=new Date(archived+900000).toISOString();}
+  s.d.canonicalFreshOwnerRead=await s.pin('retained-bootstrap-canonical.json',s.q);await s.refresh();
+  const current=archived+900000+24*60*60_000;vi.spyOn(Date,'now').mockReturnValue(current);
