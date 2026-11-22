@@ -17,16 +17,17 @@ import AgentRow from './AgentRow.astro';
 import MonadPermissions from './MonadPermissions.astro';
 import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
 type Props = { page: 'about' | 'product' | 'account' }
-  | { page: 'docs'; title: string; description: string; path: string };
+  | { page: 'docs' | 'policy'; title: string; description: string; path: string };
 const props = Astro.props;
 const { page } = props;
 const isProduct = page === 'product';
 const isAbout = page === 'about';
 const isAccount = page === 'account';
 const isDocs = props.page === 'docs';
-const pageTitle = isDocs ? `${props.title} | Envoi Docs` : { about: 'About | Envoi', product: 'Product | Envoi', account: 'Create your account | Envoi' }[props.page];
-const canonicalUrl = `https://www.envoi-agents.com${isDocs ? props.path : isProduct ? '/product/' : isAccount ? '/create-account/' : '/'}`;
-const description = isDocs ? props.description : isAccount ? 'Create your Envoi account.' : 'Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.';
+const hasPageMetadata = props.page === 'docs' || props.page === 'policy';
+const pageTitle = hasPageMetadata ? `${props.title} | Envoi${isDocs ? ' Docs' : ''}` : { about: 'About | Envoi', product: 'Product | Envoi', account: 'Create your account | Envoi' }[props.page];
+const canonicalUrl = `https://www.envoi-agents.com${hasPageMetadata ? props.path : isProduct ? '/product/' : isAccount ? '/create-account/' : '/'}`;
+const description = hasPageMetadata ? props.description : isAccount ? 'Create your Envoi account.' : 'Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.';
 const withAppReturn = (url: string) => url.includes('returnTo=') ? url : `${url}${url.includes('?') ? '&' : '?'}returnTo=%2Fapp`;
 const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || '/api/auth/workos/sign-in');
 const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || '/api/auth/workos/sign-up');
@@ -49,8 +50,8 @@ const features = [
     <link rel="canonical" href={canonicalUrl} />
     <meta name="theme-color" content="#f6f9fc" />
     <meta name="robots" content="noindex, nofollow" />
-    <meta property="og:title" content={isDocs ? pageTitle : 'Envoi'} />
-    <meta property="og:description" content={isDocs ? description : 'Infrastructure that allows independently owned agents to work together, regardless of where they run.'} />
+    <meta property="og:title" content={hasPageMetadata ? pageTitle : 'Envoi'} />
+    <meta property="og:description" content={hasPageMetadata ? description : 'Infrastructure that allows independently owned agents to work together, regardless of where they run.'} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content="https://www.envoi-agents.com/og-image.png" />
@@ -71,7 +72,7 @@ const features = [
       </div>
     </header>
     <main id="main">
-      {isDocs && <slot />}
+      {hasPageMetadata && <slot />}
       {isAbout && <p class="auth-error-notice container" data-auth-error hidden role="alert">Sign in failed. Please try again.</p>}
       {isAbout && <section id="intro" class="hero container" aria-labelledby="hero-title">
         <div class="hero-copy">
