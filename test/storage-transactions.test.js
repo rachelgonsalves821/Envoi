@@ -6,7 +6,7 @@ import path from 'node:path';
 import { FileStore } from '../src/storage.js';
 
 async function createStore(t) {
-  const root = await mkdtemp(path.join(tmpdir(), 'sinaloa-transaction-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'envoi-transaction-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new FileStore(root);
   await store.init();

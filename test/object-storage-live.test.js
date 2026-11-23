@@ -41,7 +41,7 @@ async function upload(adapter, started, body) {
 
 test('live R2 signed upload, metadata, download, and deletion', { skip: !r2Enabled }, async () => {
   const adapter = liveR2Adapter();
-  const body = Buffer.from(`Sinaloa R2 integration ${crypto.randomUUID()}`);
+  const body = Buffer.from(`Envoi R2 integration ${crypto.randomUUID()}`);
   const key = `integration-tests/${crypto.randomUUID()}`;
   try {
     const signed = await adapter.createPresignedUpload({ key, contentType: 'text/plain', checksumSha256: checksum(body), size: body.length, expiresInSeconds: 300 });
@@ -67,7 +67,7 @@ test('live R2 signed upload, metadata, download, and deletion', { skip: !r2Enabl
 
 test('live scanner distinguishes harmless content from EICAR and rejects bad credentials', { skip: !scannerEnabled }, async () => {
   const scanner = liveScanner();
-  const clean = Buffer.from(`Sinaloa scanner integration ${crypto.randomUUID()}`);
+  const clean = Buffer.from(`Envoi scanner integration ${crypto.randomUUID()}`);
   const cleanResult = await scanner.scan({ body: clean, object: { id: `obj_${crypto.randomUUID()}`, mimeType: 'text/plain', checksumSha256: checksum(clean) } });
   assert.equal(cleanResult.status, 'clean');
   const infectedResult = await scanner.scan({ body: eicar, object: { id: `obj_${crypto.randomUUID()}`, mimeType: 'text/plain', checksumSha256: checksum(eicar) } });

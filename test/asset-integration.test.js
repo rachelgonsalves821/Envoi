@@ -34,7 +34,7 @@ async function startScanner() {
 }
 
 async function startServer(scannerUrl) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-asset-integration-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-asset-integration-'));
   const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_MALWARE_SCANNER_URL: scannerUrl }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10_000);

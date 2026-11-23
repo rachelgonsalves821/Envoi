@@ -13,7 +13,7 @@ import { FileStore } from '../src/storage.js';
 const browserSession = new BrowserSession();
 
 async function startServer(environment = {}) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-test-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-test-'));
   const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_ENABLE_CALENDAR_WRITES: 'true', ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', ENVOI_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000', ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10000);
@@ -635,7 +635,7 @@ test('chosen legacy-domain agent addresses are exact, unique, and capped per hum
   assert.equal((await enroll('third')).status, 409);
 });
 
-test('new beta addresses use the apex domain while previously enrolled agents remain addressable', async t => {
+test('new addresses use the apex domain while previously enrolled agents remain addressable', async t => {
   let server = await startServer({ ENVOI_AGENT_DOMAIN: 'agents.envoi-agents.com' });
   t.after(async () => { if (server) await server.stop(); });
   const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550992', displayName: 'Domain Owner' } });

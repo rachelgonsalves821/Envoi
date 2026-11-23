@@ -12,7 +12,7 @@ import { BrowserSession } from './browser-session.js';
 import { FileStore } from '../src/storage.js';
 
 async function startServer(t, environment = {}, dataDirOverride = null) {
-  const dataDir = dataDirOverride || await mkdtemp(path.join(tmpdir(), 'sinaloa-mcp-'));
+  const dataDir = dataDirOverride || await mkdtemp(path.join(tmpdir(), 'envoi-mcp-'));
   t.dataDir = dataDir;
   t.serverOutput = '';
   const child = spawn(process.execPath, ['src/server.js'], {
@@ -442,7 +442,7 @@ test('MCP typed collaboration shares one result and grants one clean asset to th
 });
 
 test('trusted relay renews an expired access token before a late MCP call and keeps credentials out of tool arguments', async t => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-mcp-expiry-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-mcp-expiry-'));
   const baseUrl = await startServer(t, {}, dataDir);
   const alice = await owner(baseUrl, '1501');
   const listed = (await mcp(baseUrl, alice.agentApiToken, 'tools/list')).payload.result.tools;

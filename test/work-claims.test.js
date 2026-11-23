@@ -12,7 +12,7 @@ import { FileStore } from '../src/storage.js';
 const browserSession = new BrowserSession();
 
 async function startServer(dataDir = null, environment = {}) {
-  const directory = dataDir || await mkdtemp(path.join(tmpdir(), 'sinaloa-work-claims-'));
+  const directory = dataDir || await mkdtemp(path.join(tmpdir(), 'envoi-work-claims-'));
   const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: directory, ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10000);

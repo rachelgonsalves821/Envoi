@@ -40,8 +40,8 @@ async function startProvider() {
   return { state, baseUrl: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise(resolve => server.close(resolve)) };
 }
 
-async function startSinaloa(providerUrl) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-email-integration-'));
+async function startEnvoi(providerUrl) {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-email-integration-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
     env: {
@@ -107,7 +107,7 @@ async function ownerSession(baseUrl) {
 
 test('approved agent email reaches a human and a signed reply returns to the same supervised case', async t => {
   const provider = await startProvider();
-  const app = await startSinaloa(provider.baseUrl);
+  const app = await startEnvoi(provider.baseUrl);
   t.after(async () => { await app.stop(); await provider.stop(); });
 
   const humanToken = await ownerSession(app.baseUrl);
