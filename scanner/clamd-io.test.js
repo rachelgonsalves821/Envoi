@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { queryClamd, CLAMD_PORT } from './clamd-io.js';
-import { matchesSha256Base64, MAX_SCAN_BYTES, readBoundedBody } from './clamd-protocol.js';
+import { claimedSha256, matchesSha256Base64, MAX_SCAN_BYTES, readBoundedBody } from './clamd-protocol.js';
 
 const never = () => new Promise(() => {});
 const encode = value => new TextEncoder().encode(value);
@@ -146,15 +146,20 @@ test('real Web Streams release locks on successful nul-terminated replies', asyn
   assert.equal(calls.closes, 1);
 });
 
-test('public scanner admission rejects missing/wrong tokens before opening a Container', async () => {
-  // Evaluate the actual public Worker handler with only the platform adapter
-  // stubbed; the TCP module is tested directly above, and bearer logic is intact.
+// Evaluate the actual scanner Worker source with only the platform adapter (and,
+// where a test asks, the clamd socket call) stubbed; the TCP module is tested directly above.
+async function loadWorker({ getContainer, query = queryClamd }) {
   const source = (await readFile(new URL('./worker.js', import.meta.url), 'utf8'))
-    .replace(/^import .*;\r?\n/gm, '').replace('export class ClamAVContainer', 'class ClamAVContainer').replace('export default', 'return');
-  let accesses = 0;
-  const handler = new Function('Container', 'getContainer', 'queryClamd', 'matchesSha256Base64', 'MAX_SCAN_BYTES', 'readBoundedBody', 'CLAMD_PORT', source)(
-    class {}, () => { accesses += 1; throw new Error('unauthorized Container access'); }, queryClamd, matchesSha256Base64, MAX_SCAN_BYTES, readBoundedBody, CLAMD_PORT
+    .replace(/^import .*;\r?\n/gm, '').replace('export class ClamAVContainer', 'class ClamAVContainer').replace('export default', 'const handler =')
+    + '\nreturn { handler, ClamAVContainer };';
+  return new Function('Container', 'getContainer', 'queryClamd', 'claimedSha256', 'matchesSha256Base64', 'MAX_SCAN_BYTES', 'readBoundedBody', 'CLAMD_PORT', source)(
+    class {}, getContainer, query, claimedSha256, matchesSha256Base64, MAX_SCAN_BYTES, readBoundedBody, CLAMD_PORT
   );
+}
+
+test('public scanner admission rejects missing/wrong tokens before opening a Container', async () => {
+  let accesses = 0;
+  const { handler } = await loadWorker({ getContainer: () => { accesses += 1; throw new Error('unauthorized Container access'); } });
   for (const [path, method] of [['/health', 'GET'], ['/scan', 'POST']]) {
     for (const authorization of [null, 'Bearer wrong', 'Basic fixture']) {
       const headers = authorization ? { authorization } : {};
@@ -170,4 +175,29 @@ test('public scanner admission rejects missing/wrong tokens before opening a Con
   const retiredTokenOnly = await handler.fetch(new Request('https://scanner.example/health', { headers: { authorization: 'Bearer fixture-token' } }), { SINALOA_SCANNER_TOKEN: 'fixture-token' });
   assert.equal(retiredTokenOnly.status, 401);
   assert.equal(accesses, 0);
+});
+
+test('scan accepts the checksum under x-envoi-sha256 or x-sinaloa-sha256 and refuses conflicting claims', async () => {
+  const scanned = [];
+  const { ClamAVContainer } = await loadWorker({
+    getContainer: () => { throw new Error('not used'); },
+    query: async (_container, command, body) => { scanned.push([command, body.length]); return { status: 'clean', engine: 'clamav', signature: null }; }
+  });
+  const container = new ClamAVContainer();
+  container.renewActivityTimeout = () => {};
+  const body = encode('hello');
+  const digest = 'LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=';
+  const other = 'SG6kYiTRu0+2gPNPfJrZao8k7Ii+c+qOWmxlJg6cuKc='; // SHA-256 of "world"
+  const scan = headers => container.fetch(new Request('https://scanner.internal/scan', { method: 'POST', headers, body }));
+  for (const headers of [{ 'x-envoi-sha256': digest }, { 'x-sinaloa-sha256': digest }, { 'x-envoi-sha256': digest, 'x-sinaloa-sha256': digest }]) {
+    const response = await scan(headers);
+    assert.equal(response.status, 200, JSON.stringify(headers));
+    assert.deepEqual(await response.json(), { status: 'clean', engine: 'clamav', signature: null });
+  }
+  for (const headers of [{}, { 'x-envoi-sha256': other }, { 'x-sinaloa-sha256': other }, { 'x-envoi-sha256': digest, 'x-sinaloa-sha256': other }, { 'x-envoi-sha256': other, 'x-sinaloa-sha256': digest }]) {
+    const response = await scan(headers);
+    assert.equal(response.status, 422, JSON.stringify(headers));
+    assert.deepEqual(await response.json(), { error: 'CHECKSUM_MISMATCH' });
+  }
+  assert.deepEqual(scanned, [['INSTREAM', 5], ['INSTREAM', 5], ['INSTREAM', 5]]);
 });
