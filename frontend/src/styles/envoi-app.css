@@ -169,6 +169,9 @@
 .app-shell .group-reply, .app-shell .group-assignments { color: var(--ink2); font-size: 12px; }
 .app-shell .group-reply { margin-bottom: 4px; }
 .app-shell .group-assignments { margin: 6px 0 0; padding-inline-start: 16px; }
+.app-shell .message-attachments { display: grid; gap: 5px; list-style: none; margin: 6px 0 0; padding: 0; }
+.app-shell .message-attachments a { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.app-shell .message-attachments a:hover { background: var(--fill); }
 .app-shell .participant-duo .participant-card { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 11px 12px; border: 0; border-radius: 12px; background: var(--fill); }
 .app-shell .participant-duo .participant-card.mine { background: var(--accent-soft); }
 .app-shell .participant-duo .counterparty-avatar { width: 36px; height: 36px; font-size: 14px; }
@@ -391,11 +394,13 @@
 .app-shell .modal .sdk-next-step { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .app-shell .modal .sdk-next-step > * { min-width: 0; max-width: 100%; }
 .app-shell .modal .sdk-next-step pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.app-shell .enroll-steps { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
-.app-shell .enroll-steps span { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink3); font-size: 12px; }
-.app-shell .enroll-steps span::first-letter { color: var(--accent); }
-.app-shell .enroll-steps span.current, .app-shell .enroll-steps span.complete { color: var(--accent); }
-.app-shell .enroll-steps b { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.app-shell .enroll-steps { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin: 0; padding: 16px 0; list-style: none; }
+.app-shell .enroll-steps li { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink3); font-size: 12px; }
+.app-shell .enroll-steps li.current, .app-shell .enroll-steps li.complete { color: var(--accent); }
+.app-shell .enroll-step-number { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; font-weight: 650; }
+.app-shell .enroll-steps .current .enroll-step-number { border-color: var(--accent); background: var(--accent); color: #fff; }
+.app-shell .enroll-steps .complete .enroll-step-number { border-color: var(--accent); }
+.app-shell .enroll-steps b { font-weight: 600; }
 .app-shell .enroll-step { display: grid; gap: 12px; min-width: 0; }
 .app-shell .runtime-picker { min-width: 0; margin: 0; padding: 0; border: 0; }
 .app-shell .runtime-picker legend { margin-bottom: 8px; font-weight: 600; }
@@ -492,3 +497,21 @@
   color: var(--text-primary);
   box-shadow: 0 8px 24px #0002;
 }
+
+.app-shell .listening-badge { display: inline-block; width: fit-content; padding: 4px 8px; border-radius: 6px; background: var(--fill); color: var(--ink2); font-size: 12px; font-weight: 600; }
+.app-shell .sidebar-listening-badge { display: block; margin: 0 8px 5px 32px; }
+.app-shell .listening-notice { grid-template-columns: minmax(0, 1fr); margin: 0 12px 10px; }
+.app-shell .listening-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.app-shell .dots-work-mode { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.app-shell .dots-work-mode label { display: flex; align-items: baseline; gap: 8px; }
+.app-shell .agent-work-mode, .app-shell .agent-work-mode-status { margin: 0 12px 10px; }
+.app-shell .agent-work-mode > p { margin: 0; color: var(--ink2); font-size: 12px; }
+.app-shell .work-mode-option, .app-shell .agent-pause-action { display: flex; align-items: center; gap: 8px; }
+.app-shell .work-mode-option { justify-content: space-between; }
+.app-shell .work-mode-help { position: relative; display: inline-flex; flex: none; }
+.app-shell .work-mode-help .work-mode-help-trigger { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--fill); color: var(--ink2); font-size: 12px; cursor: help; }
+.app-shell .work-mode-help-tooltip { display: none; position: absolute; inset-block-start: 100%; inset-inline-end: -12px; z-index: 4; width: min(225px, 55vw); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); box-shadow: 0 4px 12px #0002; font-size: 12px; line-height: 1.45; }
+.app-shell .agent-pause-action .work-mode-help-tooltip { inset-inline: 0 auto; }
+.app-shell .work-mode-help[data-visibility="open"] .work-mode-help-tooltip,
+.app-shell .work-mode-help[data-visibility="auto"]:is(:hover, :focus-within) .work-mode-help-tooltip { display: block; }
+.app-shell .dot-sync-message { display: block; width: fit-content; max-width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--fill); overflow-wrap: anywhere; user-select: all; }

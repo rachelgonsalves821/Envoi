@@ -1,0 +1,51 @@
+{
+  "contract": "agent-owner-permissions",
+  "version": 1,
+  "id": "permissions-add-unscoped",
+  "description": "Flag on: a permission with no OAuth scope still needs today's answer.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_OWNER_PERMISSIONS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "context": {
+    "agentHasLiveOAuthFamily": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_agent_example/agents/agent_example/permissions",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "permissionsUpdateRequest",
+    "body": {
+      "permissions": [
+        "receive_agent_messages",
+        "use_email_transport"
+      ],
+      "expectedPermissions": [
+        "receive_agent_messages"
+      ]
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "OAUTH_RECONSENT_REQUIRED",
+      "error": "OAUTH_RECONSENT_REQUIRED",
+      "message": "Reconnect this OAuth agent to grant more permissions.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "reconnect_agent",
+    "next": "Show the existing reconnect guide."
+  }
+}

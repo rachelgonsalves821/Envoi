@@ -1,0 +1,39 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "claim-off-connector-hides-peer-work",
+  "description": "A connector agent in off mode with only peer work waiting: the claim answers the ordinary idle result. The peer work stays waiting (agent-listening-status counts it).",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "envoi_link",
+    "modeBefore": "off",
+    "claimable": [
+      "peer"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "auth": "bearer",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_link_1",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "a3-pause-auth/claimIdle",
+    "body": {
+      "work": null,
+      "state": "idle"
+    }
+  },
+  "client": {
+    "surface": "connector",
+    "next": "Idle as usual."
+  }
+}

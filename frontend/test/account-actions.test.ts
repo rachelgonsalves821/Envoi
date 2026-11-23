@@ -30,10 +30,11 @@ it('offers removal separately from freezing and hides management actions from no
   const props = {
     agent: { id: 'agent_owned', name: 'Milo', address: 'milo@agents.envoi-agents.com', status: 'active', onboardingStatus: 'approved', permissions: [] } as unknown as Agent,
     workspace: { id: 'inbox_owned', ownerHumanId: 'human_owner' } as Inbox,
-    humanId: 'human_owner', emailTransport: null, onRefresh: vi.fn(), notify: vi.fn()
+    humanId: 'human_owner', emailTransport: null, onRefresh: vi.fn(), notify: vi.fn(), onOpenInbox: vi.fn(), onPermissions: vi.fn()
   };
   const manager = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: true }));
-  expect(manager).toMatch(/class="agent-card-actions"[^>]*>.*Remove agent.*<\/div>/);
+  expect(manager).toMatch(/class="agent-card-actions"[^>]*>.*Open inbox<\/button><details class="agent-actions-menu".*Permissions<\/button>.*Remove agent<\/button>/);
+  expect(manager).toContain('Connection details');
   expect(manager).toContain('Revoke agent access');
   const member = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: false }));
   expect(member).not.toContain('Remove agent');

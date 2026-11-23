@@ -39,8 +39,10 @@ for (const backend of backends) {
     assert.equal((await docs.get(refreshParts(tokens.refresh_token))).usedAt, null, 'the A1 refresh route consumed nothing');
     assert.equal((await docs.get(connection.familyPath)).revokedAt, null, 'and revoked nothing');
 
-    // Rows 7 and 8 refuse before anything is consumed: the token is still current afterwards.
-    assertOAuthError(await refresh(server, connection, tokens.refresh_token, { scope: 'envoi.agent' }), 'invalid_scope');
+    // Rows 7 and 8 refuse before anything is consumed: the token is still current afterwards. Row 7 as revised by
+    // agent-owner-permissions v1 §4: only an unknown or repeated scope is refused.
+    assertOAuthError(await refresh(server, connection, tokens.refresh_token, { scope: 'envoi.agent envoi.email' }), 'invalid_scope');
+    assertOAuthError(await refresh(server, connection, tokens.refresh_token, { scope: 'envoi.agent envoi.agent' }), 'invalid_scope');
     assertOAuthError(await refresh(server, connection, tokens.refresh_token, { resource: `${server.origin}/other` }), 'invalid_target');
     assert.equal((await docs.get(refreshParts(tokens.refresh_token))).usedAt, null, 'a refused refresh consumed nothing');
 

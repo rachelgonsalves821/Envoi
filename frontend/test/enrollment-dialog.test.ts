@@ -3,8 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentPermissionPicker, EnrollmentDialog, RuntimePicker } from '../src/App';
 import { api, ApiError } from '../src/api';
+import { EnrollmentSteps } from '../src/onboarding/EnrollmentSteps';
+import { GrokBotSetup } from '../src/onboarding/GrokBotSetup';
 import { DotsSetupGuide } from '../src/onboarding/DotsSetupGuide';
 import { SavedSetupProgress } from '../src/onboarding/SavedSetupProgress';
+import { ConnectionMilestones } from '../src/onboarding/ConnectionMilestones';
 import { savedSetupApi } from '../src/onboarding/saved-setup';
 import { dotsSetupPrompt, setupPrompt, type EnrollmentResult, type EnrollmentStatus } from '../src/quick-connect';
 import type { Agent, Inbox } from '../src/types';
@@ -85,9 +88,18 @@ function wizard(initialResult: EnrollmentResult | null = null, reconnectAgent?: 
   return { draw, submit, setResult };
 }
 
+function expectStepBar(tree: ReactElement<any>[], number: number) {
+  const component = tree.find(node => node.type === EnrollmentSteps)!;
+  const bar = EnrollmentSteps(component.props);
+  const steps = elements(bar.props.children).filter(node => node.type === 'li');
+  expect(steps.map(node => node.props.children[1].props.children)).toEqual(['Agent', 'Details and access', 'Connect']);
+  expect(steps[number - 1].props['aria-current']).toBe('step');
+  expect(steps[number - 1].props.children[0].props.children).toBe(number);
+  expect(steps.filter(node => node.props.className === 'complete')).toHaveLength(number - 1);
+}
+
 function expectStep(tree: ReactElement<any>[], number: number) {
-  const current = tree.find(node => node.props['aria-current'] === 'step');
-  expect(current?.props.children[0]).toBe(number);
+  expectStepBar(tree, number);
   expect(tree.filter(node => node.type === 'button' && node.props.className === 'button primary')).toHaveLength(1);
 }
 
@@ -106,6 +118,43 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+
+it.each([false, true])('uses the shared wizard for hosted Grok (hosted required: %s)', async hostedRequired => {
+  vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ available: true, hostedRequired })));
+  const create = vi.spyOn(api, 'enrollmentToken');
+  const save = vi.spyOn(savedSetupApi, 'create').mockResolvedValue({
+    setupId: 'setup_grok', workspaceInboxId: workspace.id, workspaceName: 'Workspace',
+    name: 'Milo', localPart: 'milo', address: handoff.address, runtime: 'grok', status: 'waiting',
+    permissions: ['receive_agent_messages'], createdAt: '2026-11-12T12:00:00.000Z', expiresAt: '2026-11-12T12:30:00.000Z'
+  });
+  const dialog = wizard();
+  dialog.draw();
+  await vi.advanceTimersByTimeAsync(0);
+
+  const first = dialog.draw();
+  expectStep(first, 1);
+  const picker = first.find(node => node.type === RuntimePicker)!;
+  const options = elements(RuntimePicker(picker.props));
+  expect(options.some(node => node.props.value === 'hosted-grok')).toBe(true);
+  expect(options.some(node => node.props.value === 'grok')).toBe(false);
+  picker.props.onSelectHostedGrok();
+
+  const second = await dialog.submit(dialog.draw());
+  expectStep(second, 2);
+  expect(second.find(node => node.props.name === 'localPart')).toBeDefined();
+  expect(second.some(node => node.type === AgentPermissionPicker)).toBe(false);
+  second.find(node => node.props.name === 'name')!.props.onChange({ target: { value: 'Milo' } });
+  dialog.draw();
+  await vi.advanceTimersByTimeAsync(300);
+  const third = await dialog.submit(dialog.draw());
+  expectStepBar(third, 3);
+  expect(third[0].props.title).toBe('Connect Grok Bot');
+  expect(third.find(node => node.type === GrokBotSetup)?.props.newIdentity).toMatchObject({ name: 'Milo', localPart: 'milo' });
+  expect(save).toHaveBeenCalledExactlyOnceWith(workspace.id, { name: 'Milo', localPart: 'milo', permissions: [] }, expect.any(AbortSignal), 'grok');
+  expect(create).not.toHaveBeenCalled();
+  third.find(node => node.type === 'button' && node.props.children === 'Back')!.props.onClick();
+  expectStep(dialog.draw(), 2);
 });
 
 it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three steps for %s', async runtime => {
@@ -133,21 +182,26 @@ it.each(['openclaw', 'hermes', 'grok', 'dots'] as const)('uses the same three st
   const name = second.find(node => node.props.name === 'name')!;
   name.props.onChange({ target: { value: 'Milo' } });
   dialog.draw();
-  await vi.advanceTimersByTimeAsync(250);
+  await vi.advanceTimersByTimeAsync(300);
   if (runtime !== 'dots') toggles[2].props.onChange({ target: { checked: true } });
 
   const third = await dialog.submit(dialog.draw());
   if (runtime === 'dots') {
     expect(create).not.toHaveBeenCalled();
-    expect(save).toHaveBeenCalledWith(workspace.id, { name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages', 'send_agent_messages'] }, expect.any(AbortSignal));
+    expect(save).toHaveBeenCalledWith(workspace.id, { name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages', 'send_agent_messages'] }, expect.any(AbortSignal), 'dots');
     const guide = third.find(node => node.type === DotsSetupGuide)!;
     expect(guide.props).toMatchObject({ name: 'Milo', address: handoff.address, reconnect: false, savedSetup: false });
     expectStep([...third, ...elements(DotsSetupGuide(guide.props))], 3);
     expect(third.some(node => node.props.title === 'Dots connection is off here')).toBe(true);
     expect(third.some(node => node.type === SavedSetupProgress)).toBe(false);
+    expect(third.some(node => node.props.children === "You'll confirm these on Envoi's approval page.")).toBe(true);
+    expect(third.some(node => node.props.children === "You can turn background receiving off or on any time on Milo's page in Envoi.")).toBe(true);
   } else {
     expect(create).toHaveBeenCalledWith(workspace.id, 'Milo', 'milo', ['receive_agent_messages', 'send_agent_messages', 'create_assets'], runtime);
     expectStep(third, 3);
+    const manual = third.find(node => node.props.className === 'runtime-setup-list')!;
+    expect(elements(manual.props.children).filter(node => node.type === 'article')).toHaveLength(1);
+    expect(elements(manual.props.children).find(node => node.type === 'strong')?.props.children.toLowerCase()).toBe(runtime);
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     third.find(node => node.type === 'button' && node.props.className === 'button primary')!.props.onClick();
@@ -170,13 +224,15 @@ it('saves the edited Dots permissions and opens progress for the returned setup'
   const options = elements(AgentPermissionPicker(picker.props)).filter(node => node.props.type === 'checkbox');
   options[1].props.onChange({ target: { checked: false } });
   dialog.draw();
-  await vi.advanceTimersByTimeAsync(250);
+  await vi.advanceTimersByTimeAsync(300);
 
   const third = await dialog.submit(dialog.draw());
   expect(save).toHaveBeenCalledExactlyOnceWith(workspace.id, {
     name: 'Milo', localPart: 'milo', permissions: ['receive_agent_messages']
-  }, expect.any(AbortSignal));
+  }, expect.any(AbortSignal), 'dots');
   expect(third.find(node => node.type === SavedSetupProgress)?.props.setup).toEqual(saved);
+  expect(third.some(node => node.props.children === 'Envoi opens with these filled in. Just approve.')).toBe(true);
+  expect(third.some(node => node.props.children === "You'll confirm these on Envoi's approval page.")).toBe(false);
   const guide = third.find(node => node.type === DotsSetupGuide)!;
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal('navigator', { clipboard: { writeText } });
@@ -186,15 +242,43 @@ it('saves the edited Dots permissions and opens progress for the returned setup'
   expect(prompt).not.toContain(saved.setupId);
 });
 
+it('debounces address input and aborts an obsolete check before it can change the feedback', async () => {
+  let finishObsolete!: (value: Awaited<ReturnType<typeof api.agentAddressAvailability>>) => void;
+  const request = vi.mocked(api.agentAddressAvailability)
+    .mockImplementationOnce(() => new Promise(resolve => { finishObsolete = resolve; }))
+    .mockResolvedValueOnce({ available: true, localPart: 'second', address: 'second@envoi-agents.com' });
+  const dialog = wizard();
+  await dialog.submit(dialog.draw());
+  function type(value: string) {
+    dialog.draw().find(node => node.props.name === 'localPart')!.props.onChange({ target: { value } });
+  }
+  const feedback = () => dialog.draw().find(node => String(node.props.className).startsWith('address-feedback'))?.props.children;
+  type('first');
+  expect(feedback()).toBe('Checking…');
+  await vi.advanceTimersByTimeAsync(299);
+  expect(request).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  const signal = request.mock.calls[0][2]!;
+  type('second');
+  expect(feedback()).toBe('Checking…');
+  expect(signal.aborted).toBe(true);
+  finishObsolete({ available: false, localPart: 'first', address: 'first@envoi-agents.com' });
+  await vi.advanceTimersByTimeAsync(299);
+  expect(feedback()).toBe('Checking…');
+  await vi.advanceTimersByTimeAsync(1);
+  expect(request).toHaveBeenLastCalledWith(workspace.id, 'second', expect.any(AbortSignal));
+  expect(feedback()).toBe('Address available');
+});
+
 describe('setup progress', () => {
   it.each([
-    { phase: 'waiting', line: 'Waiting for your agent to start', detail: 'The code works until', milestones: 0, action: undefined },
-    { phase: 'enrolled', line: 'Your agent is connected and finishing setup', detail: 'This can take a few minutes.', milestones: 1, action: undefined },
-    { phase: 'ready', line: 'Milo is ready', detail: 'Setup checks passed. Send it a message to try it.', milestones: 2, action: undefined },
-    { phase: 'expired', line: 'This code expired before your agent used it', detail: 'Nothing was set up yet.', milestones: 0, action: 'Create new prompt' },
-    { phase: 'revoked', line: 'This connection was revoked', detail: 'Review agent connections before trying again.', milestones: 0, action: 'Create new prompt' },
-    { phase: 'error', line: 'Setup needs attention', detail: 'Ask your agent what failed. It has the details.', milestones: 1, action: 'Check again' },
-    { phase: 'unavailable', line: "Can't check progress right now", detail: 'Your agent can keep going.', milestones: 0, action: 'Check again' }
+    { phase: 'waiting', line: 'Waiting for your agent to start', detail: 'The code works until', milestones: 1, action: undefined },
+    { phase: 'enrolled', line: 'Your agent is connected and finishing setup', detail: 'This can take a few minutes.', milestones: 2, action: undefined },
+    { phase: 'ready', line: 'Milo is ready', detail: 'Setup checks passed. Send it a message to try it.', milestones: 4, action: undefined },
+    { phase: 'expired', line: 'This code expired before your agent used it', detail: 'Nothing was set up yet.', milestones: 1, action: 'Create new prompt' },
+    { phase: 'revoked', line: 'This connection was revoked', detail: 'Review agent connections before trying again.', milestones: 1, action: 'Create new prompt' },
+    { phase: 'error', line: 'Setup needs attention', detail: 'Ask your agent what failed. It has the details.', milestones: 2, action: 'Check again' },
+    { phase: 'unavailable', line: "Can't check progress right now", detail: 'Your agent can keep going.', milestones: 1, action: 'Check again' }
   ] as const)('shows the $phase report and recovery action', async ({ phase, line, detail, milestones, action }) => {
     const request = vi.spyOn(api, 'enrollmentStatus');
     if (phase === 'unavailable') request.mockRejectedValue({ status: 403 });
@@ -209,7 +293,10 @@ describe('setup progress', () => {
     expect(html).toContain('role="status"');
     expect(html).toContain(line.replace("'", '&#x27;'));
     expect(html).toContain(detail);
-    expect(elements(progress).filter(node => node.type === 'li' && node.props.className === 'complete')).toHaveLength(milestones);
+    const bar = elements(progress).find(node => node.type === ConnectionMilestones)!;
+    const dots = elements(ConnectionMilestones(bar.props)).filter(node => node.type === 'li');
+    expect(dots.map(node => node.props.children[0])).toEqual(['Started', 'Connected', 'Checked', 'Ready']);
+    expect(dots.filter(node => node.props.className === 'complete')).toHaveLength(milestones);
     expect(html.includes('GATEWAY_UNREACHABLE')).toBe(phase === 'error');
     const buttons = elements(progress).filter(node => node.type === 'button');
     expect(buttons.map(node => node.props.children)).toEqual(action ? [action] : []);

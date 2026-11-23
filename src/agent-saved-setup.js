@@ -1,4 +1,4 @@
-// agent-saved-setup v1 (handoffs.md): the owner saves a Dot's name, address and permissions once in the Connect wizard.
+// The owner saves the agent name, address and permissions once in the Connect wizard.
 // The approval page pre-fills from it and the wizard follows its status. A saved setup is owner data, never a credential:
 // it holds no address, slot or permission, and approval re-checks everything exactly as agent-remote-auth §5.2 does.
 import path from 'node:path';
@@ -9,6 +9,21 @@ const setupIdPattern = /^setup_[A-Za-z0-9_-]{1,80}$/;
 const hourMs = 3_600_000;
 
 export const validSavedSetupId = value => typeof value === 'string' && setupIdPattern.test(value);
+
+const grokCallbacks = new Set([
+  'https://www.cursor.com/agents/mcp/oauth/callback',
+  'https://www.cursor.com/bot/mcp/oauth/callback',
+  'https://grok.com/connectors-oauth-exchange-code/'
+]);
+
+export function savedSetupRuntimeForConsent(request) {
+  if (request?.connectionRoute !== 'remote_mcp_oauth') return null;
+  if (request.clientId === 'client_envoi-grok-bot' || request.clientId === 'client_envoi-grok-bot-staging') return 'grok';
+  if (request.clientId === 'https://cursor.com/oauth/mcp-client.json') {
+    return grokCallbacks.has(request.redirectUri) ? 'grok' : null;
+  }
+  return 'dots';
+}
 
 export function createSavedSetups({ store, enabled, coded, now = () => new Date(), newId, normalizeLocalPart, addressFor, addressTaken,
   canManage, getInbox, workspaceNameOf, getRegistration, lastSeenFor, audit }) {
@@ -30,7 +45,7 @@ export function createSavedSetups({ store, enabled, coded, now = () => new Date(
   function parseCreate(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid();
     if (Object.keys(input).some(key => !['runtime', 'name', 'localPart', 'permissions'].includes(key))) throw invalid();
-    if (input.runtime !== 'dots') throw invalid();
+    if (!['dots', 'grok'].includes(input.runtime)) throw invalid();
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     if (!name || name.length > 80) throw invalid();
     let localPart;
@@ -38,7 +53,7 @@ export function createSavedSetups({ store, enabled, coded, now = () => new Date(
     const requested = input.permissions;
     if (!Array.isArray(requested) || requested.length > 4 || new Set(requested).size !== requested.length || requested.some(value => !permissionOrder.includes(value))) throw invalid();
     const permissions = permissionOrder.filter(value => value === 'receive_agent_messages' || requested.includes(value));
-    return { runtime: 'dots', name, localPart, permissions };
+    return { runtime: input.runtime, name, localPart, permissions };
   }
 
   // §3: the status is derived on every read, from the stored record and, once linked, from the linked registration.
@@ -98,22 +113,23 @@ export function createSavedSetups({ store, enabled, coded, now = () => new Date(
   }
 
   // §4: consentView.savedSetup, or null. The caller checks the flag, the decision and the route.
-  async function forConsent(human, requestedPermissions) {
-    if (!enabled) return null;
-    const record = (await listFor(human.id)).find(item => item.runtime === 'dots' && isLiveWaiting(item));
+  async function forConsent(human, requestedPermissions, runtime) {
+    if (!enabled || !runtime) return null;
+    const record = (await listFor(human.id)).find(item => item.runtime === runtime && isLiveWaiting(item));
     if (!record) return null;
     const workspace = await getInbox(record.workspaceInboxId);
     if (!workspace || !await canManage(human, workspace)) return null;
+    const permissions = runtime === 'grok' ? requestedPermissions : record.permissions;
     return { setupId: record.id, workspaceInboxId: record.workspaceInboxId, workspaceName: record.workspaceName, name: record.name, localPart: record.localPart,
-      address: record.address, permissions: record.permissions, notRequested: record.permissions.filter(value => !requestedPermissions.includes(value)),
+      address: record.address, permissions, notRequested: permissions.filter(value => !requestedPermissions.includes(value)),
       addressAvailable: !await addressTaken(record.address), expiresAt: record.expiresAt };
   }
 
   // §5: the documents that link a usable setup inside the approval's own batch. An unusable id links nothing.
-  async function linkDocuments(human, setupId, { registrationId, at, targetKind }) {
-    if (!enabled || targetKind !== 'new_agent' || !validSavedSetupId(setupId)) return { documents: [], linked: false };
+  async function linkDocuments(human, setupId, { registrationId, at, targetKind }, runtime) {
+    if (!enabled || !runtime || targetKind !== 'new_agent' || !validSavedSetupId(setupId)) return { documents: [], linked: false };
     const record = await store.getJson(setupPath(human.id, setupId));
-    if (!record || record.humanId !== human.id || !isLiveWaiting(record)) return { documents: [], linked: false };
+    if (!record || record.humanId !== human.id || record.runtime !== runtime || !isLiveWaiting(record)) return { documents: [], linked: false };
     return { documents: [{ path: setupPath(human.id, setupId), value: { ...record, status: 'linked', registrationId, linkedAt: at } }], linked: true };
   }
 

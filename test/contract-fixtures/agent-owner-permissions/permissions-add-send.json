@@ -1,0 +1,51 @@
+{
+  "contract": "agent-owner-permissions",
+  "version": 1,
+  "id": "permissions-add-send",
+  "description": "Flag on: the owner adds Send to an OAuth agent on the Permissions page. It applies to the next /mcp call.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_OWNER_PERMISSIONS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "context": {
+    "agentHasLiveOAuthFamily": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_agent_example/agents/agent_example/permissions",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "permissionsUpdateRequest",
+    "body": {
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "expectedPermissions": [
+        "receive_agent_messages"
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "permissionsUpdated",
+    "body": {
+      "agent": {
+        "id": "agent_example",
+        "permissions": [
+          "receive_agent_messages",
+          "send_agent_messages"
+        ]
+      }
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show the new permissions. No reconnect guide."
+  }
+}

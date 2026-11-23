@@ -2,7 +2,7 @@
   "contract": "agent-remote-auth",
   "version": 1,
   "id": "token-refresh-scope-changed",
-  "description": "Narrowing or widening scope on refresh is not supported in v1.",
+  "description": "Revised by agent-owner-permissions v1 §4: a different scope parameter no longer fails. The response carries the family's current scopes, never more.",
   "kind": "http",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,
@@ -20,24 +20,27 @@
     "form": {
       "grant_type": "refresh_token",
       "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
-      "client_id": "https://assistant.example.com/oauth/envoi-client.json",
-      "scope": "envoi.agent"
+      "scope": "envoi.agent",
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json"
     }
   },
   "response": {
-    "status": 400,
-    "schema": "oauthError",
+    "status": 200,
+    "schema": "tokenResponse",
     "headers": {
       "cache-control": "no-store",
       "pragma": "no-cache"
     },
     "body": {
-      "error": "invalid_scope",
-      "error_description": "The requested scope is invalid."
+      "access_token": "envoi_agent_access_PLACEHOLDER_oauth_2",
+      "token_type": "Bearer",
+      "expires_in": 900,
+      "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_2",
+      "scope": "envoi.agent envoi.send"
     }
   },
   "client": {
     "surface": "host",
-    "next": "Omit scope, or re-authorize for a different set."
+    "next": "Replace both stored tokens atomically. The granted scope is the response's scope."
   }
 }

@@ -1,0 +1,28 @@
+{
+  "contract": "provider-event-wake-activation",
+  "version": 1,
+  "id": "delivery-activation-proves-listening",
+  "description": "The activation hint is delivered like any provider-event-wake event and acknowledged (2xx). delivery.lastSuccessAt is set, so agent-listening-status reports lastAlertAt.",
+  "kind": "delivery",
+  "context": {
+    "subscriptionId": "evtsub_0f3a9c2e51b84d7aa6c1",
+    "existing": null,
+    "catchUp": []
+  },
+  "delivery": {
+    "bodyText": "{\"eventId\":\"wake_evt_ActivationExample01\",\"name\":\"envoi.work_available\",\"timestamp\":\"2026-11-13T15:00:00.000Z\",\"data\":{\"reason\":\"subscription_activated\"},\"cursor\":\"00000000000000000104\"}",
+    "responseStatus": 202,
+    "outcome": "acknowledged"
+  },
+  "effects": {
+    "queued": [],
+    "backgroundReceivingAfter": {
+      "state": "on",
+      "lastAlertAt": "2026-11-13T15:00:02.000Z"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Setup may now say Ready (agent-listening-status agent-info-listening)."
+  }
+}

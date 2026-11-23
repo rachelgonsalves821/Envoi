@@ -13,6 +13,28 @@ test('the deployable beta source retains all seven owner-approved live Dots valu
   for(const [name,value]of Object.entries(approved))assert.equal(config.env.beta.vars[name],value,name);
   assert.doesNotThrow(()=>validateOnboardingDeploymentProfile(config));
 });
+// Staging tests the same ChatGPT Dots as beta: without MCP events, a Dot that negotiates the events protocol gets
+// "Unsupported MCP protocol version" on every tool call and never starts background receiving (2026-11-13).
+test('staging carries the same live Dots values as beta',()=>{
+  for(const [name,value]of Object.entries(approved))assert.equal(config.env.staging.vars[name],value,`staging ${name}`);
+  assert.deepEqual(readOnboardingFlags(config.env.staging.vars).mcpEvents,true);
+});
+// The owner turned on saved setup and owner's choice wins for live after the staging hosted test passed (2026-11-14):
+// a ChatGPT Dot that asks only for Receive still gets the permissions the owner ticks, and the wizard's details carry over.
+test('staging and beta both turn on saved setup and owner\'s choice wins',()=>{
+  for(const env of ['staging','beta'])for(const name of ['ENVOI_SAVED_SETUP','ENVOI_OWNER_PERMISSIONS'])
+    assert.equal(config.env[env].vars[name],'true',`${env} ${name}`);
+});
+// agent-work-mode v1 §7: the work mode setting is on for staging only until its hosted check passes; the container must receive it.
+test('staging turns on the work mode setting; beta leaves it unset',()=>{
+  assert.equal(config.env.staging.vars.ENVOI_WORK_MODE,'true');
+  assert.equal(config.env.beta.vars.ENVOI_WORK_MODE,undefined);
+});
+// A container starts near the request that wakes it. From Asia it can start in Hong Kong, where chatgpt.com is blocked,
+// so Envoi cannot fetch ChatGPT's client metadata and every ChatGPT Dot fails (staging, 2026-11-13: colo HKG, fetch_failed).
+test('the staging and beta containers are pinned to North American regions',()=>{
+  for(const env of ['staging','beta'])assert.deepEqual(config.env[env].containers[0].constraints,{regions:['ENAM','WNAM']},env);
+});
 test('deployment validation rejects each regression to the former disabled profile',()=>{
   for(const name of Object.keys(approved)){
     const candidate=structuredClone(config);

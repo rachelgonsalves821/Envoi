@@ -278,9 +278,17 @@ export function createClientResolver({ origin, flags, preRegistered = new Map(),
     cache.delete(clientId);
     const fetched = await fetchClientMetadata(clientId);
     if (!fetched || fetched.rejection) return reject(clientId, 'fetch', fetchReasons.has(fetched?.rejection) ? fetched.rejection : 'fetch_failed');
-    const rejection = clientMetadataRejection(fetched.document, clientId);
+    let document = fetched.document;
+    // Cursor publishes desktop and hosted redirects together. Ignore its exact
+    // localhost entry so hosted clients can connect without authorizing localhost.
+    if (clientId === 'https://cursor.com/oauth/mcp-client.json'
+      && document?.client_id === clientId
+      && Array.isArray(document.redirect_uris)
+      && document.redirect_uris.length <= remoteAuthLimits.clientMetadata.redirectUrisMax) {
+      document = { ...document, redirect_uris: document.redirect_uris.filter(uri => uri !== 'http://localhost:8787/callback') };
+    }
+    const rejection = clientMetadataRejection(document, clientId);
     if (rejection) return reject(clientId, 'metadata', rejection);
-    const document = fetched.document;
     const client = Object.freeze({
       clientId, clientName: document.client_name, connectionRoute: 'remote_mcp_oauth', redirectUris: Object.freeze([...document.redirect_uris]),
       tokenEndpointAuthMethod: 'none', bootstrapCode: false, registration: 'metadata_document'
@@ -383,6 +391,8 @@ export const permissionsForScopes = scopes => remoteAuthScopes.filter(entry => s
 export const scopeForPermissions = permissions => remoteAuthScopes.filter(entry => permissions.includes(entry.permission)).map(entry => entry.scope).join(' ');
 // §4.3: an OAuth grant holds only permissions that have a scope (use_email_transport has none and cannot be granted).
 export const oauthGrantablePermissions = permissions => permissions.filter(permission => remoteAuthScopes.some(entry => entry.permission === permission));
+// agent-owner-permissions v1 §2: every permission an OAuth grant can hold, in x-scopes order.
+export const oauthScopedPermissions = Object.freeze(remoteAuthScopes.map(entry => entry.permission));
 
 // agent-remote-auth §5.1: what the owner sees about the client. Never the handle's raw contents, and no logo or
 // client_uri fetch.

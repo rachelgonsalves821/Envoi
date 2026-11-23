@@ -248,6 +248,11 @@ for (const backend of backends) {
     const approved = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${first.caseId}/actions`, { session: alice.session,
       key: 'owner-approve', body: { actionKey: 'approveOnce', externalRefs: { policyEvaluationId: evaluation.id } } });
     assert.equal(approved.status, 201, approved.text);
+    const approvedView = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/human-view`, { session: alice.session });
+    assert.equal(approvedView.status, 200, approvedView.text);
+    const approval = approvedView.payload.caseQueue.find(value => value.id === first.caseId).timeline.find(event => event.type === 'humanAction');
+    assert.equal(approval.actorId, alice.human.id);
+    assert.equal(approval.actorDisplayName, alice.human.displayName);
     const resumedWork = await claimCase(baseUrl, alice, first.caseId);
     assert.equal(resumedWork.message.kind, 'humanDecision');
     const resumed = await mint(baseUrl, alice, resumedWork);
@@ -373,6 +378,15 @@ for (const backend of backends) {
     const args = { actionKey: 'decline', externalRefs: { policyEvaluationId: evaluationId } };
     const declined = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { session: alice.session, key: 'owner-decline', body: args });
     assert.equal(declined.status, 201, declined.text);
+    const [localView, peerView] = await Promise.all([alice, bob].map(who =>
+      api(baseUrl, `/api/inboxes/${who.inbox.id}/human-view`, { session: who.session })
+    ));
+    assert.equal(localView.status, 200, localView.text);
+    assert.equal(peerView.status, 200, peerView.text);
+    const decisionIn = view => view.payload.caseQueue.find(value => value.id === caseId)?.timeline.find(event => event.type === 'humanAction');
+    assert.equal(decisionIn(localView).actorId, alice.human.id);
+    assert.equal(decisionIn(localView).actorDisplayName, alice.human.displayName);
+    assert.equal(decisionIn(peerView)?.actorDisplayName, undefined);
     const replay = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { session: alice.session, key: 'owner-decline', body: args });
     assert.equal(replay.status, 200, replay.text);
     const resumedWork = await claimCase(baseUrl, alice, caseId);

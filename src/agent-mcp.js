@@ -20,6 +20,7 @@ const sendFields = {
 };
 const structuredValue = { type: 'object', minProperties: 1, maxProperties: 32 };
 const distinctArray = (items, minItems) => ({ type: 'array', items, minItems, uniqueItems: true });
+const attachmentIds = { ...distinctArray(identifier, 0), maxItems: 10 };
 
 export const agentMcpTools = Object.freeze([
   { name: 'envoi_agent_info', description: 'Return the authenticated agent address and permissions. The agent and inbox are selected from the bearer credential.', inputSchema: empty, permission: null },
@@ -27,10 +28,10 @@ export const agentMcpTools = Object.freeze([
   { name: 'envoi_read_case', description: 'Read one case in this agent’s own inbox.', inputSchema: schema({ caseId: identifier }, ['caseId']), permission: 'read' },
   { name: 'envoi_list_messages', description: 'List messages in this agent’s own inbox, optionally for a case.', inputSchema: schema({ caseId: identifier, limit: { type: 'integer', minimum: 1, maximum: 100 }, before: { type: 'string', minLength: 1, maxLength: 256 } }), permission: 'read' },
   { name: 'envoi_start_case', description: 'Start a new case and send its first native agent message to an exact known Envoi address. Retries with the same idempotency key reuse the same case.', inputSchema: schema(sendFields, ['recipientAddress', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'envoi_send_message', description: 'Send a native agent message in an existing case to an exact known Envoi address.', inputSchema: schema({ ...sendFields, caseId: identifier }, ['recipientAddress', 'text', 'caseId', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_send_message', description: 'Send a native message in an existing case. Attach clean uploads from that case using attachmentIds.', inputSchema: schema({ ...sendFields, caseId: identifier, attachmentIds }, ['recipientAddress', 'text', 'caseId', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_start_group_case', description: 'Create a shared case with at least two other Envoi agents.', inputSchema: schema({ memberAddresses: distinctArray(address, 2), idempotencyKey }, ['memberAddresses', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_read_group_case', description: 'Read the roster and shared conversation of a group case you belong to.', inputSchema: schema({ caseId: identifier }, ['caseId']), permission: 'read' },
-  { name: 'envoi_send_group_message', description: 'Post to an existing group case. Set inReplyTo to reply to a message and assigneeAgentIds to request work from specific members.', inputSchema: schema({ caseId: identifier, text, inReplyTo: identifier, assigneeAgentIds: distinctArray(identifier, 0), idempotencyKey }, ['caseId', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_send_group_message', description: 'Post to an existing group case. Use attachmentIds for clean uploads from that case. Set inReplyTo to reply and assigneeAgentIds to request work.', inputSchema: schema({ caseId: identifier, text, inReplyTo: identifier, assigneeAgentIds: distinctArray(identifier, 0), attachmentIds, idempotencyKey }, ['caseId', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_send_proposal', description: 'Send a structured, agent-authored proposal in an existing shared case. This is a native collaboration message, not a server-attested approval.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, proposal: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'proposal', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_send_decision', description: 'Send a structured, agent-authored accept, reject, counteroffer, or clarification message in an existing shared case. This does not execute an external action.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, decision: { type: 'string', enum: ['accept', 'reject', 'counteroffer', 'clarify'] }, proposalMessageId: identifier, details: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'decision', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'envoi_send_completion', description: 'Send a typed completion in an existing shared case. The canonical server validates any claimed human decision and creates the shared receipt.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, result: text, authorityBasis: identifier, evidenceRefs: { type: 'array', items: identifier, maxItems: 32 }, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'result', 'idempotencyKey']), permission: 'send_agent_messages' },
@@ -136,7 +137,7 @@ async function invokeTool(name, args, identity, callRest) {
   }
   if (name === 'envoi_complete_asset_upload') return callRest('POST', `${base}/assets/${args.assetId}/complete`, {});
   if (name === 'envoi_grant_asset') return callRest('POST', `${base}/assets/${args.assetId}/grants`, { caseId: args.caseId, recipientAgentId: args.recipientAgentId }, args.idempotencyKey);
-  if (name === 'envoi_asset_download') return callRest('GET', `${base}/assets/${args.assetId}/download`);
+  if (name === 'envoi_asset_download') return callRest('GET', `${base}/assets/${args.assetId}/download?transport=signed`);
   const groupCases = '/api/agent/group-cases';
   if (name === 'envoi_start_group_case') return callRest('POST', groupCases, { memberAddresses: args.memberAddresses }, args.idempotencyKey);
   if (name === 'envoi_read_group_case') return callRest('GET', `${groupCases}/${args.caseId}`);
@@ -158,6 +159,7 @@ async function invokeTool(name, args, identity, callRest) {
       text: args.text,
       intent: name === 'envoi_start_case' ? args.intent || 'request' : isProposal ? 'offer' : isDecision ? args.decision : isCompletion ? 'receipt' : args.intent || 'message',
       caseId,
+      ...(args.attachmentIds ? { attachmentIds: args.attachmentIds } : {}),
       ...(name === 'envoi_start_case' ? { type: 'request' } : {}),
       ...(isProposal ? { type: 'proposal', payload: { proposal: args.proposal } } : {}),
       ...(isCounterproposal ? { type: 'counterproposal', payload: { counterproposal: { ...(args.details || {}), proposalMessageId: args.proposalMessageId || null } } } : {}),
@@ -252,7 +254,7 @@ function wakeHttpError(error, res) {
   return error;
 }
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false, workReplyEnabled = false }) {
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false, workReplyEnabled = false, listening = null, workMode = null }) {
   const eventAvailable = Boolean(providerEvents && await providerEvents.available(identity, '2026-07-28'));
   const read = await readMcpRequest(req, res, { maxRequestBytes, allowEventsVersion: eventsEnabled, eventsAvailable: eventAvailable, recognizeEventMethods: true });
   if (!read?.request) return;
@@ -268,7 +270,7 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
       return sendJson(res, 200, rpcResult(id, value));
     } catch (error) {
       if (!error.rpcCode) throw wakeHttpError(error, res);
-      return sendJson(res, 200, { jsonrpc: '2.0', id, error: { code: error.rpcCode, message: error.rpcCode === -32015 ? 'CallbackEndpointError' : error.rpcCode === -32601 ? 'Method not found' : 'Invalid params', ...(error.reason ? { data: { reason: error.reason } } : {}) } });
+      return sendJson(res, 200, { jsonrpc: '2.0', id, error: { code: error.rpcCode, message: error.rpcCode === -32015 ? 'CallbackEndpointError' : error.rpcCode === -32016 ? 'BackgroundReceivingOff' : error.rpcCode === -32601 ? 'Method not found' : 'Invalid params', ...(error.reason ? { data: { reason: error.reason } } : {}) } });
     }
   }
   const wakeAvailable = Boolean(wakeTools && await wakeTools.available(identity));
@@ -300,7 +302,11 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   try {
     if (name === messageAccessTool.name) return sendJson(res, 200, rpcResult(id, await requestMessageAccess()));
     if (wakeTool) return sendJson(res, 200, rpcResult(id, await wakeTools.call(name, args, identity)));
-    const response = await invokeTool(name, args, identity, callRest);
+    let response = await invokeTool(name, args, identity, callRest);
+    // agent-listening-status v1 §4: full credentials only; a failed read (null) omits the field.
+    if (name === 'envoi_agent_info' && listening && !identity.mcpScope) { const backgroundReceiving = await listening(); if (backgroundReceiving) response = { ...response, backgroundReceiving }; }
+    // agent-work-mode v1 §4: full credentials only, while ENVOI_WORK_MODE is on.
+    if (name === 'envoi_agent_info' && workMode && !identity.mcpScope) response = { ...response, workMode: await workMode() };
     if (response?.status && response.status >= 400) return sendJson(res, 200, rpcResult(id, toolResult({ status: response.status, ...response.payload }, true)));
     return sendJson(res, 200, rpcResult(id, toolResult(response)));
   } catch (error) {

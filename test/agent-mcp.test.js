@@ -430,7 +430,11 @@ test('MCP typed collaboration shares one result and grants one clean asset to th
   assert.equal(content(await tool(baseUrl, alice.agentApiToken, 'envoi_complete_asset_upload', { assetId })).payload.state, 'clean');
   assert.ok(content(await tool(baseUrl, bob.agentApiToken, 'envoi_list_assets', { caseId })).payload.some(asset => asset.id === assetId));
   assert.equal(content(await tool(baseUrl, outsider.agentApiToken, 'envoi_asset_download', { assetId })).status, 404);
-  assert.equal(content(await tool(baseUrl, bob.agentApiToken, 'envoi_asset_download', { assetId })).status, 200);
+  const recipientDownload = content(await tool(baseUrl, bob.agentApiToken, 'envoi_asset_download', { assetId }));
+  assert.equal(recipientDownload.status, 200);
+  const recipientBytes = await fetch(recipientDownload.payload.download.url);
+  assert.equal(recipientBytes.status, 200);
+  assert.deepEqual(Buffer.from(await recipientBytes.arrayBuffer()), blob);
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/contacts/${alice.agent.id}/block`, { session: bob.session, body: {} })).status, 200);
   assert.equal(content(await tool(baseUrl, bob.agentApiToken, 'envoi_asset_download', { assetId })).status, 403);
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/contacts/${alice.agent.id}/unblock`, { session: bob.session, body: {} })).status, 200);

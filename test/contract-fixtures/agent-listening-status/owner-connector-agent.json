@@ -1,0 +1,78 @@
+{
+  "contract": "agent-listening-status",
+  "version": 1,
+  "id": "owner-connector-agent",
+  "description": "An OpenClaw agent: its connector receives work itself; backgroundReceiving says connector and the UI uses connection.state.",
+  "kind": "http",
+  "context": {
+    "now": "2026-11-12T19:30:00.000Z",
+    "deliveryMode": "envoi_link",
+    "wakeAvailable": true,
+    "connectionState": "seen_recently",
+    "subscriptions": [],
+    "claimable": {
+      "count": 0,
+      "oldestAt": null
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentListWithListening",
+    "body": [
+      {
+        "id": "agent_mark",
+        "name": "Mark",
+        "slug": "mark",
+        "address": "mark@envoi-agents.com",
+        "platformAddress": "mark@envoi-agents.com",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "receive_agent_messages",
+          "send_agent_messages"
+        ],
+        "createdAt": "2026-11-12T19:20:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "seen_recently",
+          "asOf": "2026-11-12T19:30:00.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-11-12T19:29:30.000Z",
+          "credentialExpiresAt": "2026-12-12T19:20:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-11-12T19:21:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-11-12T19:20:00.000Z",
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        },
+        "backgroundReceiving": {
+          "state": "connector",
+          "since": null,
+          "lastAlertAt": null,
+          "endedReason": null,
+          "waiting": {
+            "count": 0,
+            "more": false,
+            "oldestAt": null
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "badge": "Connected",
+    "banner": null,
+    "next": "No background-receiving badge for connector agents; keep the a5-presence label."
+  }
+}

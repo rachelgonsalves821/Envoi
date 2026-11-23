@@ -1,11 +1,12 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { contractRegistry, loadContractFixture } from '../../integrations/contract-fixtures/setup';
+import { contractRegistry, contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../integrations/contract-fixtures/setup';
 import schemas from '../../test/contract-fixtures/agent-remote-auth/schemas.json';
 import { ApiError, setCsrfCookieName, setExpectedHuman } from '../src/api';
 import { invalidateSessionRequests } from '../src/session-lifecycle';
@@ -258,6 +259,33 @@ describe('consent revision 2 owner behavior', () => {
 });
 
 describe('remote OAuth grant boundaries', () => {
+  it('uses the server grantable list for owner-approved Send when the assistant requested Receive', async () => {
+    const root = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
+    const ownerContract = loadContractRegistry(root).contracts.find(item => item.id === 'agent-owner-permissions');
+    const ownerFixture = (name: string): any => ownerContract && loadContractFixture(ownerContract, name + '.json', root);
+    const viewFixture = ownerFixture('consent-view-owner-choice');
+    const approveFixture = ownerFixture('consent-approve-owner-choice');
+    const view = viewFixture?.response.body ?? { ...body('consent-view'), requestedPermissions: ['receive_agent_messages'] };
+    const request = approveFixture?.request.body ?? approval();
+    const response = approveFixture?.response.body ?? body('consent-approve-new-agent');
+    const api = client(); const navigate = vi.fn();
+    vi.mocked(api.view).mockResolvedValue(view);
+    vi.mocked(api.approve).mockResolvedValue(response);
+    const controller = new ConsentController(handle, api, navigate, () => Date.parse(view.expiresAt) - 10 * 60 * 1000);
+    expect(await controller.load()).toBe(true);
+    expect(markup(controller)).not.toContain('Receive-only connection.');
+    expect(await controller.approve({ ...request, grantedPermissions: ['send_agent_messages'] })).toBe(false);
+    expect(await controller.approve({ ...request, grantedPermissions: [...request.grantedPermissions, 'use_email_transport'] })).toBe(false);
+    vi.mocked(api.view).mockResolvedValueOnce({ ...view, grantablePermissions: ['receive_agent_messages'] });
+    expect(await controller.load()).toBe(true);
+    expect(await controller.approve(request)).toBe(false);
+    expect(api.approve).not.toHaveBeenCalled();
+    expect(await controller.load()).toBe(true);
+    expect(await controller.approve(request)).toBe(true);
+    expect(api.approve).toHaveBeenCalledExactlyOnceWith(handle, request, expect.any(AbortSignal));
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(response.redirectTo);
+  });
+
   it('pins the semantic permission allowlist to the approved x-scopes table', () => {
     const required = schemas['x-scopes'].find(row => row.required)!.permission;
     for (const row of schemas['x-scopes']) {
