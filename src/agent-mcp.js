@@ -260,7 +260,7 @@ function wakeHttpError(error, res) {
   return error;
 }
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false, workReplyEnabled = false, listening = null }) {
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false, requestMessageAccess = null, ownerReviewEnabled = false, workReplyEnabled = false, listening = null, workMode = null }) {
   const eventAvailable = Boolean(providerEvents && await providerEvents.available(identity, '2026-07-28'));
   const read = await readMcpRequest(req, res, { maxRequestBytes, allowEventsVersion: eventsEnabled, eventsAvailable: eventAvailable, recognizeEventMethods: true });
   if (!read?.request) return;
@@ -276,7 +276,7 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
       return sendJson(res, 200, rpcResult(id, value));
     } catch (error) {
       if (!error.rpcCode) throw wakeHttpError(error, res);
-      return sendJson(res, 200, { jsonrpc: '2.0', id, error: { code: error.rpcCode, message: error.rpcCode === -32015 ? 'CallbackEndpointError' : error.rpcCode === -32601 ? 'Method not found' : 'Invalid params', ...(error.reason ? { data: { reason: error.reason } } : {}) } });
+      return sendJson(res, 200, { jsonrpc: '2.0', id, error: { code: error.rpcCode, message: error.rpcCode === -32015 ? 'CallbackEndpointError' : error.rpcCode === -32016 ? 'BackgroundReceivingOff' : error.rpcCode === -32601 ? 'Method not found' : 'Invalid params', ...(error.reason ? { data: { reason: error.reason } } : {}) } });
     }
   }
   const wakeAvailable = Boolean(wakeTools && await wakeTools.available(identity));
@@ -311,6 +311,8 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
     let response = await invokeTool(name, args, identity, callRest);
     // agent-listening-status v1 §4: full credentials only; a failed read (null) omits the field.
     if (name === 'envoi_agent_info' && listening && !identity.mcpScope) { const backgroundReceiving = await listening(); if (backgroundReceiving) response = { ...response, backgroundReceiving }; }
+    // agent-work-mode v1 §4: full credentials only, while ENVOI_WORK_MODE is on.
+    if (name === 'envoi_agent_info' && workMode && !identity.mcpScope) response = { ...response, workMode: await workMode() };
     if (response?.status && response.status >= 400) return sendJson(res, 200, rpcResult(id, toolResult({ status: response.status, ...response.payload }, true)));
     return sendJson(res, 200, rpcResult(id, toolResult(response)));
   } catch (error) {

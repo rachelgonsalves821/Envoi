@@ -30,6 +30,7 @@ export async function createOpenClawBridge(config: BridgeConfiguration, options:
     const connector = new EnvoiConnector(config.apiUrl, store, {
       ...(options.fetch ? { fetch: options.fetch } : {}),
       ...(options.pollIntervalMs ? { pollIntervalMs: options.pollIntervalMs } : {}),
+      readWorkRule: true,
       caseSessionHandler: scopedTurnHandler({
         admit: message => store.admit(message),
         run: openClawScopedTurn({ gatewayUrl: config.gatewayUrl, gatewayToken: config.gatewayToken, agentId: config.agentId, store: runs, fetch: options.fetch }),
@@ -67,6 +68,7 @@ export async function createOpenClawBridge(config: BridgeConfiguration, options:
   const connectorOptions: ConnectorOptions = {
     ...(options.fetch ? { fetch: options.fetch } : {}),
     ...(options.pollIntervalMs ? { pollIntervalMs: options.pollIntervalMs } : {}),
+    readWorkRule: true,
     handler: {
       admit: message => handler.admit(message),
       async process(message, context) {

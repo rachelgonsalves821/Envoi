@@ -60,6 +60,8 @@ export interface AgentBackgroundReceiving {
   waiting: { count: number; more: boolean; oldestAt: string | null };
 }
 
+export type AgentWorkMode = 'routine' | 'ask' | 'off';
+
 export interface Agent {
   id: string;
   name: string;
@@ -78,6 +80,7 @@ export interface Agent {
   credentialRevoked?: boolean;
   connection?: AgentConnection;
   backgroundReceiving?: AgentBackgroundReceiving;
+  workMode?: { mode: AgentWorkMode; updatedAt: string | null };
 }
 
 export interface ParticipantIdentity {

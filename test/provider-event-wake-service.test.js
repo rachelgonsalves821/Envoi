@@ -437,3 +437,11 @@ parity('a new subscription is woken once: by its catch-up hint, else by subscrip
   await control.provider.subscribe(identity,parameters({name:'envoi.control_changed'}),protocol);
   assert.equal(await control.http.runOnce(),false,'control_changed subscriptions get no activation hint');
 });
+
+// agent-work-mode v1 §4: while the owner's mode is off, subscribe is refused before verification or storage; control_changed is unaffected.
+parity('work mode off refuses envoi.work_available subscriptions before any verification or storage',async(t,kind)=>{
+  const h=await harness(t,kind,{},{workModeOff:async binding=>binding.agentId===identity.agent.id});
+  await assert.rejects(h.provider.subscribe(identity,parameters(),protocol),error=>error.rpcCode===-32016&&error.message==='BackgroundReceivingOff'&&error.reason==='owner_turned_off');
+  assert.equal(h.sent.length,0,'no verification request');assert.deepEqual(await h.http.profileRecords(binding,'mcp_events'),[]);
+  const control=await h.provider.subscribe(identity,parameters({name:'envoi.control_changed'}),protocol);assert.match(control.id,/^evtsub_[0-9a-f]{20}$/);
+});

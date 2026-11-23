@@ -106,6 +106,7 @@ export async function createScopedHermesBridge(config: { apiUrl: string; stateDi
   const active = new Set<Promise<void>>();
   const run = hermesScopedTurn(hermesHost(selected), runs, options);
   const connector = new EnvoiConnector(config.apiUrl, store, { fetch: options.fetch, pollIntervalMs: options.pollIntervalMs,
+    readWorkRule: true,
     caseSessionHandler: scopedTurnHandler({
       admit: message => store.admit(message),
       async run(turn, host) {

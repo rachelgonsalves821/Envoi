@@ -196,9 +196,26 @@ const selectInboxRow = (selected: HTMLButtonElement) => {
   inboxRows.forEach(row => { row.classList.toggle('active', row === selected); row.setAttribute('aria-pressed', String(row === selected)); });
   details.forEach(detail => { detail.hidden = detail.dataset.inboxDetail !== selected.dataset.inboxRow; });
 };
-inboxRows.forEach(row => row.addEventListener('click', () => selectInboxRow(row)));
+let inboxAnimations: Animation[] = [];
+const stopInboxAnimations = () => {
+  inboxAnimations.forEach(animation => animation.cancel());
+  inboxAnimations = [];
+};
+inboxRows.forEach(row => row.addEventListener('click', event => {
+  if (row.getAttribute('aria-pressed') === 'true') return;
+  stopInboxAnimations();
+  selectInboxRow(row);
+  if (event.detail === 0 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const selectedDetail = details.find(detail => !detail.hidden);
+  const events = selectedDetail?.querySelectorAll<HTMLElement>('[data-handoff-timeline] li');
+  inboxAnimations = Array.from(events ?? [], (entry, index) => entry.animate(
+    [{ opacity: 0.65, transform: 'translateY(6px)' }, { opacity: 1, transform: 'translateY(0)' }],
+    { duration: 140, delay: index * 45, fill: 'backwards', easing: 'cubic-bezier(.23, 1, .32, 1)' }
+  ));
+}));
 const filters = [...document.querySelectorAll<HTMLButtonElement>('[data-inbox-filter]')];
 filters.forEach(filter => filter.addEventListener('click', () => {
+  stopInboxAnimations();
   filters.forEach(button => { button.classList.toggle('active', button === filter); button.setAttribute('aria-pressed', String(button === filter)); });
   inboxRows.forEach(row => { row.hidden = filter.dataset.inboxFilter !== 'all' && row.dataset.inboxState !== filter.dataset.inboxFilter; });
   const visibleRows = inboxRows.filter(row => !row.hidden);

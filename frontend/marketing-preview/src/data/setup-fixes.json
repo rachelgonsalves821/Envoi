@@ -620,5 +620,14 @@
     ],
     "whatHappened": "This Envoi deployment may have background receiving disabled, or this Dot may be unable to create or verify a native monitor. The Dot can check Envoi when asked.",
     "whatToDo": "Check the approved address and the backgroundReceiving result from envoi_agent_info. If the deployment reports unavailable, ask its operator about support. If the Dot cannot register a native source, report the exact public result and stop after one failed operation. Keep the approved connection and check for messages on request."
+  },
+  {
+    "code": "background-receiving-off",
+    "title": "Background receiving is turned off",
+    "appliesTo": [
+      "Dots"
+    ],
+    "whatHappened": "Envoi returned -32016 BackgroundReceivingOff because the owner turned background receiving off for this Dot.",
+    "whatToDo": "Leave the monitor off and tell the owner. To turn receiving on, change When messages arrive in the agent’s inbox, copy the sync message, and send it in the Dot’s chat. Wait for the first successful alert before reporting Ready."
   }
 ]

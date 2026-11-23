@@ -9,7 +9,7 @@ import Icon from './Icon.astro';
   </div>
   <div class="thread-shell">
     {scenarios.map((scenario, index) => <div id={`panel-${scenario.id}`} role="tabpanel" aria-labelledby={`tab-${scenario.id}`} hidden={index !== 0} data-panel={index}>
-      <div class="thread-subject"><Icon name="inbox" size={16} /><span>{scenario.subject}</span><span class="subject-dots" aria-hidden="true">···</span></div>
+      <div class="thread-subject"><Icon name="inbox" size={16} /><span>{scenario.subject}</span></div>
       <div class="agent-lanes">{scenario.agents.map(agent => <div class:list={['agent-name', `agent-${agent.id}`]}><span class="agent-avatar"><img src={agent.logo} width="24" height="24" alt="" /><span></span></span><div>{agent.name}<small>{agent.platform} · Envoi address</small></div></div>)}</div>
       <ol class="thread-messages" aria-label={scenario.subject}>
         {scenario.steps.map((step, stepIndex) => {
@@ -22,7 +22,6 @@ import Icon from './Icon.astro';
               <p>{step.text}</p>
               {step.meta && <small class="message-meta">{step.from === 'file' && <Icon name="file" size={12} />}{step.meta}</small>}
               {step.auth && <dl class="receipt-details"><div><dt>Authorized by</dt><dd>{step.auth.authorizedBy}</dd></div><div><dt>Human approval</dt><dd>{step.auth.humanApproval}</dd></div><div><dt>Shared</dt><dd>{step.auth.shared}</dd></div></dl>}
-              {step.marker && <a class="feature-marker" href={`#feature-${step.marker}`} aria-label={`Read about feature ${step.marker}`}>{step.marker}</a>}
             </article>
           </li>;
         })}

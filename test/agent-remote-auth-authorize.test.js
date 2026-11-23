@@ -260,6 +260,32 @@ test('client metadata URL and document rules (x-client-metadata-checks)', () => 
   for (const [header, seconds] of [[undefined, 300], ['max-age=10', 300], ['max-age=600', 600], ['public, max-age=999999', 86_400], ['no-store', 300], ['no-store, max-age=9000', 300]]) assert.equal(clientMetadataCacheSeconds(header), seconds, String(header));
 });
 
+test('Cursor metadata permits the advertised hosted callbacks and excludes the localhost entry', async () => {
+  const cursorId = 'https://cursor.com/oauth/mcp-client.json';
+  const otherId = 'https://other.example/mcp-client.json';
+  const desktop = 'http://localhost:8787/callback';
+  const hosted = [
+    'https://www.cursor.com/agents/mcp/oauth/callback',
+    'https://www.cursor.com/bot/mcp/oauth/callback',
+    'https://grok.com/connectors-oauth-exchange-code/',
+    'http://127.0.0.1:8787/callback'
+  ];
+  const resolveWith = redirectUris => createClientResolver({
+    origin, flags: { remoteMcpOAuth: true }, observe: () => {},
+    fetchClientMetadata: async clientId => ({
+      document: { client_id: clientId, client_name: 'Cursor', redirect_uris: redirectUris, token_endpoint_auth_method: 'none' }
+    })
+  });
+  const resolveClient = resolveWith([...hosted, desktop]);
+  const cursor = await resolveClient(cursorId);
+  assert.deepEqual(cursor.redirectUris, hosted);
+  assert.equal(redirectMatches(cursor.redirectUris, desktop), false);
+  assert.equal(await resolveClient(otherId), null);
+  assert.equal(await resolveWith([desktop])(cursorId), null);
+  assert.equal(await resolveWith([...hosted, desktop, 'http://localhost:9999/callback'])(cursorId), null);
+  assert.equal(await resolveWith([...Array(10).fill(hosted[0]), desktop])(cursorId), null);
+});
+
 test('client resolver: route flags, caching per exact id, and no cache for failures', async () => {
   let now = 0, fetches = 0, fail = true;
   const id = 'https://a.example/c.json';

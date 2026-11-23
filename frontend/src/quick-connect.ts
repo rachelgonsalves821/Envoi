@@ -86,7 +86,7 @@ export function dotsSetupPrompt(origin: string, name: string, requestedAddress: 
     ? `Use on-demand receiving. Do not create or restore a monitor. End setup with these exact words: ${name} will only check Envoi when you ask. You can turn on background receiving any time.`
     : `I explicitly request background receiving in this setup. After verifying the identity, both permissions and both send tools, turn on one native MCP Events monitor in this same run.
 
-${dotsMonitoringPrompt(origin, requestedAddress, mode)}
+${dotsSetupMonitoringPrompt(origin, requestedAddress, mode)}
 
 After registration, call envoi_agent_info. Say Ready only when backgroundReceiving.state is on and lastAlertAt is present and not null. If state is on with lastAlertAt: null, wait for the first alert run, then call envoi_agent_info once more. If you cannot create the monitor or the check does not pass, say exactly: "Background receiving isn't available in this Dot yet, so ${name} will only check Envoi when you ask." Then link ${origin}/docs/fix/#background-receiving-unavailable. An enabled badge is not proof.`;
   if (savedSetup && !reconnect) return `${introduction}
@@ -160,7 +160,7 @@ Claim authoritative work with envoi_claim_work, renew its lease when needed, ack
 ${dotsWorkHandling}`;
 }
 
-export function dotsMonitoringPrompt(origin: string, address: string, mode: Exclude<DotsWorkMode, 'on_demand'> = 'routine') {
+function dotsSetupMonitoringPrompt(origin: string, address: string, mode: Exclude<DotsWorkMode, 'on_demand'>) {
   return `${dotsMonitorIdentity(address)}
 
 Use one native MCP Events monitor with the work rule below. When the owner supplies this prompt during setup, it is their explicit request for this monitor. If an existing monitor has a more specific approved workflow, preserve its scope.
@@ -172,10 +172,32 @@ ${dotsMonitorSafety}
 ${dotsClaimInstructions(mode)}`;
 }
 
+function dotsSyncInstructions(origin: string) {
+  return `At the start of every run, call envoi_agent_info and verify the approved address. If workMode.mode is off, disable this Dot’s own monitor and stop automatic processing. Envoi already ended the subscription; no unsubscribe is needed. If workMode.mode is routine or ask, use the matching rule below. When the field is missing, keep the previously approved workflow.
+
+Reuse or restore a task only when its native source can be verified as backed by a subscription for this exact Envoi address. If no subscription is verified, pause the old task and create exactly one native envoi.work_available monitor when authorized. If ChatGPT does not expose unsubscribe for the old task, continue after pausing it. On -32016 BackgroundReceivingOff, tell the owner background receiving is off in Envoi, link ${origin}/docs/fix/#background-receiving-off and stop without retrying. Say Ready only when envoi_agent_info returns backgroundReceiving.state on and a non-null lastAlertAt. If it is on and lastAlertAt is null, wait for the first alert run and check once more.`;
+}
+
+export function dotsMonitoringPrompt(origin: string, address: string, mode: Exclude<DotsWorkMode, 'on_demand'> = 'routine') {
+  return `${dotsMonitorIdentity(address)}
+
+${dotsSyncInstructions(origin)}
+
+Inspect the native task and its source in the existing chat. Verify native creation or refresh capability, use envoi.work_available with arguments {}, and keep callback and signing secrets private. Reuse a matching healthy source. If a native operation fails or is unsupported, report the exact public result and stop. Use actual task activity to verify the source. Preserve the approved workflow and reply key.
+
+Ask mode rule: ${envoiWorkRule('ask')}
+
+${dotsClaimInstructions(mode)}`;
+}
+
 export function dotsRestorePrompt(origin: string, address: string, docs: string) {
   return `${dotsMonitorIdentity(address)}
 
-Inspect the actual task ID, state and event source before making changes. A deleted task cannot be resumed. ${dotsRestoreSource(origin, docs)} Never replace the approved identity or create a duplicate task. Do not revive an ended subscription by editing database state.
+${dotsSyncInstructions(origin)}
+
+Inspect the actual task ID, state and event source before making changes. A deleted task cannot be resumed. For a verified matching source that needs refresh, use the native refresh operation. On any failure other than BackgroundReceivingOff, report the exact public result and link ${origin}${docs}. Never replace the approved identity or create a duplicate task. Do not revive an ended subscription by editing database state.
+
+Ask mode rule: ${envoiWorkRule('ask')}
 
 ${dotsClaimInstructions('routine')}`;
 }
