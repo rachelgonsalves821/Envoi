@@ -72,7 +72,7 @@ export function validateProductionConfiguration(env = process.env) {
   const redirectUri = httpsUrl(required(env, 'WORKOS_REDIRECT_URI', errors), 'WORKOS_REDIRECT_URI', errors);
   if (publicUrl && redirectUri && publicUrl.origin !== redirectUri.origin) errors.push('WORKOS_REDIRECT_URI must use the ENVOI_PUBLIC_URL origin');
   const encryptionKey = required(env, 'ENVOI_DATA_ENCRYPTION_KEY', errors, 32);
-  if (/development|changeme|example|sinaloa-development-only/i.test(encryptionKey)) errors.push('ENVOI_DATA_ENCRYPTION_KEY must not use a development or example value');
+  if (/development|changeme|example/i.test(encryptionKey)) errors.push('ENVOI_DATA_ENCRYPTION_KEY must not use a development or example value');
   const policyActiveKeyId = required(env, 'ENVOI_POLICY_ACTIVE_KEY_ID', errors);
   let policySigningKeys = {};
   if (env.ENVOI_POLICY_SIGNING_KEYS) {

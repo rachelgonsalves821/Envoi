@@ -34,6 +34,17 @@ export function validateContainerLifecycle(config, className, bindingName) {
   assert.equal(config.containers[0].class_name, className, 'Retain the existing container class');
 }
 
+// The Worker reads the app container from env.ENVOI_CONTAINER. The binding name
+// holds no state (the SinaloaContainer class and namespace do), so a config that
+// still declares the former SINALOA_CONTAINER name would only break routing.
+export function validateAppContainerBindings(config) {
+  for (const [label, target] of [['top-level', config], ['staging', config.env?.staging], ['beta', config.env?.beta]]) {
+    const names = (target?.durable_objects?.bindings ?? []).map(item => item.name);
+    assert.equal(names.includes('SINALOA_CONTAINER'), false, `The ${label} container binding must be named ENVOI_CONTAINER, not SINALOA_CONTAINER`);
+    assert.ok(names.includes('ENVOI_CONTAINER'), `The ${label} configuration requires the ENVOI_CONTAINER binding`);
+  }
+}
+
 // Production is verified only after its custom domain is bound. Staging keeps its
 // separate workers.dev origin; never add the production workers.dev host to edge admission.
 export function validateReleaseTargets(config) {
@@ -60,13 +71,14 @@ export async function checkDeploymentConfiguration() {
   const root = new URL('../', import.meta.url);
   const config = JSON.parse(await readFile(new URL('wrangler.jsonc', root), 'utf8'));
   validateReleaseTargets(config);
-  validateContainerLifecycle(config, 'SinaloaContainer', 'SINALOA_CONTAINER');
+  validateAppContainerBindings(config);
+  validateContainerLifecycle(config, 'SinaloaContainer', 'ENVOI_CONTAINER');
   assert.equal(config.keep_vars, true, 'Preserve dashboard-managed runtime variables on deployment');
   assert.equal(config.containers.length, 1, 'Production routing supports exactly one container application');
   assert.equal(config.containers[0].max_instances, 1, 'Multiple instances require shared event/rate state and explicit routing; keep production at one');
   assert.equal(config.containers[0].class_name, 'SinaloaContainer');
   assert.equal(config.containers[0].image, './Dockerfile.cloudflare');
-  assert.ok(config.durable_objects.bindings.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'));
+  assert.ok(config.durable_objects.bindings.some(item => item.name === 'ENVOI_CONTAINER' && item.class_name === 'SinaloaContainer'));
   assert.ok(config.triggers.crons.includes('* * * * *'), 'In-process background jobs require the production wake-up schedule');
   const staging = config.env?.staging;
   assert.ok(staging, 'A separately deployable staging environment is required before a production release');
@@ -76,8 +88,8 @@ export async function checkDeploymentConfiguration() {
   assert.equal(staging.containers[0].max_instances, 1);
   assert.equal(staging.containers[0].class_name, 'SinaloaContainer');
   assert.equal(staging.containers[0].image, './Dockerfile.cloudflare');
-  assert.ok(staging.durable_objects?.bindings?.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Staging requires its own container binding');
-  validateContainerLifecycle(staging, 'SinaloaContainer', 'SINALOA_CONTAINER');
+  assert.ok(staging.durable_objects?.bindings?.some(item => item.name === 'ENVOI_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Staging requires its own container binding');
+  validateContainerLifecycle(staging, 'SinaloaContainer', 'ENVOI_CONTAINER');
   assert.ok(staging.triggers?.crons?.includes('* * * * *'), 'Staging background jobs require their own wake-up schedule');
   const beta = config.env?.beta;
   assert.ok(beta, 'The production Worker (wrangler env "beta") must be separate from the retired `sinaloa` Worker');
@@ -90,8 +102,8 @@ export async function checkDeploymentConfiguration() {
   assert.equal(beta.containers[0].class_name, 'SinaloaContainer');
   assert.equal(beta.containers[0].image, './Dockerfile.cloudflare');
   assert.equal(new Set([config.containers[0].name, staging.containers[0].name, beta.containers[0].name]).size, 3, 'Container application names must be distinct');
-  assert.ok(beta.durable_objects?.bindings?.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Production requires its own container binding');
-  validateContainerLifecycle(beta, 'SinaloaContainer', 'SINALOA_CONTAINER');
+  assert.ok(beta.durable_objects?.bindings?.some(item => item.name === 'ENVOI_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Production requires its own container binding');
+  validateContainerLifecycle(beta, 'SinaloaContainer', 'ENVOI_CONTAINER');
   assert.equal(beta.vars?.ENVOI_PUBLIC_URL, 'https://www.envoi-agents.com');
   assert.ok(beta.vars?.ENVOI_CORS_ORIGIN?.split(',').includes(beta.vars.ENVOI_PUBLIC_URL));
   assert.equal(beta.vars?.ENVOI_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com');

@@ -66,8 +66,8 @@ export class SinaloaContainer extends Container {
 }
 
 async function probeContainer(env) {
-  const container = getContainer(env.SINALOA_CONTAINER, CONTAINER_NAME);
-  const response = await container.fetch(new Request('https://sinaloa-container.internal/ready', {
+  const container = getContainer(env.ENVOI_CONTAINER, CONTAINER_NAME);
+  const response = await container.fetch(new Request('https://envoi-container.internal/ready', {
     method: 'GET',
     headers: { 'user-agent': 'envoi-cloudflare-wake/1.0' },
     signal: AbortSignal.timeout(25_000)
@@ -93,7 +93,7 @@ export default {
     }
 
     try {
-      const container = getContainer(env.SINALOA_CONTAINER, CONTAINER_NAME);
+      const container = getContainer(env.ENVOI_CONTAINER, CONTAINER_NAME);
       const response = await container.fetch(createForwardedRequest(request));
       return withNoStoreHeaders(response, url.pathname);
     } catch (error) {

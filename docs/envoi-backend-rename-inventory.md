@@ -150,7 +150,11 @@ These are live configuration interfaces, not just variable labels. This branch p
 | Limits, health and release | `MAX_BODY_BYTES`, `MAX_SSE_PER_PRINCIPAL`, `READINESS_TIMEOUT_MS`, `REQUEST_TIMEOUT_MS`, `RELEASE_SHA` |
 | Restore and stress tooling only | `RESTORE_SOURCE_DATABASE_URL`, `RESTORE_SOURCE_DB_CA`, `RESTORE_SOURCE_QUIESCED`, `RESTORE_TARGET_DATABASE_URL`, `RESTORE_TARGET_DB_CA`, `RESTORE_TARGET_ISOLATED`, `STRESS_READS`, `STRESS_WRITES_PER_CASE` |
 
-`SINALOA_CONTAINER` is a **Cloudflare Durable Object binding**, not an environment variable. It appears in Wrangler and Worker code and must be changed as a binding migration. `SINALOA_SCANNER_TOKEN` is the scanner Worker's side of the shared scanner credential; the code also accepts `ENVOI_SCANNER_TOKEN`. Generic `DATABASE_URL`, `WORKOS_*`, and other provider keys do not need a product-name rename.
+The app container's **Cloudflare Durable Object binding** is `ENVOI_CONTAINER`, not an environment variable. It appears in Wrangler and Worker code. The binding name is only the property on `env` inside the Worker; Durable Object state belongs to the `SinaloaContainer` class and namespace.
+
+**2026-11-24:** the binding `SINALOA_CONTAINER` is now `ENVOI_CONTAINER` in `wrangler.jsonc` (top-level, staging and beta) and `worker/index.js`, and `npm run cf:config-check` refuses the former name. The `SinaloaContainer` class, the `sinaloa-beta-primary` instance name and the Worker, container and bucket resource names stay.
+
+`SINALOA_SCANNER_TOKEN` is the scanner Worker's side of the shared scanner credential; the code also accepts `ENVOI_SCANNER_TOKEN`. Generic `DATABASE_URL`, `WORKOS_*`, and other provider keys do not need a product-name rename.
 
 ## Names that are not runtime variables
 

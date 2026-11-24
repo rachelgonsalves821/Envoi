@@ -19,7 +19,7 @@ const normalizePhone = value => {
 const encryptionKey = () => {
   const configured = process.env.ENVOI_DATA_ENCRYPTION_KEY;
   if (mode === 'production' && !configured) throw Object.assign(new Error('Data encryption key is not configured'), { statusCode: 503 });
-  return crypto.createHash('sha256').update(configured || 'sinaloa-development-only').digest();
+  return crypto.createHash('sha256').update(configured || 'envoi-development-only').digest();
 };
 const lookupHash = value => crypto.createHmac('sha256', encryptionKey()).update(value).digest('hex');
 const encrypt = value => { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(), iv); const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]); return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') }; };

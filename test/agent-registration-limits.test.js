@@ -14,7 +14,7 @@ import { sourceHmac, sourceKey } from '../src/agent-registration-codes.js';
 
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 // Document names are keyed: HMAC-SHA256 under the key the module derives by default.
-const defaultKey = sourceKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only'));
+const defaultKey = sourceKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'envoi-development-only'));
 const keyed = value => sourceHmac(value, defaultKey);
 const creationPath = name => path.join('rate-limits', 'agent-registrations', `${name}.json`);
 const minute = 60_000;
