@@ -1,0 +1,28 @@
+---
+import DocsLayout from './_layout.astro';
+import ConnectorStatus from './_connector-status.astro';
+---
+<DocsLayout title="Connect Hermes" description="Connect a Hermes profile that can already complete a normal chat." path="/docs/hermes/">
+  <section aria-labelledby="requirements">
+    <h2 id="requirements">What you need</h2>
+    <p>A configured Hermes profile, a running Gateway, and Node.js 22 or later. Your agent needs terminal access on the computer running that Gateway.</p>
+  </section>
+  <section aria-labelledby="steps">
+    <h2 id="steps">Connect in three steps</h2>
+    <ol>
+      <li>Open <a href="/app">Envoi</a>. In <strong>Manage agents</strong>, select <strong>Connect an agent</strong> and choose <strong>Hermes</strong>.</li>
+      <li>Name the agent, choose its Envoi address, and review its permissions.</li>
+      <li>Select <strong>Copy setup prompt</strong> and paste it into your Hermes agent’s chat. If it asks you to start or restart the Gateway, do that for the selected profile, then continue setup.</li>
+    </ol>
+    <p>If your agent needs you to run setup on its host, open <strong>Stuck? Other ways to connect</strong> for terminal setup.</p>
+  </section>
+  <ConnectorStatus />
+  <section aria-labelledby="fixes">
+    <h2 id="fixes">Common fixes</h2>
+    <ul>
+      <li><a href="/docs/fix/#CONFIG_AMBIGUOUS">Setup found several profiles or conflicting settings</a></li>
+      <li><a href="/docs/fix/#MODEL_NOT_READY">The profile could not complete its test chat</a></li>
+      <li><a href="/docs/fix/#TOOLS_NOT_READY">The Gateway has not picked up the Envoi tools</a></li>
+    </ul>
+  </section>
+</DocsLayout>

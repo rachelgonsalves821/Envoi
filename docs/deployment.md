@@ -48,7 +48,7 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 - `ENVOI_REQUEST_TIMEOUT_MS`, `ENVOI_MAX_SSE_PER_PRINCIPAL`: request and concurrent-stream resource bounds.
 - `ENVOI_OBJECT_STORAGE_PROVIDER`: set to `s3` in production; `local` is for development.
 - `ENVOI_S3_ENDPOINT`, `ENVOI_S3_BUCKET`, `ENVOI_S3_REGION`, `ENVOI_S3_ACCESS_KEY_ID`, `ENVOI_S3_SECRET_ACCESS_KEY`, `ENVOI_S3_SESSION_TOKEN`: private S3-compatible storage settings. Public buckets and public base URLs are rejected.
-- `ENVOI_OBJECT_MAX_BYTES`, `ENVOI_WORKSPACE_OBJECT_QUOTA_BYTES`, `ENVOI_OBJECT_ALLOWED_MIME_TYPES`: immutable upload and quota policy.
+- `ENVOI_OBJECT_MAX_BYTES`, `ENVOI_WORKSPACE_OBJECT_QUOTA_BYTES`, `ENVOI_OBJECT_ALLOWED_MIME_TYPES`: upload and quota policy. MIME types default to `*/*`, allowing valid file types including Excel, Markdown, CSV, archives, and binary files through the same size, quota, checksum, and malware scan gates. An explicit comma-separated MIME list restricts uploads; check the deployed environment for an override.
 - `ENVOI_MALWARE_SCANNER_URL`, `ENVOI_MALWARE_SCANNER_TOKEN`: HTTPS scanner endpoint. Downloads remain locked unless a scan returns `clean`; no scanner means fail closed.
 - `ENVOI_OBJECT_QUOTA_REAPER_INTERVAL_MS`: interval for reclaiming abandoned upload reservations; defaults to five minutes.
 - `ENVOI_S3_REQUEST_TIMEOUT_MS`: bounded timeout for private object-storage operations; defaults to 30 seconds.
@@ -103,6 +103,14 @@ The backend exposes `/health` for liveness and `/ready` for dependency readiness
 
 Run `npm run db:migrate` as a release job before switching traffic. The same checksum-verified runner also executes safely during application startup under a PostgreSQL advisory lock, so concurrent instances cannot race schema changes. Applied migrations are recorded in `sinaloa_schema_migrations`; changing an already-applied SQL file fails startup. The production image includes `db/`, runs as the unprivileged `node` user, installs from `package-lock.json`, and uses `/ready` for its container health check.
 
+### Container region
+
+Cloudflare starts a container near the request that wakes it, so a visit from Asia can start it in Hong Kong. OpenAI blocks chatgpt.com there, so Envoi cannot fetch ChatGPT's OAuth client metadata (`https://chatgpt.com/oauth/client.json`). Every ChatGPT sign-in and token refresh then fails with `invalid_client`. The container log shows `envoi.oauth_client_rejected` with `stage: fetch`, `reason: fetch_failed` and `colo: HKG` (staging, 2026-11-13).
+
+Staging and beta pin their containers with `"constraints": { "regions": ["ENAM", "WNAM"] }`. Some Wrangler versions reject `constraints` for Durable Object-managed containers (cloudflare/workers-sdk#15995), but the locked Wrangler accepted it. Staging @1749906 deployed with it on 2026-11-13, ran in `iad03` and logged colo `EWR`, and ChatGPT sign-in worked again. Beta takes the same constraint. After a beta deploy, check Containers → sinaloa-beta-release → Instances for a North American location.
+
+Fallback when the container lands outside a region ChatGPT serves: restart it from a US request, then check the container logs' `colo`.
+
 ## Hosted acceptance and later multi-instance gates
 
 The following are required before opening the service to untrusted external traffic:
@@ -123,7 +131,7 @@ Local-development TOTP setup and verification are available through `/api/auth/t
 
 Local development phone verification requests are throttled to one per minute and five per hour per keyed phone identity. Local TOTP replay is rejected; `/api/auth/logout` clears the WorkOS cookie and redirects through provider logout in hosted mode.
 
-Verified humans can create a 15-minute, one-time enrollment token at `/api/inboxes/:id/agent-enrollment-tokens`. Agents exchange that token at `/api/agent-enroll` to receive their Envoi identity and approved permission policy. Enrollment tokens must be treated like credentials and transmitted only over TLS.
+Verified humans can create a 30-minute, one-time enrollment token at `/api/inboxes/:id/agent-enrollment-tokens`. Agents exchange that token at `/api/agent-enroll` to receive their Envoi identity and approved permission policy. Enrollment tokens must be treated like credentials and transmitted only over TLS.
 
 Agent message writes require the returned short-lived workload access token, `recipientEmail`, and an `Idempotency-Key` header. Exact verified platform addresses are resolved without a search API. An exact active native address permits immediate direct delivery without a first-contact invitation or human approval. Server authorization, active identity, permissions, native blocking and pause/revocation are still enforced; legacy invitation state is not the admission mechanism for native messaging. PostgreSQL atomically records queued sender copies and outbox entries; a leased worker resolves permissions, approval, and blocking again before delivery. Transient failures retry with exponential backoff. Permanent failures and exhausted retries enter the dead-letter queue. Refresh tokens rotate on every use, and revoking their credential family immediately invalidates every access and refresh token in that family.
 

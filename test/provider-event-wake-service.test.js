@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import path from 'node:path';
@@ -9,8 +10,9 @@ import {createHttpWake} from '../src/http-wake.js';
 import {createProviderEventWake,signProviderWebhook} from '../src/provider-event-wake.js';
 import {createMcpWakeTools,mcpWakeTools} from '../src/mcp-wake-tools.js';
 import {createWakeTransport} from '../src/http-wake-transport.js';
-import {EventEmitter} from 'node:events';
-import {wakeSubscriptionPath,wakeQueueDir} from '../src/http-wake-paths.js';
+import {EventEmitter,once} from 'node:events';
+import {handleAgentMcp} from '../src/agent-mcp.js';
+import {wakeSubscriptionPath,wakeSubscriptionIndexDir,wakeQueueDir,wakeLiveDir} from '../src/http-wake-paths.js';
 
 const pair=crypto.generateKeyPairSync('ed25519');
 const keys=JSON.stringify([{kid:'provider_test',privateKey:pair.privateKey.export({type:'pkcs8',format:'der'}).toString('base64'),activeFrom:'2026-01-01T00:00:00Z'}]);
@@ -27,15 +29,15 @@ async function harness(t,kind='file',overrides={},providerOverrides={}){
     store={withTransaction:base.withTransaction.bind(base),getJson:(p,d)=>base.getJson(`${prefix}/${p}`,d),putJson:(p,v)=>base.putJson(`${prefix}/${p}`,v),listJson:p=>base.listJson(`${prefix}/${p}`),deleteJson:p=>base.deleteJson(`${prefix}/${p}`)};t.after(async()=>{try{await base.deleteJsonTree(prefix);}finally{await base.close();}});
   }else{const dir=await mkdtemp(path.join(process.cwd(),'.provider-wake-test-'));store=new FileStore(dir);await store.init();t.after(()=>rm(dir,{recursive:true,force:true}));}
   let clock=Date.parse('2026-10-24T12:00:00Z'),response={status:202,failureClass:null},beforeResolve,beforeSend,verificationResponse;
-  const sent=[],audits=[],state={family:{refreshExpiresAt:'2027-01-01T00:00:00Z'},agent:{status:'active',onboardingStatus:'approved',permissions:['receive_agent_messages']},installation:{status:'active'}};
+  const sent=[],audits=[],diagnostics=[],state={family:{refreshExpiresAt:'2027-01-01T00:00:00Z'},agent:{status:'active',onboardingStatus:'approved',permissions:['receive_agent_messages']},installation:{status:'active'}};
   const now=()=>new Date(clock).toISOString();
   const resolveDestination=async url=>{await beforeResolve?.();return {url,addresses:['192.0.43.11']};};
   const options={store,enabled:true,installationsEnabled:true,mcpWakeEnabled:true,mcpEventsEnabled:true,grokTriggerEnabled:true,env:{ENVOI_WAKE_SIGNING_KEYS:keys},facts:async()=>state,now,random:()=>0.5,resolveDestination,observe:()=>{},audit:async(...args)=>audits.push(args),transport:async request=>{sent.push(request);await beforeSend?.(request);const body=JSON.parse(request.bodyText);return body.type==='verification'?(verificationResponse||{status:200,failureClass:null,bodyText:JSON.stringify({challenge:body.challenge})}):response;},...overrides};
   const http=createHttpWake(options);
-  const providerOptions={httpWake:http,store,mcpEventsEnabled:options.mcpEventsEnabled,grokTriggerEnabled:options.grokTriggerEnabled,key:Buffer.alloc(32,7),env:{ENVOI_MCP_EVENTS_CALLBACK_ORIGINS:'https://callbacks.envoi-provider.com',ENVOI_GROK_TRIGGER_ORIGINS:'https://triggers.envoi-provider.com'},now,resolveDestination,audit:options.audit,eventHistory:async()=>({cursor:'00000000000000000012',truncated:false,events:[]}),...providerOverrides};
+  const providerOptions={httpWake:http,store,mcpEventsEnabled:options.mcpEventsEnabled,grokTriggerEnabled:options.grokTriggerEnabled,grokBotWakeEnabled:options.grokBotWakeEnabled,key:Buffer.alloc(32,7),env:{ENVOI_MCP_EVENTS_CALLBACK_ORIGINS:'https://callbacks.envoi-provider.com',ENVOI_GROK_TRIGGER_ORIGINS:'https://triggers.envoi-provider.com',ENVOI_GROK_BOT_WAKE_ORIGINS:'https://routines.envoi-provider.com'},now,resolveDestination,audit:options.audit,observe:record=>diagnostics.push(record),eventHistory:async()=>({cursor:'00000000000000000012',truncated:false,events:[]}),...providerOverrides};
   const provider=createProviderEventWake(providerOptions);await http.startup();
   const tx=fn=>store.withTransaction([`inbox:${identity.inboxId}:mutations`],fn);
-  return {store,http,provider,options,providerOptions,now,tx,state,sent,audits,advance:ms=>clock+=ms,response:r=>response=r,beforeResolve:fn=>beforeResolve=fn,beforeSend:fn=>beforeSend=fn,verificationResponse:r=>verificationResponse=r};
+  return {store,http,provider,options,providerOptions,now,tx,state,sent,audits,diagnostics,advance:ms=>clock+=ms,response:r=>response=r,beforeResolve:fn=>beforeResolve=fn,beforeSend:fn=>beforeSend=fn,verificationResponse:r=>verificationResponse=r};
 }
 function parity(name,operation){for(const kind of ['file','postgres'])test(`${kind}: ${name}`,{skip:kind==='postgres'&&!process.env.DATABASE_URL},t=>operation(t,kind));}
 const verifyHmac=(request,key=secret,index=0)=>{
@@ -44,12 +46,17 @@ const verifyHmac=(request,key=secret,index=0)=>{
   assert.equal(request.headers['webhook-signature'].split(' ')[index],`v1,${expected}`);
 };
 
+// provider-event-wake-activation v1: a fresh subscribe queues one subscription_activated hint; deliver it so a test starts from an empty lane.
+const drainActivation=async h=>{assert.equal(await h.http.runOnce(),true);assert.deepEqual(JSON.parse(h.sent.at(-1).bodyText).data,{reason:'subscription_activated'});};
 parity('MCP events verify, renew deterministically, rotate secrets and reuse the durable wake queue',async(t,kind)=>{
   const h=await harness(t,kind);
   const first=await h.provider.subscribe(identity,parameters(),protocol);assert.match(first.id,/^evtsub_[0-9a-f]{20}$/);assert.equal(first.cursor,'00000000000000000012');
   verifyHmac(h.sent[0]);assert.equal(JSON.parse(h.sent[0].bodyText).type,'verification');
   const stored=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));assert.equal(JSON.stringify(stored).includes(secret),false);assert.ok(stored.secretEncrypted.ciphertext);
   h.advance(1000);const renewed=await h.provider.subscribe(identity,parameters(),protocol);assert.equal(renewed.id,first.id);assert.notEqual(renewed.refreshBefore,first.refreshBefore);assert.equal(h.sent.length,1);
+  // provider-event-wake-activation v1: the new subscription's one activation hint (the renewal added none), signed like any event; its 2xx records lastSuccessAt.
+  await h.http.runOnce();assert.equal(h.sent.length,2);verifyHmac(h.sent[1]);assert.deepEqual([JSON.parse(h.sent[1].bodyText).name,JSON.parse(h.sent[1].bodyText).data],['envoi.work_available',{reason:'subscription_activated'}]);assert.equal(await h.http.runOnce(),false);
+  assert.ok((await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id))).delivery.lastSuccessAt,'the acknowledged activation proves listening');
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));await h.http.runOnce();const event=h.sent.at(-1);verifyHmac(event);const body=JSON.parse(event.bodyText);assert.equal(body.name,'envoi.work_available');assert.equal(body.eventId,event.headers['webhook-id']);assert.deepEqual(body.data,{reason:'message_delivered'});assert.equal(body.cursor,first.cursor);assert.equal(Buffer.byteLength(event.bodyText)<1024,true);assert.equal('agentId' in body,false);
   const params=parameters({delivery:{...parameters().delivery,secret:secondSecret}});await h.provider.subscribe(identity,params,protocol);assert.equal(JSON.parse(h.sent.at(-1).bodyText).type,'verification');
   await h.tx(()=>h.http.trigger({...binding,reason:'work_due'}));await h.http.runOnce();verifyHmac(h.sent.at(-1),secondSecret);verifyHmac(h.sent.at(-1),secret,1);
@@ -59,13 +66,106 @@ parity('MCP events verify, renew deterministically, rotate secrets and reuse the
 parity('provider retry preserves event identity and raw bytes with a fresh signing clock',async(t,kind)=>{
   const h=await harness(t,kind);await h.provider.subscribe(identity,parameters(),protocol);await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));h.response({status:429,failureClass:'http_retryable',retryAfterSeconds:60});await h.http.runOnce();const first=h.sent.at(-1);h.advance(59000);assert.equal(await h.http.runOnce(),false);h.advance(1000);h.response({status:202,failureClass:null});await h.http.runOnce();const second=h.sent.at(-1);assert.equal(second.bodyText,first.bodyText);assert.equal(second.headers['webhook-id'],first.headers['webhook-id']);assert.notEqual(second.headers['webhook-timestamp'],first.headers['webhook-timestamp']);verifyHmac(second);
 });
+parity('post-verification persistence failure rolls back subscription activation and catch-up notifications',async(t,kind)=>{
+  const h=await harness(t,kind,{}, {eventHistory:async()=>({cursor:'00000000000000000012',truncated:false,events:[{type:'wake.work_available',reason:'message_delivered',cursor:'00000000000000000012'}]})});
+  const put=h.store.putJson.bind(h.store),failure=new Error('Injected notification index write failure');
+  h.store.putJson=async(p,value)=>{if(p.startsWith(`${wakeLiveDir}${path.sep}`))throw failure;return put(p,value);};
+  await assert.rejects(h.provider.subscribe(identity,parameters(),protocol),error=>error===failure);
+  assert.equal(JSON.parse(h.sent[0].bodyText).type,'verification');
+  assert.equal(h.diagnostics.length,1);assert.equal(h.diagnostics[0].phase,'replay');
+  assert.deepEqual(await h.http.profileRecords(binding,'mcp_events'),[]);
+  for(const dir of [wakeSubscriptionIndexDir,wakeQueueDir,wakeLiveDir,'http-wake/verification'])assert.deepEqual(await h.store.listJson(dir),[]);
+  assert.equal(await h.http.runOnce(),false);
+  h.store.putJson=put;
+  const retry=await h.provider.subscribe(identity,parameters(),protocol);
+  assert.equal((await h.http.profileRecords(binding,'mcp_events')).length,1);
+  assert.equal((await h.store.listJson(wakeQueueDir)).length,1);
+  assert.equal(await h.http.runOnce(),true);
+  assert.equal(JSON.parse(h.sent.at(-1).bodyText).name,'envoi.work_available');
+  assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId,retry.id))).delivery.state,'healthy');
+});
+parity('failed secret renewal preserves the working subscription and its queued notification',async(t,kind)=>{
+  const h=await harness(t,kind);const created=await h.provider.subscribe(identity,parameters(),protocol);
+  await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered',cursor:'00000000000000000013'}));
+  const before=await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.id));
+  const queued=await h.store.listJson(wakeQueueDir),put=h.store.putJson.bind(h.store),failure=new Error('Injected verification cache write failure');
+  h.store.putJson=async(p,value)=>{if(p.startsWith('http-wake/verification/'))throw failure;return put(p,value);};
+  h.advance(1000);
+  await assert.rejects(h.provider.subscribe(identity,parameters({delivery:{...parameters().delivery,secret:secondSecret}}),protocol),error=>error===failure);
+  assert.equal(h.diagnostics[0].phase,'verification_cache');
+  assert.deepEqual(await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.id)),before);
+  assert.deepEqual(await h.store.listJson(wakeQueueDir),queued);
+  h.store.putJson=put;
+  assert.equal(await h.http.runOnce(),true);verifyHmac(h.sent.at(-1),secret);
+});
+test('subscription diagnostics expose only bounded failure facts and cannot replace the error',async t=>{
+  const failure=Object.assign(new Error(`${secret} https://callbacks.envoi-provider.com/private SQL_VALUE`),{code:'57014'});
+  const h=await harness(t,'file',{}, {eventHistory:async()=>{throw failure;}});
+  await assert.rejects(h.provider.subscribe(identity,parameters({_meta:{private:'META_NOT_LOGGED'}}),protocol),error=>error===failure);
+  assert.deepEqual(h.diagnostics,[{event:'envoi.mcp_events_subscribe_failed',subscriptionId:h.diagnostics[0].subscriptionId,phase:'history',errorClass:'Error',code:'57014',durationMs:0}]);
+  assert.match(h.diagnostics[0].subscriptionId,/^evtsub_[0-9a-f]{20}$/);
+  for(const marker of [secret,'callbacks.envoi-provider.com','SQL_VALUE','META_NOT_LOGGED'])assert.equal(JSON.stringify(h.diagnostics).includes(marker),false);
+  const brokenObserver=createProviderEventWake({...h.providerOptions,httpWake:createHttpWake(h.options),observe:()=>{throw new Error('Observer failed');}});
+  await assert.rejects(brokenObserver.subscribe(identity,parameters(),protocol),error=>error===failure);
+});
+for(const eventName of ['envoi.work_available','envoi.control_changed'])parity(`${eventName}: maximum retained history uses bounded storage work and preserves catch-up hints`,async(t,kind)=>{
+  const cursor=n=>String(n).padStart(20,'0');
+  const events=Array.from({length:1000},(_,n)=>({type:n%2?'wake.control_changed':'wake.work_available',reason:n%2?'agent_paused':n===0?'agent_resumed':'message_delivered',cursor:cursor(n+1)}));
+  const h=await harness(t,kind,{}, {eventHistory:async()=>({cursor:cursor(1000),truncated:true,events})});
+  let writes=0;const put=h.store.putJson.bind(h.store);h.store.putJson=(p,value)=>{writes++;return put(p,value);};
+  const created=await h.provider.subscribe(identity,parameters({name:eventName,cursor:cursor(0)}),protocol);
+  assert.equal(created.cursor,cursor(1000));assert.equal(created.truncated,true);
+  assert.ok(writes<40,`Retained history caused ${writes} writes before subscribe returned`);
+  assert.equal(await h.http.runOnce(),true);
+  const first=JSON.parse(h.sent.at(-1).bodyText);assert.equal(first.name,eventName);assert.equal(first.data.reason,eventName==='envoi.work_available'?'agent_resumed':'agent_paused');assert.equal(first.cursor,cursor(1000));
+  assert.equal(await h.http.runOnce(),true);
+  const last=JSON.parse(h.sent.at(-1).bodyText);assert.equal(last.name,eventName);assert.equal(last.data.reason,eventName==='envoi.work_available'?'message_delivered':'agent_paused');assert.equal(last.cursor,cursor(1000));
+  assert.equal(await h.http.runOnce(),false);
+});
+parity('dispatcher cannot send catch-up events before the subscribe transaction commits',async(t,kind)=>{
+  const h=await harness(t,kind,{}, {eventHistory:async()=>({cursor:'00000000000000000012',truncated:false,events:[{type:'wake.work_available',reason:'message_delivered',cursor:'00000000000000000012'}]})});
+  let reached,release,stagedPath;const ready=new Promise(resolve=>reached=resolve),gate=new Promise(resolve=>release=resolve);
+  const put=h.store.putJson.bind(h.store);
+  h.store.putJson=async(p,value)=>{await put(p,value);if(p.startsWith(`${wakeLiveDir}${path.sep}`)){stagedPath=p;reached();await gate;}};
+  const pending=h.provider.subscribe(identity,parameters(),protocol);
+  try{
+    await Promise.race([ready,pending.then(()=>{throw new Error('Subscribe completed before the commit barrier');})]);
+    // FileStore serializes outside readers behind the transaction; its index is
+    // not on disk yet. PostgreSQL readers can observe the committed empty index.
+    if(kind==='file')await assert.rejects(readFile(h.store.file(stagedPath)),{code:'ENOENT'});
+    else assert.equal(await h.http.runOnce(),false);
+    assert.equal(h.sent.length,1);
+  }finally{release();await pending;h.store.putJson=put;}
+  assert.equal(await h.http.runOnce(),true);
+  assert.equal(JSON.parse(h.sent.at(-1).bodyText).name,'envoi.work_available');
+});
+test('retained catch-up returns its HTTP subscribe result before the socket idle timeout',async t=>{
+  const events=Array.from({length:200},(_,n)=>({type:'wake.work_available',reason:'message_delivered',cursor:String(n+1).padStart(20,'0')}));
+  const h=await harness(t,'file',{}, {eventHistory:async()=>({cursor:events.at(-1).cursor,truncated:false,events})});
+  const put=h.store.putJson.bind(h.store);
+  // Model database round-trip latency. Per-row replay used to outlive the HTTP
+  // idle deadline even though verification succeeded and delivery had started.
+  h.store.putJson=async(p,value)=>{await new Promise(resolve=>setTimeout(resolve,25));return put(p,value);};
+  let handling=Promise.resolve();
+  const server=http.createServer((req,res)=>{
+    req.setTimeout(2000);
+    handling=handleAgentMcp(req,res,{identity,providerEvents:h.provider,eventsEnabled:true,callRest:async()=>{throw new Error('Not a tool call');}}).catch(()=>{if(!res.destroyed){res.writeHead(500);res.end();}});
+  });
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  try{
+    const response=await fetch(`http://127.0.0.1:${server.address().port}/mcp`,{method:'POST',headers:{'content-type':'application/json',accept:'application/json, text/event-stream','mcp-protocol-version':protocol},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'events/subscribe',params:parameters()}),signal:AbortSignal.timeout(10000)});
+    assert.equal(response.status,200);const body=await response.json();assert.match(body.result.id,/^evtsub_[0-9a-f]{20}$/);assert.equal(body.result.cursor,events.at(-1).cursor);
+  }finally{await handling;server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
 parity('unsubscribe deletes secrets, invalidates verification and fences previous generations',async(t,kind)=>{
   const h=await harness(t,kind);const first=await h.provider.subscribe(identity,parameters(),protocol);await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));
   const stale=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));
   const {secret:_,...delivery}=parameters().delivery;const unsubscribe={name:parameters().name,arguments:{},delivery};assert.deepEqual(await h.tx(()=>h.provider.unsubscribe(identity,unsubscribe,protocol)),{});assert.deepEqual(await h.tx(()=>h.provider.unsubscribe(identity,unsubscribe,protocol)),{});
   const ended=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));assert.equal(ended.secretEncrypted,undefined);assert.equal(ended.status,'ended');const sent=h.sent.length;
   await h.http.queueProfile(stale,'wake.work_available','work_due');assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id))).status,'ended');
-  await h.provider.subscribe(identity,parameters(),protocol);assert.equal(h.sent.length,sent+1);assert.equal(await h.http.runOnce(),false);
+  await h.provider.subscribe(identity,parameters(),protocol);assert.equal(h.sent.length,sent+1);
+  // provider-event-wake-activation v1 row 1: the re-created subscription gets its own activation hint; the old generation's hints stay fenced.
+  assert.equal(await h.http.runOnce(),true);assert.deepEqual(JSON.parse(h.sent.at(-1).bodyText).data,{reason:'subscription_activated'});assert.equal(h.sent.length,sent+2);assert.equal(await h.http.runOnce(),false);
 });
 parity('Grok 202 is receipt only; 401 pauses and owner secret replacement resumes; sender defects do not retry',async(t,kind)=>{
   const h=await harness(t,kind);const put=()=>h.provider.putGrok(binding,{url:'https://triggers.envoi-provider.com/run',secret});const initial=await h.tx(put);assert.equal(initial.target.secretSet,true);assert.equal(JSON.stringify(initial).includes(secret),false);
@@ -136,7 +236,7 @@ test('MCP wake tool metadata/input schemas and events discovery/list match appro
   const list=await canonical('provider-event-wake','events-list.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.list(identity,{},protocol),list.response.body.result);
 });
 parity('live a4 cursors advance through coalescing, retries and reconnect without regressing to older replay',async(t,kind)=>{
-  const h=await harness(t,kind);const created=await h.provider.subscribe(identity,parameters(),protocol);
+  const h=await harness(t,kind);const created=await h.provider.subscribe(identity,parameters(),protocol);await drainActivation(h);
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered',cursor:'00000000000000000013'}));
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered',cursor:'00000000000000000014'}));
   await h.http.runOnce();assert.equal(JSON.parse(h.sent.at(-1).bodyText).cursor,'00000000000000000013');
@@ -208,7 +308,7 @@ parity('MCP create and activation recheck authority after asynchronous work and 
 });
 
 parity('canonical owner decisions wake extension hosts using an approved opaque reason',async(t,kind)=>{
-  const h=await harness(t,kind);await h.provider.subscribe(identity,parameters(),protocol);
+  const h=await harness(t,kind);await h.provider.subscribe(identity,parameters(),protocol);await drainActivation(h);
   await h.tx(()=>h.http.trigger({...binding,reason:'human_decision',cursor:'00000000000000000013'}));
   assert.equal(await h.http.runOnce(),true);
   const delivered=JSON.parse(h.sent.at(-1).bodyText);
@@ -269,4 +369,79 @@ test('metadata validation follows Events qualification and cannot bypass an empt
   let resolved=0;const inert=createProviderEventWake({...h.providerOptions,httpWake:createHttpWake(h.options),env:{},resolveDestination:async()=>{resolved++;throw Error('must not resolve');}});
   await assert.rejects(()=>inert.subscribe(identity,parameters({_meta:{delivery:{url:'https://callbacks.envoi-provider.com/events'},callbackOriginAllowlist:['https://callbacks.envoi-provider.com']}}),protocol),{rpcCode:-32015,reason:'origin_not_allowed'});
   assert.equal(resolved,0);
+});
+
+
+parity('Grok Bot routine delivery retries and rotates the webhook key on the same installation', async (t, kind) => {
+  const h = await harness(t, kind, { grokBotWakeEnabled: true });
+  const profile = 'grok_bot';
+  const url = 'https://routines.envoi-provider.com/run/private-id';
+  const secret = 'test-bot-routine-key';
+  await assert.rejects(h.provider.putGrok(identity, { url: 'https://other.example/run', secret }, profile), { code: 'WAKE_URL_REJECTED' });
+  const { target } = await h.provider.putGrok(identity, { url, secret }, profile);
+  assert.equal(target.installationId, identity.installationId);
+  const otherInstallation = { ...identity, installationId: 'other_installation' };
+  await assert.rejects(h.provider.putGrok(otherInstallation, { url, secret }, profile), { statusCode: 409 });
+  await h.provider.deleteGrok({ ...identity, installationId: null, family: null }, profile, otherInstallation.installationId);
+  assert.equal(target.url, undefined);
+  assert.equal(JSON.stringify(await h.store.getJson(wakeSubscriptionPath(binding.agentId, target.id))).includes(secret), false);
+
+  h.response({ status: 429, failureClass: 'http_retryable', retryAfterSeconds: 60 });
+  assert.equal(await h.http.runOnce(), true);
+  assert.deepEqual(h.sent[0].headers, { authorization: `Bearer ${secret}`, 'content-type': 'application/json' });
+  assert.equal(JSON.parse(h.sent[0].bodyText).type, 'wake.work_available');
+  assert.equal(h.sent[0].bodyText.includes(identity.agent.id), false);
+  h.advance(59000);
+  assert.equal(await h.http.runOnce(), false);
+  h.advance(1000);
+  h.response({ status: 200, failureClass: null });
+  const restartedWake = createHttpWake(h.options);
+  const restartedProvider = createProviderEventWake({ ...h.providerOptions, httpWake: restartedWake });
+  await restartedWake.startup();
+  assert.equal(await restartedWake.runOnce(), true);
+  assert.equal(h.sent[1].bodyText, h.sent[0].bodyText);
+  assert.equal((await restartedProvider.getGrok(identity, profile)).target.lastAcceptedAt, h.now());
+
+  h.advance(5000);
+  h.response({ status: 401, failureClass: 'http_rejected' });
+  await h.tx(() => h.http.trigger({ ...binding, reason: 'message_delivered' }));
+  assert.equal(await h.http.runOnce(), true);
+  assert.equal((await h.provider.getGrok(identity, profile)).target.state, 'needs_secret');
+  const rotated = await h.provider.putGrok(identity, { url, secret: 'new-routine-key' }, profile);
+  assert.equal(rotated.target.id, target.id);
+  assert.equal(rotated.target.installationId, target.installationId);
+  h.advance(5000);
+  h.response({ status: 200, failureClass: null });
+  assert.equal(await h.http.runOnce(), true);
+  assert.equal(h.sent.at(-1).headers.authorization, 'Bearer new-routine-key');
+
+  h.advance(31 * 86400 * 1000);
+  assert.equal((await h.provider.getGrok(identity, profile)).target.state, 'active');
+  h.state.agent.status = 'paused';
+  await h.tx(() => h.http.trigger({ ...binding, reason: 'message_delivered' }));
+  h.advance(5000);
+  assert.equal(await h.http.runOnce(), false);
+  h.state.family.revokedAt = h.now();
+  const ended = (await h.provider.getGrok(identity, profile)).target;
+  assert.equal(ended.state, 'ended');
+  assert.equal(ended.secretSet, false);
+  assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId, target.id))).secretEncrypted, undefined);
+});
+
+// provider-event-wake-activation v1 §1 rows 1-3: one activation hint only for a new subscription with an empty catch-up; never for envoi.control_changed.
+parity('a new subscription is woken once: by its catch-up hint, else by subscription_activated',async(t,kind)=>{
+  const withCatchUp=await harness(t,kind,{},{eventHistory:async()=>({cursor:'00000000000000000013',truncated:false,events:[{type:'wake.work_available',reason:'message_delivered',cursor:'00000000000000000013'}]})});
+  await withCatchUp.provider.subscribe(identity,parameters({cursor:'00000000000000000012'}),protocol);
+  assert.equal(await withCatchUp.http.runOnce(),true);assert.deepEqual(JSON.parse(withCatchUp.sent.at(-1).bodyText).data,{reason:'message_delivered'});assert.equal(await withCatchUp.http.runOnce(),false);
+  const control=await harness(t,kind);
+  await control.provider.subscribe(identity,parameters({name:'envoi.control_changed'}),protocol);
+  assert.equal(await control.http.runOnce(),false,'control_changed subscriptions get no activation hint');
+});
+
+// agent-work-mode v1 §4: while the owner's mode is off, subscribe is refused before verification or storage; control_changed is unaffected.
+parity('work mode off refuses envoi.work_available subscriptions before any verification or storage',async(t,kind)=>{
+  const h=await harness(t,kind,{},{workModeOff:async binding=>binding.agentId===identity.agent.id});
+  await assert.rejects(h.provider.subscribe(identity,parameters(),protocol),error=>error.rpcCode===-32016&&error.message==='BackgroundReceivingOff'&&error.reason==='owner_turned_off');
+  assert.equal(h.sent.length,0,'no verification request');assert.deepEqual(await h.http.profileRecords(binding,'mcp_events'),[]);
+  const control=await h.provider.subscribe(identity,parameters({name:'envoi.control_changed'}),protocol);assert.match(control.id,/^evtsub_[0-9a-f]{20}$/);
 });

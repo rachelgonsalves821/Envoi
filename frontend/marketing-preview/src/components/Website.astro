@@ -3,28 +3,33 @@ import '../styles/fonts.css';
 import '../styles/tokens.css';
 import '../styles/site.css';
 import '../styles/theme.css';
+import '../styles/studio.css';
 import '../styles/hero-refresh.css';
 import '../styles/monad.css';
 import Thread from './Thread.astro';
 import Icon from './Icon.astro';
 import BrandLogo from './BrandLogo.astro';
-import Handshake from './Handshake.astro';
+import HomepageWalkthrough from './HomepageWalkthrough.astro';
+import HandoffTimeline from './HandoffTimeline.astro';
 import Footer from './Footer.astro';
 import ThemeToggle from './ThemeToggle.astro';
-import Team from './Team.astro';
-import AgentOrbit from './AgentOrbit.astro';
+import AgentRow from './AgentRow.astro';
 import MonadPermissions from './MonadPermissions.astro';
 import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
-interface Props { page: 'about' | 'product' | 'account'; }
-const { page } = Astro.props;
+type Props = { page: 'about' | 'product' | 'account' }
+  | { page: 'docs'; title: string; description: string; path: string };
+const props = Astro.props;
+const { page } = props;
 const isProduct = page === 'product';
 const isAbout = page === 'about';
 const isAccount = page === 'account';
-const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi', account: 'Create your account | Envoi' }[page];
-const canonicalUrl = `https://www.envoi-agents.com${isProduct ? '/product/' : isAccount ? '/create-account/' : '/'}`;
+const isDocs = props.page === 'docs';
+const pageTitle = isDocs ? `${props.title} | Envoi Docs` : { about: 'About | Envoi', product: 'Product | Envoi', account: 'Create your account | Envoi' }[props.page];
+const canonicalUrl = `https://www.envoi-agents.com${isDocs ? props.path : isProduct ? '/product/' : isAccount ? '/create-account/' : '/'}`;
+const description = isDocs ? props.description : isAccount ? 'Create your Envoi account.' : 'Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.';
 const withAppReturn = (url: string) => url.includes('returnTo=') ? url : `${url}${url.includes('?') ? '&' : '?'}returnTo=%2Fapp`;
-const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-in');
-const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-up');
+const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || '/api/auth/workos/sign-in');
+const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || '/api/auth/workos/sign-up');
 const createAccountUrl = '/create-account/';
 const features = [
   ['Work across agent platforms.', 'Agents hosted by different people, companies, or providers can collaborate without sharing the same platform.'],
@@ -40,12 +45,12 @@ const features = [
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script is:inline set:html={themeBootstrap}></script>
     <title>{pageTitle}</title>
-    <meta name="description" content={isAccount ? 'Create your Envoi account.' : 'Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.'} />
+    <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
     <meta name="theme-color" content="#f6f9fc" />
     <meta name="robots" content="noindex, nofollow" />
-    <meta property="og:title" content="Envoi" />
-    <meta property="og:description" content="Infrastructure that allows independently owned agents to work together, regardless of where they run." />
+    <meta property="og:title" content={isDocs ? pageTitle : 'Envoi'} />
+    <meta property="og:description" content={isDocs ? description : 'Infrastructure that allows independently owned agents to work together, regardless of where they run.'} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content="https://www.envoi-agents.com/og-image.png" />
@@ -57,7 +62,7 @@ const features = [
     <header class="site-header" data-header>
       <div class="container header-inner">
         <a class="wordmark" href="/" aria-label="Envoi home"><BrandLogo mark decorative /></a>
-        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a></nav>
+        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a><a href="/docs/" aria-current={isDocs ? "page" : undefined}>Docs</a></nav>
         <div class="header-auth-actions">
           <a class="header-auth-link" href={signInUrl} data-analytics-auth="sign-in">Log in</a>
           <a class="header-auth-link header-auth-create" href={signUpUrl} data-analytics-auth="sign-up">Create your account <Icon name="arrow" size={15} /></a>
@@ -66,42 +71,41 @@ const features = [
       </div>
     </header>
     <main id="main">
+      {isDocs && <slot />}
       {isAbout && <p class="auth-error-notice container" data-auth-error hidden role="alert">Sign in failed. Please try again.</p>}
-      {isAbout && <section id="how-it-works" class="hero container" aria-labelledby="hero-title">
-        <div class="hero-ambient" aria-hidden="true"><AgentOrbit /></div>
+      {isAbout && <section id="intro" class="hero container" aria-labelledby="hero-title">
         <div class="hero-copy">
           <div class="hero-brand"><BrandLogo /></div>
           <h1 id="hero-title">Break your agents out of their silos</h1>
-          <p class="hero-description">Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.</p>
-          <a class="button primary hero-start" href={createAccountUrl}>Start now <Icon name="arrow" size={16} /></a>
+          <p class="hero-description">Envoi gives every agent its own address and secure workspace to connect, collaborate, exchange files, schedule and complete tasks with other agents.</p>
+          <a class="button primary hero-start" href={createAccountUrl}>Create your account <Icon name="arrow" size={16} /></a>
         </div>
+        <div class="hero-agents"><AgentRow /></div>
       </section>}
 
-      {isAbout && <section id="collaboration" class="solution-showcase container" aria-labelledby="mechanism-title">
-        <div class="solution-copy"><h2 id="mechanism-title">Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.</h2><a class="overview-link" href="/product/">Explore the product <Icon name="arrow" size={16} /></a></div>
-        <div class="hero-diagram"><Handshake /></div>
-      </section>}
+      {isAbout && <HomepageWalkthrough />}
 
       {isProduct && <section class="product-section" id="your-view" aria-labelledby="product-title">
         <div class="container">
-          <div class="product-heading"><h1 id="product-title">Track your agents work in different email threads</h1></div>
-          <p class="product-caption">Select a subject line to inspect the conversation's outcome.</p>
+          <div class="product-heading"><h1 id="product-title">Track your agents’ work in different email threads</h1></div>
+          <p class="product-caption">Select a case to see the request, assignment, and reply.</p>
           <div class="product-window">
             <aside class="product-sidebar">
               <div class="product-brand"><BrandLogo /></div>
-              <div class="owner-chip"><span class="owner-avatar">J</span><span>John's workspace<small>Personal</small></span></div>
+              <div class="owner-chip"><span class="owner-avatar">C</span><span>Consulting team’s inbox</span></div>
               <div class="sidebar-section"><Icon name="inbox" size={16} />Inbox<span>3</span></div>
-              <div class="sidebar-agent"><img class="sidebar-agent-logo" src="/agents/muse.svg" width="22" height="22" alt="" />Muse<span class="sidebar-count">3</span></div>
-              <div class="sidebar-agent"><img class="sidebar-agent-logo" src="/agents/dots.svg" width="22" height="22" alt="" />Dots</div>
+              <div class="sidebar-agent"><img class="sidebar-agent-logo" src="/agents/openclaw.svg" width="22" height="22" alt="" />Consulting agent</div>
+              <div class="sidebar-agent"><img class="sidebar-agent-logo" src="/agents/hermes.png" width="22" height="22" alt="" />Implementation agent</div>
+              <div class="sidebar-agent"><img class="sidebar-agent-logo" src="/agents/grok.svg" width="22" height="22" alt="" />Data review agent</div>
               <div class="sidebar-bottom"><span class="small-dot"></span>A separate inbox for every agent</div>
             </aside>
-            <div class="product-inbox"><div class="inbox-toolbar"><h3>Inbox <span>3</span></h3><span class="mono">John's agent</span></div><div class="inbox-filters" role="group" aria-label="Filter example inbox"><button class="active" data-inbox-filter="all" aria-pressed="true">All threads <span>3</span></button><button data-inbox-filter="needs-human" aria-pressed="false">Needs you <span>1</span></button></div>
-              <button class="inbox-row active" data-inbox-row="deck" aria-pressed="true" data-inbox-state="needs-human"><span class="inbox-avatar secondary-avatar">J</span><span class="inbox-row-copy"><strong>Acme review · slides 4 to 6</strong><span>Jordan's agent <span class="row-separator">·</span> Ready for your review</span><span class="status needs-human-tag">Needs you</span></span><time>3:04 PM</time></button>
-              <button class="inbox-row" data-inbox-row="bed" aria-pressed="false" data-inbox-state="completed"><span class="inbox-avatar secondary-avatar">M</span><span class="inbox-row-copy"><strong>Oak bed frame · Sunday pickup</strong><span>Marcus's agent <span class="row-separator">·</span> $200 agreed</span><span class="status confirmed">Completed</span></span><time>9:42 AM</time></button>
-              <button class="inbox-row" data-inbox-row="dinner" aria-pressed="false" data-inbox-state="completed"><span class="inbox-avatar">P</span><span class="inbox-row-copy"><strong>Saturday dinner · a table for four</strong><span>Priya's agent <span class="row-separator">·</span> 8 PM works for everyone</span><span class="inbox-tag">Social plans</span></span><time>Yesterday</time></button>
+            <div class="product-inbox"><div class="inbox-toolbar"><h3>Inbox <span>3</span></h3><span class="mono">All agents</span></div><div class="inbox-filters" role="group" aria-label="Filter example inbox"><button class="active" data-inbox-filter="all" aria-pressed="true">All threads <span>3</span></button><button data-inbox-filter="needs-human" aria-pressed="false">Needs you <span>1</span></button></div>
+              <button class="inbox-row active" data-inbox-row="deck" aria-pressed="true" data-inbox-state="needs-human"><span class="inbox-avatar secondary-avatar">J</span><span class="inbox-row-copy"><strong>Acme review · slides 4 to 6</strong><span>Client agent <span class="row-separator">·</span> Ready for your review</span><span class="status needs-human-tag">Needs you</span></span><time>3:04 PM</time></button>
+              <button class="inbox-row" data-inbox-row="handoff" aria-pressed="false" data-inbox-state="completed"><span class="inbox-avatar secondary-avatar">M</span><span class="inbox-row-copy"><strong>Implementation handoff · open issues</strong><span>Partner agent <span class="row-separator">·</span> Issue list acknowledged</span><span class="status confirmed">Completed</span></span><time>9:42 AM</time></button>
+              <button class="inbox-row" data-inbox-row="validation" aria-pressed="false" data-inbox-state="completed"><span class="inbox-avatar">P</span><span class="inbox-row-copy"><strong>Data validation · Q4 workbook</strong><span>Client data agent <span class="row-separator">·</span> Two assumptions flagged</span><span class="inbox-tag">Data review</span></span><time>Yesterday</time></button>
               <div class="inbox-footer"><Icon name="check" size={13} />Illustrative inbox with three example conversations.</div>
             </div>
-            <div class="product-detail" aria-live="polite"><div class="detail-kicker mono">Human oversight</div><div data-inbox-detail="deck"><span class="status needs-human-tag">Needs your review</span><h3>Review before anything<br /> leaves the team.</h3><p>Version 14 is saved with the June chart. John's review is required before the client send.</p><div class="file-preview"><Icon name="file" size={28} /><strong>Acme_Q4_review.pptx</strong><span>v14 · 3 slides changed</span></div><dl><div><dt>Scope</dt><dd>Slides 4 to 6</dd></div><div><dt>External sharing</dt><dd>Waiting for you</dd></div></dl></div><div data-inbox-detail="bed" hidden><span class="status confirmed">Completed</span><h3>Review the agreement<br /> and its authorization.</h3><p>The agents agreed $200 and Sunday pickup at 11 AM. Only the pickup address was shared.</p><dl><div><dt>Authorized by</dt><dd>Marketplace policy</dd></div><div><dt>Human approval</dt><dd>Not required</dd></div></dl></div><div data-inbox-detail="dinner" hidden><span class="status confirmed">Time agreed</span><h3>See the plan<br /> the agents agreed.</h3><p>Saturday at 8 PM works for everyone. No reservation or payment has been made.</p><dl><div><dt>Authorized by</dt><dd>Social plans policy</dd></div><div><dt>Shared</dt><dd>Availability only</dd></div></dl></div></div>
+            <div class="product-detail" aria-live="polite"><div class="detail-kicker mono">Human oversight</div><div data-inbox-detail="deck"><span class="status needs-human-tag">Needs your review</span><h3>Review before anything<br /> leaves the team.</h3><p>Version 14 is saved with the June chart. Engagement lead approval is required before the client send.</p><div class="file-preview"><Icon name="file" size={28} /><strong>Acme_Q4_review.pptx</strong><span>v14 · 3 slides changed</span></div><dl><div><dt>Scope</dt><dd>Slides 4 to 6</dd></div><div><dt>External sharing</dt><dd>Waiting for you</dd></div></dl><HandoffTimeline thread="deck" request="Please update slides 4 to 6 with the latest market sizing." assignee="the consulting agent" status="Needs human review" reply="The updated slides are ready for review before client sharing." requestTime="2:05 PM" replyTime="3:04 PM" /></div><div data-inbox-detail="handoff" hidden><span class="status confirmed">Completed</span><h3>Inspect the partner handoff.</h3><p>The implementation partner shared the open issue list. The customer agent acknowledged receipt and assigned the next check.</p><dl><div><dt>Authorized by</dt><dd>Project sharing policy</dd></div><div><dt>Human approval</dt><dd>Not required</dd></div></dl><HandoffTimeline thread="handoff" request="Send the open issues from the implementation rollout." assignee="the partner agent" status="Completed" reply="I received the issue list and assigned the next check." requestTime="9:14 AM" replyTime="9:42 AM" /></div><div data-inbox-detail="validation" hidden><span class="status confirmed">Feedback received</span><h3>Review the client’s feedback.</h3><p>The client agent flagged two assumptions and routed them to the engagement lead.</p><dl><div><dt>Authorized by</dt><dd>Data review policy</dd></div><div><dt>Shared</dt><dd>Validation notes</dd></div></dl><HandoffTimeline thread="validation" request="Review the assumptions in the Q4 workbook." assignee="the client data agent" status="Completed" reply="Two assumptions need confirmation from the engagement lead." requestTime="6:02 PM" replyTime="6:10 PM" /></div></div>
           </div>
         </div>
       </section>}
@@ -124,10 +128,11 @@ const features = [
         </div>
       </section>}
 
-      {!isAccount && <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={createAccountUrl}>Start now <Icon name="arrow" size={18} /></a></div></section>}
-      {isAbout && <Team />}
+      {!isAccount && !isDocs && <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={createAccountUrl}>Create your account <Icon name="arrow" size={18} /></a></div></section>}
     </main>
-    {isAccount ? <footer class="account-footer container">© {new Date().getFullYear()} Envoi</footer> : <Footer signInUrl={signInUrl} signUpUrl={createAccountUrl} />}
+    {isDocs ? <footer class="docs-footer container"><span>© {new Date().getFullYear()} Envoi</span><a href="/llms.txt">Plain-text index for agents</a></footer>
+      : isAccount ? <footer class="account-footer container">© {new Date().getFullYear()} Envoi</footer>
+      : <Footer {isAbout} signInUrl={signInUrl} signUpUrl={createAccountUrl} />}
     {isAccount && <script is:inline>
       fetch('/api/auth/me', { credentials: 'same-origin' }).then(response => {
         if (!response.ok) return;

@@ -3,9 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DurableMalwareScanLifecycle } from './object-scan-lifecycle.js';
 
-const DEFAULT_ALLOWED_MIME_TYPES = Object.freeze([
-  'application/pdf', 'image/jpeg', 'image/png', 'text/plain'
-]);
+const DEFAULT_ALLOWED_MIME_TYPES = Object.freeze(['*/*']);
 const SHA256_BASE64_LENGTH = 44;
 const MAX_PRESIGN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
@@ -32,7 +30,7 @@ export function validateObjectStorageConfig(config = {}) {
   if (!['local', 's3'].includes(provider)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'provider must be "local", "s3", or "r2"');
   if (!Number.isSafeInteger(maxObjectBytes) || maxObjectBytes < 1) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'maxObjectBytes must be a positive integer');
   if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > MAX_REQUEST_TIMEOUT_MS) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'requestTimeoutMs must be an integer from 1 to 120000');
-  if (!Array.isArray(allowedMimeTypes) || !allowedMimeTypes.length || allowedMimeTypes.some(type => typeof type !== 'string' || !MIME_TYPE.test(type))) {
+  if (!Array.isArray(allowedMimeTypes) || !allowedMimeTypes.length || allowedMimeTypes.some(type => typeof type !== 'string' || (type !== '*/*' && !MIME_TYPE.test(type)))) {
     throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'allowedMimeTypes must contain valid MIME types');
   }
   if (provider === 'local') {
@@ -76,7 +74,8 @@ function validateUploadInput(input, config) {
   if (typeof input.filename !== 'string' || !input.filename || input.filename !== input.filename.trim() || input.filename.length > 255 || /[\\/\u0000-\u001f\u007f]/.test(input.filename) || ['.', '..'].includes(input.filename)) {
     throw new ObjectStorageError('INVALID_FILENAME', 'Filename must be a non-empty basename without control characters');
   }
-  if (typeof input.mimeType !== 'string' || !MIME_TYPE.test(input.mimeType) || !config.allowedMimeTypes.includes(input.mimeType)) {
+  if (typeof input.mimeType !== 'string' || !MIME_TYPE.test(input.mimeType)
+    || (!config.allowedMimeTypes.includes('*/*') && !config.allowedMimeTypes.includes(input.mimeType))) {
     throw new ObjectStorageError('INVALID_MIME_TYPE', 'MIME type is not permitted');
   }
   if (!Number.isSafeInteger(input.size) || input.size < 1 || input.size > config.maxObjectBytes) throw new ObjectStorageError('INVALID_SIZE', 'Object size is not permitted');
@@ -146,7 +145,7 @@ export class DocumentObjectMetadataStore {
   #workspacePath(record) { return path.join('inboxes', record.workspaceId, 'assets', `${record.id}.json`); }
   async create(record) {
     if (!await this.store.putJsonIfAbsent(this.#path(record.id), record)) return false;
-    try { await this.store.putJson(this.#workspacePath(record), record); }
+    try { if (!record.managedFile) await this.store.putJson(this.#workspacePath(record), record); }
     catch (error) { await this.store.deleteJson(this.#path(record.id)); throw error; }
     return true;
   }
@@ -159,7 +158,7 @@ export class DocumentObjectMetadataStore {
       if (!current) return null;
       if (current.state === 'upload-cleanup-pending' || current.state === 'deleted') return immutable(current);
       const next = { ...current, state: scan.state, scannedAt: scan.scannedAt, scan: clone(scan.result) };
-      await this.store.putJsonBatch([{ path: this.#path(id), value: next }, { path: this.#workspacePath(next), value: next }]);
+      await this.store.putJsonBatch([{ path: this.#path(id), value: next }, ...(next.managedFile ? [] : [{ path: this.#workspacePath(next), value: next }])]);
       return immutable(next);
     });
   }
@@ -167,7 +166,7 @@ export class DocumentObjectMetadataStore {
     const current = await this.get(id);
     if (!current) return null;
     const next = { ...current, ...patch };
-    await this.store.putJsonBatch([{ path: this.#path(id), value: next }, ...(next.uploadCleanupReason === 'AGENT_REMOVED' ? [] : [{ path: this.#workspacePath(next), value: next }])]);
+    await this.store.putJsonBatch([{ path: this.#path(id), value: next }, ...(next.managedFile || next.uploadCleanupReason === 'AGENT_REMOVED' ? [] : [{ path: this.#workspacePath(next), value: next }])]);
     return immutable(next);
   }
   withUploadLock(id, operation, additionalKeys = []) { return this.store.withTransaction([`object-upload:${id}`, ...additionalKeys], operation); }
@@ -540,7 +539,7 @@ export class ObjectStorageService {
       if (authorize) await authorize();
       const reservation = await this.quotaLedger.reserve(input.workspaceId, input.size);
       const createdAt = this.clock();
-      const record = { id, workspaceId: input.workspaceId, key: `workspaces/${input.workspaceId}/objects/${id}`, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: input.createdByAgentId || null, state: 'quarantine', createdAt: createdAt.toISOString(), uploadExpiresAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000).toISOString(), cleanupAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000 + this.config.uploadCleanupGraceMs).toISOString(), uploadCompletedAt: null, scannedAt: null, scan: null, reservationId: reservation.id };
+      const record = { id, workspaceId: input.workspaceId, key: `workspaces/${input.workspaceId}/objects/${id}`, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: input.createdByAgentId || null, ...(input.managedFile ? { managedFile: true } : {}), state: 'quarantine', createdAt: createdAt.toISOString(), uploadExpiresAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000).toISOString(), cleanupAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000 + this.config.uploadCleanupGraceMs).toISOString(), uploadCompletedAt: null, scannedAt: null, scan: null, reservationId: reservation.id };
       try {
         if (!await this.metadataStore.create(record)) throw new ObjectStorageError('OBJECT_EXISTS', 'Object metadata already exists', 409);
         const upload = await this.adapter.createPresignedUpload({ key: record.key, contentType: record.mimeType, checksumSha256: record.checksumSha256, expiresInSeconds: this.config.uploadUrlTtlSeconds, size: record.size });

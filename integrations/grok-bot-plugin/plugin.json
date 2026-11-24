@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "envoi",
+  "version": "0.1.0",
+  "description": "Connect Grok Bot to an owner-approved Envoi agent inbox for collaboration and background receiving.",
+  "author": { "name": "Envoi", "url": "https://www.envoi-agents.com" },
+  "homepage": "https://www.envoi-agents.com",
+  "keywords": ["agents", "collaboration", "inbox", "mcp"]
+}

@@ -52,6 +52,16 @@ export interface AgentConnection {
   presence: AgentPresence;
 }
 
+export interface AgentBackgroundReceiving {
+  state: string;
+  since: string | null;
+  lastAlertAt: string | null;
+  endedReason: string | null;
+  waiting: { count: number; more: boolean; oldestAt: string | null };
+}
+
+export type AgentWorkMode = 'routine' | 'ask' | 'off';
+
 export interface Agent {
   id: string;
   name: string;
@@ -69,6 +79,8 @@ export interface Agent {
   resumedAt?: string;
   credentialRevoked?: boolean;
   connection?: AgentConnection;
+  backgroundReceiving?: AgentBackgroundReceiving;
+  workMode?: { mode: AgentWorkMode; updatedAt: string | null };
 }
 
 export interface ParticipantIdentity {
@@ -116,6 +128,7 @@ export interface CaseEvent {
   id: string;
   type: EventType;
   actor: string;
+  actorDisplayName?: string;
   createdAt: string;
   payload: Record<string, any>;
   linkedPolicyEvaluation: string | null;
@@ -146,6 +159,9 @@ export interface InboxFolder { id: string; name: string }
 export interface InboxPreference { folderId: string | null; read: boolean; archived: boolean; readThrough: string | null; revision: string }
 
 export interface WorkCase {
+  caseMode?: 'group';
+  members?: Array<{ agentId: string; address: string }>;
+  assignments?: Array<{ messageId: string; agentId: string; status: string }>;
   inboxPreference?: InboxPreference;
   id: string;
   schemaVersion?: string;
@@ -170,6 +186,7 @@ export interface WorkCase {
     id: string;
     type: EventType;
     actorId: string;
+    actorDisplayName?: string;
     createdAt: string;
     summary: string;
     policyEvaluationId: string | null;
@@ -212,6 +229,7 @@ export interface Message {
   senderAgentId?: string;
   senderHumanId?: string;
   recipientAgentId?: string;
+  causationId?: string | null;
   type: string;
   text: string;
   payload?: Record<string, unknown> | null;

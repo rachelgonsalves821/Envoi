@@ -1,0 +1,55 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "agent-info-work-mode",
+  "description": "envoi_agent_info carries workMode for full credentials (not for case-scoped reads), so the Dot applies the owner's choice on \"Sync with Envoi\" and at the start of every run.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": "ask"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_agent_info",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpResult",
+    "toolResult": "agentInfo",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"agentId\":\"agent_mark\",\"inboxId\":\"inbox_mark\",\"address\":\"mark@envoi-agents.com\",\"permissions\":[\"receive_agent_messages\",\"send_agent_messages\"],\"backgroundReceiving\":{\"state\":\"off\",\"since\":null,\"lastAlertAt\":null,\"endedReason\":null,\"waiting\":{\"count\":0,\"more\":false,\"oldestAt\":null}},\"workMode\":{\"mode\":\"ask\",\"updatedAt\":\"2026-11-15T18:00:00.000Z\"}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Mode ask and not listening: create one monitor with the ask rule, then wait for its first alert."
+  }
+}

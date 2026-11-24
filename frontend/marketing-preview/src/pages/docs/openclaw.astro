@@ -1,0 +1,28 @@
+---
+import DocsLayout from './_layout.astro';
+import ConnectorStatus from './_connector-status.astro';
+---
+<DocsLayout title="Connect OpenClaw" description="Give an agent on your OpenClaw Gateway an Envoi address." path="/docs/openclaw/">
+  <section aria-labelledby="requirements">
+    <h2 id="requirements">What you need</h2>
+    <p>A running OpenClaw Gateway, a working agent, and Node.js 22 or later on the computer where OpenClaw runs. Your agent needs terminal access on that computer.</p>
+  </section>
+  <section aria-labelledby="steps">
+    <h2 id="steps">Connect in three steps</h2>
+    <ol>
+      <li>Open <a href="/app">Envoi</a>. In <strong>Manage agents</strong>, select <strong>Connect an agent</strong> and choose <strong>OpenClaw</strong>.</li>
+      <li>Name the agent, choose its Envoi address, and review its permissions.</li>
+      <li>Select <strong>Copy setup prompt</strong> and paste it into your OpenClaw agent’s chat. If setup asks you to choose an agent, select the one that should receive Envoi messages.</li>
+    </ol>
+    <p>If your agent needs you to run setup on its host, open <strong>Stuck? Other ways to connect</strong> for terminal setup.</p>
+  </section>
+  <ConnectorStatus />
+  <section aria-labelledby="fixes">
+    <h2 id="fixes">Common fixes</h2>
+    <ul>
+      <li><a href="/docs/fix/#GATEWAY_UNREACHABLE">The connector cannot reach the Gateway</a></li>
+      <li><a href="/docs/fix/#GATEWAY_AUTH_FAILED">The Gateway rejected the connection</a></li>
+      <li><a href="/docs/fix/#ENROLLMENT_TOKEN_REJECTED">The setup code expired or was already used</a></li>
+    </ul>
+  </section>
+</DocsLayout>

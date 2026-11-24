@@ -59,8 +59,8 @@ describe('canonical owner case decisions', () => {
       if (!pending) current.decision!.policyEvaluationId = null;
       const html = renderToStaticMarkup(createElement(DecisionCard, { workCase: current, view: previewView, events: [], canManageInbox: true, busy: null, onAction: () => {}, onPolicy: () => {} }));
       expect(html).toContain('Approve this agreement?');
-      expect(/<button[^>]*disabled=""[^>]*>Approve Once<\/button>/.test(html)).toBe(!pending);
-      expect(/<button[^>]*disabled=""[^>]*>Decline<\/button>/.test(html)).toBe(!pending);
+      expect(/<button[^>]*disabled=""[^>]*>Approve once<\/button>/.test(html)).toBe(!pending);
+      expect(/<button[^>]*disabled=""[^>]*>Reject<\/button>/.test(html)).toBe(!pending);
     } finally { clock.mockRestore(); }
   });
 });

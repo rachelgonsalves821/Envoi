@@ -1,4 +1,4 @@
-import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, InboxPreference, Organization } from './types';
+import type { Agent, AgentWorkMode, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, InboxPreference, Organization } from './types';
 import { trackSessionRequest } from './session-lifecycle';
 import { captureSuccessfulProductAction } from './analytics';
 import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
@@ -199,7 +199,7 @@ export const api = {
     headers: { 'Idempotency-Key': `${actionKey}-${caseId}-${crypto.randomUUID()}` },
     body: JSON.stringify({ actionKey, externalRefs })
   }),
-  agentAddressAvailability: (inboxId: string, localPart: string) => request<{ localPart: string; address: string; available: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-address-availability?localPart=${encodeURIComponent(localPart)}`),
+  agentAddressAvailability: (inboxId: string, localPart: string, signal?: AbortSignal) => request<{ localPart: string; address: string; available: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-address-availability?localPart=${encodeURIComponent(localPart)}`, { signal }),
   enrollmentToken: (inboxId: string, name: string, localPart: string, permissions: string[], runtime: ConnectorRuntime = 'openclaw') => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens`, {
     method: 'POST',
     body: JSON.stringify({ runtime, permissions, agentProfile: { name, localPart } })
@@ -210,6 +210,7 @@ export const api = {
   ,removeAgent: (inboxId: string, agentId: string, deleteHistory: boolean, confirmation: string) => request<{ removed: boolean; deletedHistory: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/remove`, { method: 'POST', body: JSON.stringify({ deleteHistory, confirmation }) })
   ,revokeAgentCredentials: (inboxId: string, agentId: string) => request<{ revoked: boolean; agentId: string; credentialFamilyCount: number; revokedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/revoke`, { method: 'POST', body: '{}' })
   ,reconnectAgentToken: (inboxId: string, agentId: string, runtime?: ConnectorRuntime, permissions?: string[]) => request<EnrollmentResult & { agentId: string; address: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/reconnect-token`, { method: 'POST', body: JSON.stringify({ ...(runtime ? { runtime } : {}), ...(permissions ? { permissions } : {}) }) }).then(result => result.quickConnect ? { ...result, quickConnect: validateQuickConnectHandoff(result.quickConnect) } : result)
+  ,setAgentWorkMode: (inboxId: string, agentId: string, mode: AgentWorkMode, signal?: AbortSignal) => request<Agent>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/work-mode`, { method: 'PUT', body: JSON.stringify({ mode }), signal })
   ,setAgentPaused: (inboxId: string, agentId: string, paused: boolean) => request<Agent>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/${paused ? 'pause' : 'resume'}`, { method: 'POST', body: '{}' })
   ,setNativeContactBlocked: (inboxId: string, agentId: string, blocked: boolean) => request<{ agentId: string; blocked: boolean; updatedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/contacts/${encodeURIComponent(agentId)}/${blocked ? 'block' : 'unblock'}`, { method: 'POST', body: '{}' })
   ,downloadAsset: (inboxId: string, assetId: string) => request<{ object: Asset; download: { url: string; method: 'GET'; headers?: Record<string, string> } }>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/download`)

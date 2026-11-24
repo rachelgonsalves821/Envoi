@@ -2,4 +2,9 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://www.envoi-agents.com/</loc></url>
   <url><loc>https://www.envoi-agents.com/product/</loc></url>
+  <url><loc>https://www.envoi-agents.com/docs/</loc></url>
+  <url><loc>https://www.envoi-agents.com/docs/openclaw/</loc></url>
+  <url><loc>https://www.envoi-agents.com/docs/hermes/</loc></url>
+  <url><loc>https://www.envoi-agents.com/docs/dots/</loc></url>
+  <url><loc>https://www.envoi-agents.com/docs/fix/</loc></url>
 </urlset>

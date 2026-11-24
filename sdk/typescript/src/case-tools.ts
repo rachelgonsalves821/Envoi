@@ -3,6 +3,7 @@ import addFormats from 'ajv-formats';
 import schema from './case-tools-schema.json';
 import { CaseSessionChannel } from './case-session';
 import { EnvoiError } from './index';
+import { retryDelay } from './lifecycle';
 
 export type CaseToolName = 'envoi_case_snapshot' | 'envoi_case_reply' | 'envoi_case_propose' | 'envoi_case_decide'
   | 'envoi_authority_check' | 'envoi_request_human' | 'envoi_case_list_assets' | 'envoi_case_share_asset' | 'envoi_case_complete';
@@ -11,7 +12,7 @@ type Keyed = { idempotencyKey: string };
 type Terms = Record<string, unknown>;
 export interface CaseToolInputs {
   envoi_case_snapshot: { eventLimit?: number; eventsBefore?: string };
-  envoi_case_reply: Keyed & { text: string; intent?: 'message' | 'clarify' | 'status'; inReplyTo?: string };
+  envoi_case_reply: Keyed & { text: string; intent?: 'message' | 'clarify' | 'status'; inReplyTo?: string; assigneeAgentIds?: string[] };
   envoi_case_propose: Keyed & { text: string; terms: Terms };
   envoi_case_decide: Keyed & { proposalRef: string; text: string } & (
     { decision: 'accept'; optionRef: string; authorityRef: string; terms?: never }
@@ -36,8 +37,9 @@ export interface CaseSnapshot {
   case: { objective: string; collaborationMode: string; status: string; deadline: string | null; createdAt: string; updatedAt: string };
   you: { address: string };
   counterparty: CaseParty;
-  requestedResponse?: { ref: string; from: 'other_agent' | 'your_human'; kind: string; intent: string | null; text: string; truncated: boolean; receivedAt: string };
-  recentEvents: Array<{ ref: string; kind: string; actor: string; at: string; intent: string | null; text: string | null; truncated: boolean; deliveryStatus: string | null }>;
+  groupMembers?: Array<{ agentId: string; address: string }>;
+  requestedResponse?: { ref: string; from: 'other_agent' | 'your_human'; actorAgentId?: string; kind: string; intent: string | null; text: string; truncated: boolean; receivedAt: string };
+  recentEvents: Array<{ ref: string; kind: string; actor: string; actorAgentId?: string; at: string; intent: string | null; text: string | null; truncated: boolean; deliveryStatus: string | null }>;
   page: { hasOlder: boolean; olderCursor: string | null };
   proposal: null | { ref: string; kind: string; status: string; lastActor: string; options: Array<{ ref: string; value: unknown; truncated: boolean }>; expiresAt: string | null };
   authority: { pendingHumanDecision: boolean; lastPolicyDecision: null | { authorityRef: string; action: string; decision: string; humanApproval: string; optionRef: string | null; expiresAt: string } };
@@ -50,7 +52,7 @@ type Replayed = { replayed: boolean };
 type DeliveredTo = { recipient: CaseParty };
 export interface CaseToolResults {
   envoi_case_snapshot: CaseSnapshot;
-  envoi_case_reply: Replayed & DeliveredTo & { messageRef: string; status: 'queued' | 'delivered'; inReplyTo: string | null; createdAt: string };
+  envoi_case_reply: Replayed & { recipient: CaseParty | { kind: 'group' }; messageRef: string; status: 'queued' | 'delivered'; inReplyTo: string | null; createdAt: string };
   envoi_case_propose: Replayed & DeliveredTo & { messageRef: string; proposalRef: string; optionRef: string; status: 'queued' };
   envoi_case_decide: Replayed & DeliveredTo & { decision: 'accept' | 'counter' | 'reject'; messageRef: string; proposalRef: string; optionRef: string | null; proposalStatus: string; caseStatus: string };
   envoi_authority_check: Replayed & { action: 'accept_proposal' | 'complete_case'; authorityRef: string; decision: 'allow' | 'deny' | 'needsHuman'; humanApproval: 'not_required' | 'pending' | 'approved'; expiresAt: string; proposalRef: string | null; optionRef: string | null };
@@ -100,6 +102,15 @@ export class CaseToolError extends EnvoiError {
   }
 }
 
+function waitForToolRetry(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, ms);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
 export class CaseToolsClient {
   #channel: CaseSessionChannel;
   #sequence = 0;
@@ -123,6 +134,8 @@ export class CaseToolsClient {
     if ('terms' in saved && bytes(JSON.stringify(saved.terms)) > 1024) return Promise.reject(new EnvoiError('Case terms exceed the byte limit', undefined, 'TOOL_ARGUMENTS_INVALID'));
     const run = this.#tail.then(async () => {
       this.signal.throwIfAborted();
+      if (name === 'envoi_case_reply' && Object.hasOwn(saved, 'assigneeAgentIds') && !this.#channel.modelContext().groupMemberAgentIds)
+        throw new EnvoiError('Group assignment requires a bound group case', undefined, 'TOOL_ARGUMENTS_INVALID');
       if (this.#endRequired) throw new EnvoiError('End this turn and wait for the human decision', undefined, 'TURN_END_REQUIRED');
       if (!this.#initialized && (name !== 'envoi_case_snapshot' || Object.hasOwn(saved, 'eventsBefore'))) await this.#perform('envoi_case_snapshot', {});
       return this.#perform(name, saved);
@@ -142,11 +155,23 @@ export class CaseToolsClient {
   complete(input: CaseToolInputs['envoi_case_complete']) { return this.call('envoi_case_complete', input); }
 
   async #perform<Name extends CaseToolName>(name: Name, input: CaseToolInputs[Name]): Promise<Readonly<CaseToolResults[Name]>> {
+    const id = ++this.#sequence;
+    const body = JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: input } });
+    let failures = 0;
+    while (true) {
+      try { return await this.#request(name, input, id, body); }
+      catch (error) {
+        if (!(error instanceof CaseToolError && error.code === 'TOOL_BUSY' && error.retryable) || ++failures > 3) throw error;
+        await waitForToolRetry(retryDelay(failures), this.signal);
+      }
+    }
+  }
+
+  async #request<Name extends CaseToolName>(name: Name, input: CaseToolInputs[Name], id: number, body: string): Promise<Readonly<CaseToolResults[Name]>> {
     this.signal.throwIfAborted();
     const context = this.#channel.modelContext();
     if (!context.allowedTools.includes(name)) throw new EnvoiError('Tool is not in this case session', undefined, 'TOOL_NOT_IN_SESSION');
-    const id = ++this.#sequence;
-    const response = await this.#channel.forward(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: input } }));
+    const response = await this.#channel.forward(body);
     this.signal.throwIfAborted();
     let payload: unknown;
     try { payload = await response.json(); } catch { throw invalidResponse(); }
@@ -174,10 +199,21 @@ export class CaseToolsClient {
         || snapshot.allowedActions.some(tool => !context.allowedTools.includes(tool))
         || Object.hasOwn(snapshot, 'requestedResponse') === Object.hasOwn(input, 'eventsBefore')
         || !snapshotWithinLimits(snapshot)) throw invalidResponse();
+      const groupMemberIds = new Set(context.groupMemberAgentIds);
+      if (snapshot.groupMembers) {
+        const snapshotIds = new Set(snapshot.groupMembers.map(member => member.agentId));
+        if (snapshotIds.size !== groupMemberIds.size || snapshotIds.size !== snapshot.groupMembers.length
+          || snapshot.groupMembers.some(member => !groupMemberIds.has(member.agentId))
+          || snapshot.recentEvents.some(event => event.actorAgentId && !groupMemberIds.has(event.actorAgentId))
+          || (snapshot.requestedResponse && !groupMemberIds.has(snapshot.requestedResponse.actorAgentId || ''))) throw invalidResponse();
+      } else if (groupMemberIds.size) throw invalidResponse();
       if (!Object.hasOwn(input, 'eventsBefore')) this.#initialized = true;
     } else if (object(value) && 'recipient' in value) {
       const recipient = value.recipient;
-      if (!object(recipient) || recipient.kind !== context.counterpartyKind || recipient.kind === 'agent' && recipient.address !== context.counterpartyAddress) throw invalidResponse();
+      if (!object(recipient)) throw invalidResponse();
+      if (name === 'envoi_case_reply' && context.groupMemberAgentIds) {
+        if (recipient.kind !== 'group') throw invalidResponse();
+      } else if (recipient.kind !== context.counterpartyKind || recipient.kind === 'agent' && recipient.address !== context.counterpartyAddress) throw invalidResponse();
     }
     if (name === 'envoi_authority_check') {
       const request = input as CaseToolInputs['envoi_authority_check'];

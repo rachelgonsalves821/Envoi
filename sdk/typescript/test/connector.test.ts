@@ -365,6 +365,37 @@ describe('Envoi outbound connector', () => {
     expect(order).toEqual(['claim', 'admit', 'ack', 'process', 'reply', 'complete']);
   });
 
+  it('posts a group assignment reply under the existing case and references the canonical message', async () => {
+    const memory = memoryStore(session());
+    const message = {
+      id: 'msg_assignment', caseId: 'case_group', senderAgentId: 'agent_two', recipientAgentId: 'agent_one',
+      from: { agentId: 'agent_two', address: 'two@envoi.mail' }, text: 'Investigate this',
+      groupCase: { messageId: 'msg_canonical', memberAgentIds: ['agent_one', 'agent_two', 'agent_three'] }
+    };
+    const fetcher: typeof fetch = async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith('/claim')) return Response.json({ work: {
+        workId: message.id, message, leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString()
+      } });
+      if (path === '/api/agent/group-cases/case_group/messages') {
+        expect(new Headers(init?.headers).get('Idempotency-Key')).toBe('reply-group-1');
+        expect(JSON.parse(String(init?.body))).toEqual({ text: 'Here is the result', inReplyTo: 'msg_canonical' });
+        return Response.json({ id: 'msg_group_reply', caseId: 'case_group' });
+      }
+      if (path.endsWith('/acknowledge') || path.endsWith('/complete')) {
+        const state = path.endsWith('/acknowledge') ? 'acknowledged' : 'processed';
+        return Response.json({ workId: message.id, status: state, receipt: { messageId: message.id, state } });
+      }
+      throw new Error(`Unexpected route ${path}`);
+    };
+    const process = vi.fn(async (_message: unknown, context: Parameters<WorkHandler['process']>[1]) => {
+      expect(await context.reply('Here is the result', 'reply-group-1')).toMatchObject({ caseId: 'case_group' });
+    });
+    const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, handler: { admit: async () => {}, process } });
+    expect(await connector.processWorkOnce()).toBe(true);
+    expect(process).toHaveBeenCalledOnce();
+  });
+
   it('reports handler failure through a retryable fenced fail without sending raw error text', async () => {
     const memory = memoryStore(session());
     const paths: string[] = [];
@@ -385,6 +416,47 @@ describe('Envoi outbound connector', () => {
     await expect(connector.processWorkOnce()).rejects.toThrow('private-agent-secret');
     expect(paths.some(path => path.endsWith('/work/work_one/fail'))).toBe(true);
     expect(paths.some(path => path.endsWith('/work/work_one/complete'))).toBe(false);
+  });
+
+  it('uses the work rule from status and refreshes it after 60 seconds', async () => {
+    const memory = memoryStore(session());
+    const start = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+    const process = vi.fn();
+    let statusReads = 0;
+    let claims = 0;
+    let mode: string | undefined = 'ask';
+    const fetcher: typeof fetch = async url => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/api/agent/status') {
+        statusReads++;
+        return Response.json({ state: 'active', inboxId: 'inbox_one', agent: { id: 'agent_one' }, ...(mode ? { workMode: { mode } } : {}) });
+      }
+      if (path.endsWith('/claim')) {
+        const id = 'msg_' + ++claims;
+        return Response.json({ state: 'claimed', work: { workId: id, leaseToken: 'lease',
+          leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+          message: { id, caseId: 'case_one', recipientAgentId: 'agent_one', senderAgentId: 'agent_two', from: { address: 'two@envoi.mail' }, text: 'Hello' } } });
+      }
+      const id = 'msg_' + claims;
+      const state = path.endsWith('/acknowledge') ? 'acknowledged' : 'processed';
+      return Response.json({ workId: id, status: state, receipt: { messageId: id, state } });
+    };
+    const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, readWorkRule: true, handler: { admit: async () => {}, process } });
+    try {
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      mode = 'routine';
+      clock.mockReturnValue(start + 59_999);
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      expect(statusReads).toBe(1);
+      clock.mockReturnValue(start + 60_000);
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      mode = undefined;
+      clock.mockReturnValue(start + 120_000);
+      await expect(connector.processWorkOnce()).resolves.toBe(true);
+      expect(statusReads).toBe(3);
+      expect(process.mock.calls.map(([, context]) => context.workRule)).toEqual(['ask', 'ask', 'routine', undefined]);
+    } finally { clock.mockRestore(); }
   });
 
   it('does not invoke the runtime when no canonical work is claimable', async () => {

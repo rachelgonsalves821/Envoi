@@ -36,11 +36,12 @@ function originSet(value){
   const values=Array.isArray(value)?value:String(value||'').split(',').map(value=>value.trim()).filter(Boolean);
   return new Set(values.map(value=>{let url;try{url=new URL(value);}catch{throw new Error('Invalid provider wake origin');}if(url.protocol!=='https:'||url.port||url.username||url.password||url.pathname!=='/'||url.search||url.hash||net.isIP(url.hostname.replace(/^\[|\]$/g,''))||url.origin!==value)throw new Error('Invalid provider wake origin');return url.origin;}));
 }
-export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,grokTriggerEnabled=false,key,env=process.env,now=()=>new Date().toISOString(),audit=async()=>{},resolveDestination,authorizeOwner=async()=>{},validateCursor=async()=>{},eventHistory=async()=>({cursor:null,truncated:false,events:[]})}={}){
-  const dataKey=key||((mcpEventsEnabled||grokTriggerEnabled)&&env.ENVOI_DATA_ENCRYPTION_KEY?crypto.createHash('sha256').update(env.ENVOI_DATA_ENCRYPTION_KEY).digest():null);
-  if((mcpEventsEnabled||grokTriggerEnabled)&&(!Buffer.isBuffer(dataKey)||dataKey.length!==32))throw new Error('Provider wake requires the server data encryption key');
+export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,grokTriggerEnabled=false,grokBotWakeEnabled=false,key,env=process.env,now=()=>new Date().toISOString(),audit=async()=>{},observe=record=>console.error(JSON.stringify(record)),resolveDestination,authorizeOwner=async()=>{},validateCursor=async()=>{},eventHistory=async()=>({cursor:null,truncated:false,events:[]}),workModeOff=async()=>false}={}){
+  const dataKey=key||((mcpEventsEnabled||grokTriggerEnabled||grokBotWakeEnabled)&&env.ENVOI_DATA_ENCRYPTION_KEY?crypto.createHash('sha256').update(env.ENVOI_DATA_ENCRYPTION_KEY).digest():null);
+  if((mcpEventsEnabled||grokTriggerEnabled||grokBotWakeEnabled)&&(!Buffer.isBuffer(dataKey)||dataKey.length!==32))throw new Error('Provider wake requires the server data encryption key');
   const destination=createWakeDestination({env});const resolve=resolveDestination||destination.resolve;
   const callbacks=originSet(env.ENVOI_MCP_EVENTS_CALLBACK_ORIGINS),triggers=originSet(env.ENVOI_GROK_TRIGGER_ORIGINS);
+  const botOrigins = originSet(env.ENVOI_GROK_BOT_WAKE_ORIGINS);
   const allowlistDigest=hash([...callbacks].sort().join('\n'));
   const time=()=>Date.parse(now());
   const encode=(secret,id)=>{const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',dataKey,iv);cipher.setAAD(Buffer.from(id));const ciphertext=Buffer.concat([cipher.update(secret,'utf8'),cipher.final()]);return {iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),ciphertext:ciphertext.toString('base64')};};
@@ -58,6 +59,14 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
     body:(sub,event)=>({eventId:event.id,name:event.type.replace(/^wake\./,'envoi.'),timestamp:event.createdAt,data:{reason:event.reason},cursor:sub.cursor||null})
   });
   httpWake.registerProfile('grok_trigger',{destination:url=>checked(url,triggers),headers:signature});
+  httpWake.registerProfile('grok_bot', {
+    destination: url => checked(url, botOrigins),
+    headers: sub => ({
+      'content-type': 'application/json',
+      authorization: `Bearer ${decode(sub.secretEncrypted, sub.id)}`
+    }),
+    accepts: (_sub, event) => event.type === 'wake.work_available'
+  });
   function paramsValid(params,subscribe){
     if(!closed(params,subscribe?['name','arguments','delivery','cursor','ttlMs']:['name','arguments','delivery'])||!providerEvents.some(event=>event.name===params.name)||!empty(params.arguments)||!closed(params.delivery,subscribe?['mode','url','secret']:['mode','url'])||params.delivery.mode!=='webhook'||typeof params.delivery.url!=='string'||params.delivery.url.length>2048)throw invalid();
     if(subscribe&&params.cursor!==undefined&&params.cursor!==null&&(typeof params.cursor!=='string'||!/^[0-9]{20}$/.test(params.cursor)))throw invalid();
@@ -67,13 +76,13 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
   const identityId=(identity,name,url)=>`evtsub_${hash(JSON.stringify([identity.installationId,name,{},url])).slice(0,20)}`;
   // The frozen public flag records that a secret was provisioned. Ended targets retain
   // this historical metadata while their encrypted secret has already been deleted.
-  const grokPublic=sub=>({id:sub.id,kind:'grok_webhook_trigger',installationId:sub.installationId,agentId:sub.agentId,url:sub.url,secretSet:true,state:sub.status==='ended'?'ended':sub.targetState||'active',stateReason:sub.status==='ended'?sub.endedReason:sub.stateReason||null,createdAt:sub.createdAt,updatedAt:sub.updatedAt||sub.createdAt,lastAttemptAt:sub.delivery.lastAttemptAt,lastAcceptedAt:sub.delivery.lastSuccessAt,consecutiveFailures:sub.delivery.consecutiveFailures});
-  const grokAvailable=()=>{if(!grokTriggerEnabled)throw wakeError(404,'FEATURE_DISABLED');};
+  const grokPublic=sub=>({id:sub.id,kind:sub.profile==='grok_bot'?'grok_bot_routine':'grok_webhook_trigger',installationId:sub.installationId,agentId:sub.agentId,...(sub.profile==='grok_bot'?{}:{url:sub.url}),secretSet:sub.profile!=='grok_bot'||sub.status!=='ended',state:sub.status==='ended'?'ended':sub.targetState||'active',stateReason:sub.status==='ended'?sub.endedReason:sub.stateReason||null,createdAt:sub.createdAt,updatedAt:sub.updatedAt||sub.createdAt,lastAttemptAt:sub.delivery.lastAttemptAt,lastAcceptedAt:sub.delivery.lastSuccessAt,consecutiveFailures:sub.delivery.consecutiveFailures});
+  const grokAvailable=profile=>{if(!(profile==='grok_bot'?grokBotWakeEnabled:grokTriggerEnabled))throw wakeError(404,'FEATURE_DISABLED');};
   return {available,events:providerEvents,
     discover(identity,version){requireEvents(identity,version);return {resultType:'complete',supportedVersions:[providerEventsProtocolVersion],capabilities:{tools:{},events:{}}};},
     list(identity,params={},version){requireEvents(identity,version);params=eventParams(params);if(!empty(params))throw invalid();return {events:providerEvents};},
     async subscribe(identity,params,version){
-      requireEvents(identity,version);params=eventParams(params);paramsValid(params,true);const binding=bound(identity);await validateCursor(binding,params.cursor??null);let url;
+      requireEvents(identity,version);params=eventParams(params);paramsValid(params,true);const binding=bound(identity);await validateCursor(binding,params.cursor??null);if(params.name==='envoi.work_available'&&await workModeOff(binding))throw rpc(-32016,'BackgroundReceivingOff','owner_turned_off');let url;
       try{url=checked(params.delivery.url,callbacks);}catch(error){throw callbackError(error.reason==='origin_not_allowed'?'origin_not_allowed':'address_not_allowed');}
       await httpWake.reserveProfileCreate(binding,'mcp_events',identityId(binding,params.name,url));
       const cache=cachePath(binding,url),oneWayKey=hash(`${params.delivery.secret}\n${allowlistDigest}`);
@@ -93,32 +102,70 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
         if(!(response.status>=200&&response.status<300)||response.bodyTooLarge||!equal(echoed,challenge))throw callbackError('challenge_failed');
         verified=true;
       }
-      const history=await eventHistory(binding,params.cursor??null);const id=identityId(binding,params.name,url);
-      const priorChanged=existing?.status==='active'&&existing.secretEncrypted&&!equal(existing.secretHash,hash(params.delivery.secret));
-      const sub=await httpWake.createProfile(binding,'mcp_events',{id,url,quotaReserved:true,expiresAt:new Date(time()+(params.ttlMs??604800000)).toISOString(),eventName:params.name,cursor:history.cursor||null,secretHash:hash(params.delivery.secret),secretEncrypted:encode(params.delivery.secret,id),previousSecretEncrypted:priorChanged?existing.secretEncrypted:existing?.previousSecretEncrypted,previousSecretUntil:priorChanged?new Date(time()+600000).toISOString():existing?.previousSecretUntil});
-      if(verified)await store.putJson(cache,{key:oneWayKey,expiresAt:new Date(time()+3600000).toISOString()});
-      for(const event of history.events||[])await httpWake.queueProfile(sub,event.type,event.reason,event.cursor);
-      return {id,refreshBefore:sub.expiresAt,cursor:history.cursor||null,truncated:Boolean(history.truncated)};
+      // Verification performs network I/O without the inbox lock. Activation, its
+      // cache and catch-up queue must then commit together: a later storage failure
+      // must not expose a half-created subscription to the delivery worker.
+      const id=identityId(binding,params.name,url),started=time();let phase='acquire';
+      try{return await store.withTransaction([`inbox:${binding.inboxId}:mutations`],async()=>{
+        phase='history';const history=await eventHistory(binding,params.cursor??null);
+        phase='subscription';
+        const current=(await httpWake.profileRecords(binding,'mcp_events')).find(sub=>sub.id===id);
+        const priorChanged=current?.status==='active'&&current.secretEncrypted&&!equal(current.secretHash,hash(params.delivery.secret));
+        const sub=await httpWake.createProfile(binding,'mcp_events',{id,url,quotaReserved:true,expiresAt:new Date(time()+(params.ttlMs??604800000)).toISOString(),eventName:params.name,cursor:history.cursor||null,secretHash:hash(params.delivery.secret),secretEncrypted:encode(params.delivery.secret,id),previousSecretEncrypted:priorChanged?current.secretEncrypted:current?.previousSecretEncrypted,previousSecretUntil:priorChanged?new Date(time()+600000).toISOString():current?.previousSecretUntil});
+        phase='verification_cache';if(verified)await store.putJson(cache,{key:oneWayKey,expiresAt:new Date(time()+3600000).toISOString()});
+        phase='replay';
+        // With the inbox locked, the lane cannot drain during catch-up. Its first
+        // hint stays queued and later hints overwrite one dirty marker. Preserve
+        // those first/latest hints without hundreds of redundant database writes.
+        const matching=(history.events||[]).filter(event=>event.type===params.name.replace(/^envoi\./,'wake.'));
+        const catchUp=matching.length>1?[matching[0],matching.at(-1)]:matching;
+        for(const event of catchUp)await httpWake.queueProfile(sub,event.type,event.reason,event.cursor);
+        // provider-event-wake-activation v1 §1: a new subscription (none, or ended) whose catch-up queued nothing is woken once,
+        // so the host proves a real wake (agent-listening-status lastAlertAt). A renewal of an active one queues nothing new.
+        if(params.name==='envoi.work_available'&&(!current||current.status==='ended')&&!catchUp.length)await httpWake.queueProfile(sub,'wake.work_available','subscription_activated',history.cursor||null);
+        phase='commit';
+        return {id,refreshBefore:sub.expiresAt,cursor:history.cursor||null,truncated:Boolean(history.truncated)};
+      });}catch(error){
+        if(!error?.rpcCode&&(!Number.isInteger(error?.statusCode)||error.statusCode>=500)){
+          // Error messages/stacks can contain SQL values, callback URLs or secrets.
+          // Only fixed stages/classes/codes and the opaque subscription id leave here.
+          const errorClass=['Error','TypeError','RangeError','SyntaxError','AbortError','TimeoutError'].includes(error?.name)?error.name:'Error';
+          const code=['40001','40P01','53300','57014','55P03','08006','57P01','ETIMEDOUT','ECONNRESET','ENOSPC','EPERM','EBUSY','LOCK_TIMEOUT'].includes(error?.code)?error.code:'unexpected';
+          try{observe({event:'envoi.mcp_events_subscribe_failed',subscriptionId:id,phase,errorClass,code,durationMs:Math.max(0,time()-started)});}catch{/* Diagnostics must preserve the original error. */}
+        }
+        throw error;
+      }
     },
     async unsubscribe(identity,params,version){requireEvents(identity,version);params=eventParams(params);paramsValid(params,false);const binding=bound(identity);let url;try{url=destination.canonical(params.delivery.url);}catch{throw invalid();}const id=identityId(binding,params.name,url);const sub=(await httpWake.profileRecords(binding,'mcp_events')).find(sub=>sub.id===id);if(sub)await httpWake.endProfile(binding,id);await store.deleteJson(cachePath(binding,url));return {};},
-    async putGrok(identity,params){
-      grokAvailable();const binding=bound(identity);if(!binding.installationId||!binding.familyId)throw wakeError(400,'WAKE_TARGET_INVALID','installation_required');
+    async putGrok(identity,params,profile='grok_trigger'){
+      grokAvailable(profile);const binding=bound(identity);if(!binding.installationId||!binding.familyId)throw wakeError(400,'WAKE_TARGET_INVALID','installation_required');
       if(!closed(params,['url','secret'])||typeof params.url!=='string')throw wakeError(400,'WAKE_TARGET_INVALID','secret_invalid');
-      try{secretBytes(params.secret);}catch{throw wakeError(400,'WAKE_TARGET_INVALID','secret_invalid');}
-      const url=checked(params.url,triggers);
-      const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},'grok_trigger');
+      try {
+        if (profile === 'grok_bot') {
+          if (typeof params.secret !== 'string' || !/^[!-~]{1,2048}$/.test(params.secret)) throw invalid();
+        } else secretBytes(params.secret);
+      }catch{throw wakeError(400,'WAKE_TARGET_INVALID','secret_invalid');}
+      const url=checked(params.url,profile==='grok_bot'?botOrigins:triggers);
+      const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},profile);
       const current=records.find(sub=>sub.status!=='ended');
       const id=current?.installationId===binding.installationId?current.id:`wake_target_${crypto.randomBytes(18).toString('base64url')}`;
-      await httpWake.reserveProfileCreate(binding,'grok_trigger',id);await resolve(url);
+      await httpWake.reserveProfileCreate(binding,profile,id);await resolve(url);
       const guard=()=>authorizeOwner(identity);
       return store.withTransaction([`inbox:${binding.inboxId}:mutations`],async()=>{
-        for(const sub of records)if(sub.installationId!==binding.installationId&&sub.status!=='ended')await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'replaced',guard);
-        const sub=await httpWake.createProfile(binding,'grok_trigger',{id,url,allowPaused:true,quotaReserved:true,beforeCommit:guard,resetGeneration:true,secretEncrypted:encode(params.secret,id),previousSecretEncrypted:undefined,previousSecretUntil:undefined,targetState:'active',stateReason:null,updatedAt:now()});
+        const latest = profile === 'grok_bot'
+          ? await httpWake.profileRecords({ inboxId: binding.inboxId, agentId: binding.agentId }, profile)
+          : records;
+        if (profile === 'grok_bot' && latest.some(sub => sub.status !== 'ended' && sub.installationId !== binding.installationId)) {
+          throw wakeError(409, 'WAKE_TARGET_INVALID', 'another_installation_has_target');
+        }
+        for(const sub of latest)if(sub.installationId!==binding.installationId&&sub.status!=='ended')await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'replaced',guard);
+        const targetId = profile === 'grok_bot' ? latest.find(sub => sub.status !== 'ended')?.id ?? id : id;
+        const sub=await httpWake.createProfile(binding,profile,{id:targetId,url,allowPaused:true,quotaReserved:true,beforeCommit:guard,resetGeneration:true,secretEncrypted:encode(params.secret,targetId),previousSecretEncrypted:undefined,previousSecretUntil:undefined,targetState:'active',stateReason:null,updatedAt:now()});
         await audit(binding.inboxId,'agent.wake_target_secret_set',{agentId:binding.agentId,installationId:binding.installationId,secretSet:true},now());
         await httpWake.queueProfile(sub,'wake.work_available','work_due');return {target:grokPublic(sub)};
       });
     },
-    async getGrok(identity){const binding=bound(identity);const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},'grok_trigger');grokAvailable();const sub=records.find(sub=>sub.status!=='ended')||records[0];return {target:sub?grokPublic(sub):null};},
-    async deleteGrok(identity){const binding=bound(identity);grokAvailable();return store.withTransaction([`inbox:${binding.inboxId}:mutations`],async()=>{await authorizeOwner(identity);const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},'grok_trigger');for(const sub of records)await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'ended_by_owner',()=>authorizeOwner(identity));return {};});}
+    async getGrok(identity,profile='grok_trigger'){const binding=bound(identity);const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},profile);grokAvailable(profile);const sub=records.find(sub=>sub.status!=='ended')||records[0];return {target:sub?grokPublic(sub):null};},
+    async deleteGrok(identity,profile='grok_trigger',expectedInstallationId=null){const binding=bound(identity);grokAvailable(profile);return store.withTransaction([`inbox:${binding.inboxId}:mutations`],async()=>{await authorizeOwner(identity);const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},profile);for(const sub of records.filter(sub=>!expectedInstallationId||sub.installationId===expectedInstallationId))await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'ended_by_owner',()=>authorizeOwner(identity));return {};});}
   };
 }

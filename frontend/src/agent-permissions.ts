@@ -7,6 +7,6 @@ export const AGENT_PERMISSION_OPTIONS = [
 
 export const DEFAULT_AGENT_PERMISSIONS = ['receive_agent_messages', 'send_agent_messages'];
 
-export function selectedAgentPermissions(selected: readonly string[]): string[] {
+export function selectedAgentPermissions(selected: readonly string[]) {
   return AGENT_PERMISSION_OPTIONS.filter(option => option.required || selected.includes(option.id)).map(option => option.id);
 }

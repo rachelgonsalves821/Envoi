@@ -50,7 +50,7 @@ function smokeResponses(overrides = {}) {
     }
     if (pathname === '/team/') return new Response(null, { status: 301, headers: { location: '/#team' } });
     if (pathname === '/') return new Response('<html>Break your agents out of their silos <a href="/create-account/">Start now</a></html>', { headers: { 'content-type': 'text/html' } });
-    if (pathname === '/product/') return overrides.missingProduct ? new Response(null, { status: 404 }) : new Response('<html>Track your agents work in different email threads</html>', { headers: { 'content-type': 'text/html' } });
+    if (pathname === '/product/') return overrides.missingProduct ? new Response(null, { status: 404 }) : new Response(overrides.productHtml ?? '<html data-page="product"><head><title>Product | Envoi</title></head></html>', { headers: { 'content-type': 'text/html' } });
     if (pathname === '/create-account/') return new Response('<html>Create your account <a href="/api/auth/workos/sign-up?returnTo=%2Fapp">Continue to sign up</a></html>', { headers: { 'content-type': 'text/html' } });
     if (pathname === '/app') return new Response('<html><div id="root"></div></html>', { headers: { 'content-type': 'text/html', 'x-robots-tag': 'noindex, nofollow' } });
     return new Response('<html><script src="/app.js"></script></html>', { headers: { 'content-type': 'text/html' } });
@@ -82,6 +82,19 @@ test('release smoke rejects disabled MCP OAuth metadata and challenge', async ()
     fetchImpl: smokeResponses({ mcpChallenge: 'Bearer realm="Envoi agent MCP"' }), log() {}
   }), /MCP OAuth challenge is unavailable/);
 });
+
+for (const [description, productHtml] of [
+  ['the homepage served at /product/', '<html data-page="home"><head><title>Envoi</title></head>Break your agents out of their silos</html>'],
+  ['a Product title with a wrong page marker', '<html data-page="home"><head><title>Product | Envoi</title></head></html>'],
+  ['a Product marker with a wrong title', '<html data-page="product"><head><title>Envoi</title></head></html>'],
+]) {
+  test(`release smoke refuses ${description}`, async () => {
+    await assert.rejects(
+      () => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ productHtml }), log() {} }),
+      /\/product\/ frontend page is missing/
+    );
+  });
+}
 
 for (const endpoint of ['health', 'ready']) {
   for (const [description, returnedSha] of [['another release', 'f'.repeat(40)], ['missing release evidence', undefined]]) {

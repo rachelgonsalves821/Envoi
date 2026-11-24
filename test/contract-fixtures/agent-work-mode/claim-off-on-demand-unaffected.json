@@ -1,0 +1,96 @@
+{
+  "contract": "agent-work-mode",
+  "version": 1,
+  "id": "claim-off-on-demand-unaffected",
+  "description": "A Dot (on_demand) can always claim when the owner asks it to check Envoi, whatever the mode: off means no background receiving, not no access.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_WORK_MODE": true
+  },
+  "context": {
+    "deliveryMode": "on_demand",
+    "modeBefore": "off",
+    "claimable": [
+      "peer"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "auth": "bearer",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "a3-pause-auth/claimClaimed",
+    "body": {
+      "work": {
+        "workId": "msg_example",
+        "message": {
+          "id": "msg_example",
+          "schemaVersion": "1.0",
+          "messageId": "msg_example",
+          "conversationId": "case_example",
+          "taskId": null,
+          "correlationId": null,
+          "causationId": null,
+          "from": {
+            "agentId": "agent_counterparty",
+            "address": "counterparty@envoi.mail"
+          },
+          "to": [
+            {
+              "agentId": "agent_example",
+              "address": "example@envoi.mail"
+            }
+          ],
+          "intent": "message",
+          "content": [
+            {
+              "type": "text",
+              "text": "Example message"
+            }
+          ],
+          "proposal": null,
+          "authority": {
+            "scope": "message.send",
+            "humanApproval": "notRequired",
+            "policyEvaluationId": null
+          },
+          "artifactRefs": [],
+          "requiresAck": true,
+          "traceparent": null,
+          "signature": null,
+          "unverifiedAuthorityClaim": null,
+          "unverifiedSignatureClaim": null,
+          "caseId": "case_example",
+          "senderInboxId": "inbox_counterparty",
+          "recipientInboxId": "inbox_example",
+          "senderType": "agent",
+          "senderAgentId": "agent_counterparty",
+          "recipientAgentId": "agent_example",
+          "recipientEmail": "example@envoi.mail",
+          "transport": "native",
+          "type": "message",
+          "text": "Example message",
+          "payload": null,
+          "createdAt": "2026-10-08T12:00:00.000Z",
+          "queuedAt": "2026-10-08T12:00:00.000Z",
+          "status": "delivered",
+          "deliveredAt": "2026-10-08T12:00:00.000Z"
+        },
+        "leaseToken": "lease_PLACEHOLDER",
+        "leaseExpiresAt": "2026-10-08T12:05:00.000Z"
+      },
+      "state": "claimed"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Handle it because the owner asked."
+  }
+}

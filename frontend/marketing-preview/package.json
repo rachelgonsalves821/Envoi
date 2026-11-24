@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev --host 127.0.0.1 --port 4328",
-    "build": "astro build && node scripts/check-pages.mjs",
+    "build": "node --test test/setup-fixes.test.mjs && astro build && node scripts/check-pages.mjs",
     "preview": "astro preview --host 127.0.0.1 --port 4328",
     "test": "node --test test/*.test.mjs",
     "audit:security": "npm audit --audit-level=low",

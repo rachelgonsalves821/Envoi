@@ -2,7 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { Inbox } from '../types';
 import { ClaimProblemNotice, useClaimClock } from './ClaimPage';
 import { ConsentTargetForm } from './ConsentTargetForm';
-import { ConsentController, consentOutcomeText } from './consent-state';
+import { ConsentController, consentOutcomeText, authorizationHandle, authorizationSignInPath, authorizationStartError, authorizationStartMessage, type AuthorizationStartError } from './consent-state';
 import { remoteAuthApi } from './remote-auth-api';
 import { permissionLabel, routeLabel, type ClaimAgent, type OnboardingApi } from './types';
 import type { RemoteAuthApi } from './remote-auth-types';
@@ -10,12 +10,36 @@ import type { RemoteAuthApi } from './remote-auth-types';
 export interface AuthorizeAgentPageProps {
   humanId: string; handle: string | null; workspaces: Inbox[]; agents: ClaimAgent[];
   client?: RemoteAuthApi; controller?: ConsentController; replacementClient?: OnboardingApi;
+  startError?: AuthorizationStartError | null; targetStatus?: 'loading' | 'error';
 }
 const navigate = (url: string) => window.location.replace(url);
+export function AuthorizationEntry({ search, signInPath, notice }: { search: string; signInPath: string; notice?: string }) {
+  const handle = authorizationHandle(search);
+  const error = authorizationStartError(search);
+  return <main className="onboarding-page claim-page" aria-labelledby="oauth-entry-title">
+    <header className="onboarding-heading"><h1 id="oauth-entry-title">Connect your assistant to Envoi</h1></header>
+    {handle ? <>
+      <p>Sign in to choose the agent and review the permissions your assistant is requesting.</p>
+      {notice && <p className="onboarding-notice" role="alert">{notice}</p>}
+      <a className="button primary" href={authorizationSignInPath(signInPath, search)}>Sign in to Envoi</a>
+    </> : <>
+      <p className="onboarding-notice" role="alert">{error
+        ? authorizationStartMessage(error)
+        : 'This connection request is missing or invalid. Start again from your assistant.'}</p>
+      <a className="button secondary" href="/app">Back to Envoi</a>
+    </>}
+  </main>;
+}
+
 export function AuthorizeAgentPage(props: AuthorizeAgentPageProps) {
+  if (props.startError && !props.handle) return <section className="onboarding-page claim-page" aria-labelledby="oauth-title">
+    <header className="onboarding-heading"><h1 id="oauth-title">Connect your assistant</h1></header>
+    <p className="onboarding-notice" role="alert">{authorizationStartMessage(props.startError)}</p>
+    <a className="button secondary" href="/app">Back to workspace</a>
+  </section>;
   return <AuthorizeAgentSession key={props.humanId + ':' + props.handle} {...props} />;
 }
-function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = remoteAuthApi, controller: supplied, replacementClient }: AuthorizeAgentPageProps) {
+function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = remoteAuthApi, controller: supplied, replacementClient, targetStatus }: AuthorizeAgentPageProps) {
   const controller = useMemo(() => supplied ?? new ConsentController(handle, client, navigate), [humanId, handle, client, supplied]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   useEffect(() => { void controller.load(); return () => controller.dispose(); }, [controller]);
@@ -33,7 +57,7 @@ function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = r
       {view.connectionRoute === 'remote_mcp_oauth' && <p>This is Envoi’s OAuth approval step. Your assistant continues running in its own app.</p>}
       <dl><div><dt>Connection route</dt><dd>{routeLabel(view.connectionRoute)}</dd></div><div><dt>Authorization returns to</dt><dd>{view.client.redirectHost}</dd></div>
         <div><dt>Requested permissions</dt><dd>{view.requestedPermissions.map(permissionLabel).join(', ')}</dd></div></dl>
-      {view.connectionRoute === 'remote_mcp_oauth' && !view.requestedPermissions.includes('send_agent_messages') && <p className="onboarding-notice" role="status"><strong>Receive-only connection.</strong> This request cannot send agent messages or replies. For two-way messaging, return to the plugin connection and request envoi.agent envoi.send, then approve a new request. You can continue with receiving only if that is what you intend.</p>}
+      {view.connectionRoute === 'remote_mcp_oauth' && !view.grantablePermissions.includes('send_agent_messages') && !view.requestedPermissions.includes('send_agent_messages') && <p className="onboarding-notice" role="status"><strong>Receive-only connection.</strong> This request cannot send agent messages or replies. For two-way messaging, return to the plugin connection and request envoi.agent envoi.send, then approve a new request. You can continue with receiving only if that is what you intend.</p>}
       {view.requestedPermissions.includes('send_agent_messages') && !view.grantablePermissions.includes('send_agent_messages') && <p className="onboarding-notice" role="status">Workspace policy does not allow sending in this request. Ask your workspace administrator to review that policy before using two-way messaging.</p>}
       {view.client.loopbackRedirect && <p className="onboarding-notice" role="note">Any program on that computer could receive this authorization. Approve only a connection you just started.</p>}
     </section>}
@@ -52,7 +76,7 @@ function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = r
     {view && !outcome && !state.uncertain && <>
       <p>Request expires at <time dateTime={view.expiresAt}>{new Date(view.expiresAt).toLocaleString()}</time>.</p>
       {expired ? <p role="status">This request expired. Start again from your assistant.</p>
-        : <ConsentTargetForm key={state.attempts} workspaces={workspaces} agents={agents} requested={view.requestedPermissions} grantable={view.grantablePermissions}
+        : <ConsentTargetForm key={view.savedSetup?.setupId ?? state.attempts} workspaces={workspaces} agents={agents} targetStatus={targetStatus} requested={view.requestedPermissions} grantable={view.grantablePermissions} savedSetup={view.savedSetup}
           disabled={locked} onApprove={body => controller.approve(body)} onDeny={() => void controller.deny()} client={replacementClient} />}
     </>}
     <button className="button secondary" type="button" disabled={locked} onClick={() => void controller.load()}>Refresh outcome</button>

@@ -7,7 +7,6 @@ import { EnvoiConnector, type ConnectorSession } from '../../sdk/typescript/src/
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { startConnection } from './core';
 import { startQuickConnect } from '../openclaw/quick-connect';
-import { FileWakeStore } from './http-wake-store';
 import { acquireConnectorLock } from './store';
 import type { ConnectorAdapter } from './adapter';
 import { clearHostedWake, configureHostedWake, prepareHostedWakeService, readHostedWakeConfig } from './hosted-wake-config';
@@ -64,6 +63,8 @@ async function fixture(kind: 'unified' | 'quick') {
         status: 'pending', endedReason: null, expiresAt: null, replacesSubscriptionId: null } });
     }
     if (route === '/api/agent/wake-subscriptions') return Response.json({ installationId, subscriptions: [] });
+    if (route === '/api/agent/events') return new Response(`event: ready\ndata: ${JSON.stringify({ inboxId: session.inboxId, cursor: null })}\n\n`,
+      { headers: { 'content-type': 'text/event-stream' } });
     if (route === '/api/agent/work/claim') {
       expect(init?.method).toBe('POST');
       expect(JSON.parse(String(init?.body))).toEqual({ acceptHumanInstructions: true });
@@ -84,6 +85,9 @@ const scopedAdapter: ConnectorAdapter<object> = {
 };
 
 // This combined candidate includes #174's Windows file-identity verification.
+// Startup includes Windows filesystem identity and permission checks on real files.
+const startupWait = { timeout: process.platform === 'win32' ? 30_000 : 5_000 };
+if (process.platform === 'win32') vi.setConfig({ testTimeout: 90_000 });
 describe('normal hosted wake entrypoints (offline simulated services)', () => {
   for (const kind of ['unified', 'quick'] as const) {
     it(`${kind} loads private wake settings after a simulated Windows service restart without inherited environment`, async () => {
@@ -104,11 +108,12 @@ describe('normal hosted wake entrypoints (offline simulated services)', () => {
         : startQuickConnect(test.stateDir, stop.signal,
           { env: restartedEnv, fetch: test.fetcher, secureDirectory, onReady: ready });
       try {
-        await vi.waitFor(() => expect(test.listenerAtCreate).toEqual([400]), { timeout: 5_000 });
+        await Promise.race([run, vi.waitFor(() => expect(test.listenerAtCreate).toEqual([400]), startupWait)]);
+        expect(test.listenerAtCreate).toEqual([400]);
         expect(ready).toHaveBeenCalledTimes(1);
       } finally { stop.abort(); await run; }
       const release = await acquireConnectorLock(test.stateDir); await release();
-      const wake = await FileWakeStore.open(path.join(test.stateDir, 'wake')); await wake.close();
+      const releaseWake = await acquireConnectorLock(path.join(test.stateDir, 'wake')); await releaseWake();
     });
 
     it(`${kind} rejects partial or mismatched restart environment before network work`, async () => {
@@ -134,9 +139,10 @@ describe('normal hosted wake entrypoints (offline simulated services)', () => {
           secureDirectory, control: false, onReady: ready })
         : startQuickConnect(test.stateDir, stop.signal, { env: test.env, fetch: test.fetcher, secureDirectory, onReady: ready });
       try {
-        await vi.waitFor(() => expect(test.listenerAtCreate).toEqual([400]), { timeout: 5_000 });
+        await Promise.race([run, vi.waitFor(() => expect(test.listenerAtCreate).toEqual([400]), startupWait)]);
+        expect(test.listenerAtCreate).toEqual([400]);
         expect(ready).toHaveBeenCalledTimes(1);
-        await vi.waitFor(() => expect(test.calls).toContain('POST /api/agent/work/claim'));
+        await vi.waitFor(() => expect(test.calls).toContain('POST /api/agent/work/claim'), startupWait);
         const second = kind === 'unified'
           ? startConnection(test.stateDir, new AbortController().signal, () => scopedAdapter,
             { env: test.env, fetch: test.fetcher, secureDirectory, control: false })
@@ -146,7 +152,7 @@ describe('normal hosted wake entrypoints (offline simulated services)', () => {
       } finally { stop.abort(); await run; }
       await expect(fetch(`http://127.0.0.1:${test.port}/envoi/wake`)).rejects.toThrow();
       const releaseMain = await acquireConnectorLock(test.stateDir); await releaseMain();
-      const wake = await FileWakeStore.open(path.join(test.stateDir, 'wake')); await wake.close();
+      const releaseWake = await acquireConnectorLock(path.join(test.stateDir, 'wake')); await releaseWake();
     });
 
     it(`${kind} closes listener and releases both locks after an installation identity failure`, async () => {
@@ -159,7 +165,35 @@ describe('normal hosted wake entrypoints (offline simulated services)', () => {
       expect(test.calls).not.toContain('POST /api/agent/wake-subscriptions');
       await expect(fetch(`http://127.0.0.1:${test.port}/envoi/wake`)).rejects.toThrow();
       const releaseMain = await acquireConnectorLock(test.stateDir); await releaseMain();
-      const wake = await FileWakeStore.open(path.join(test.stateDir, 'wake')); await wake.close();
+      const releaseWake = await acquireConnectorLock(path.join(test.stateDir, 'wake')); await releaseWake();
+    });
+
+    it(`${kind} still claims through the direct connector when the callback port is occupied`, async () => {
+      const test = await fixture(kind);
+      const occupied = createServer((_request, response) => { response.writeHead(204); response.end(); });
+      await new Promise<void>((resolve, reject) => {
+        occupied.once('error', reject);
+        occupied.listen(test.port, '127.0.0.1', resolve);
+      });
+      const stop = new AbortController();
+      const ready = vi.fn();
+      const run = kind === 'unified'
+        ? startConnection(test.stateDir, stop.signal, () => scopedAdapter, { env: test.env, fetch: test.fetcher,
+          secureDirectory, control: false, onReady: ready })
+        : startQuickConnect(test.stateDir, stop.signal, { env: test.env, fetch: test.fetcher, secureDirectory, onReady: ready });
+      try {
+        await Promise.race([run, vi.waitFor(() => expect(test.calls).toContain('POST /api/agent/work/claim'), startupWait)]);
+        expect(test.calls).toContain('POST /api/agent/work/claim');
+        expect(test.calls).toContain('GET /api/agent/status');
+        expect(test.calls).not.toContain('POST /api/agent/wake-subscriptions');
+        expect(ready).not.toHaveBeenCalled();
+        expect((await fetch(`http://127.0.0.1:${test.port}/`)).status).toBe(204);
+      } finally {
+        stop.abort();
+        occupied.closeAllConnections();
+        await new Promise<void>(resolve => occupied.close(() => resolve()));
+        await run;
+      }
     });
   }
 

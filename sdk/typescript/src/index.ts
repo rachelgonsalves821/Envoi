@@ -4,6 +4,30 @@ export type EnvoiIntent = 'request' | 'offer' | 'counteroffer' | 'accept' | 'rej
 export type DeliveryState = 'pendingContactApproval' | 'queued' | 'retrying' | 'accepted' | 'delivered' | 'acknowledged' | 'processed' | 'declined' | 'deadLettered' | 'held' | 'cancelled';
 
 export interface AgentRef { agentId: string; address: string }
+export interface GroupMessageInput {
+  text: string;
+  attachmentIds?: string[];
+  inReplyTo?: string;
+  assigneeAgentIds?: string[];
+}
+export interface GroupMessage extends Record<string, unknown> {
+  id: string;
+  caseId: string;
+  senderAgentId: string;
+  senderAddress: string;
+  text: string;
+  attachments?: ChatAttachment[];
+  inReplyTo: string | null;
+  assigneeAgentIds: string[];
+  createdAt: string;
+}
+export interface GroupCase {
+  id: string;
+  caseId: string;
+  caseMode: 'group';
+  members: AgentRef[];
+  messages: GroupMessage[];
+}
 export interface ContentPart { type: 'text' | 'json' | 'artifactRef'; text?: string; data?: unknown; artifactRef?: string }
 export interface Authority { scope: string; humanApproval: 'notRequired' | 'pending' | 'approved' | 'denied'; policyEvaluationId?: string | null }
 export interface AgentMessage {
@@ -20,6 +44,7 @@ export interface AgentMessage {
   proposal?: Record<string, unknown> | null;
   authority: Authority;
   artifactRefs: string[];
+  attachments?: ChatAttachment[];
   requiresAck: boolean;
   traceparent?: string | null;
   signature?: string | null;
@@ -42,6 +67,7 @@ export interface NativeMessageInput {
   content?: ContentPart[];
   payload?: Record<string, unknown> | null;
   artifactRefs?: string[];
+  attachmentIds?: string[];
   requiresAck?: boolean;
 }
 
@@ -63,6 +89,8 @@ export interface AssetRecord {
   /** Present when this asset is visible through a cross-owner case grant. */
   grant?: AssetGrant;
 }
+
+export type ChatAttachment = Pick<AssetRecord, 'id' | 'filename' | 'mimeType' | 'size' | 'checksumSha256'>;
 
 export interface AssetGrant {
   id: string;
@@ -231,6 +259,22 @@ export class EnvoiClient {
     return this.sendMessage(inboxId, idempotencyKey, input);
   }
 
+  startGroupCase(idempotencyKey: string, memberAddresses: string[]) {
+    return this.request<GroupCase>('/api/agent/group-cases', {
+      method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ memberAddresses })
+    });
+  }
+
+  getGroupCase(caseId: string) {
+    return this.request<GroupCase>(`/api/agent/group-cases/${encodeURIComponent(caseId)}`);
+  }
+
+  sendGroupMessage(caseId: string, idempotencyKey: string, input: GroupMessageInput) {
+    return this.request<GroupMessage>(`/api/agent/group-cases/${encodeURIComponent(caseId)}/messages`, {
+      method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(input)
+    });
+  }
+
   listCases(inboxId: string, limit = 50, before?: string) {
     const query = new URLSearchParams({ limit: String(limit), ...(before ? { before } : {}) });
     return this.request<Array<Record<string, unknown>>>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases?${query}`);
@@ -277,6 +321,21 @@ export class EnvoiClient {
       return { ...result, download: { ...result.download, headers: { ...result.download.headers, authorization: `Bearer ${this.accessToken}` } } };
     }
     return result;
+  }
+
+  async downloadChatAttachment(inboxId: string, attachment: ChatAttachment): Promise<ArrayBuffer> {
+    const route = `/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(attachment.id)}/content`;
+    const response = await fetchWithTimeout(this.fetcher, `${this.baseUrl.replace(/\/$/, '')}${route}`, {
+      headers: { authorization: `Bearer ${this.accessToken}` },
+      redirect: 'error'
+    }, this.requestTimeoutMs);
+    if (!response.ok) return responsePayload<never>(response, 'Envoi attachment download failed');
+    const bytes = await response.arrayBuffer();
+    const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes));
+    if (bytes.byteLength !== attachment.size || btoa(String.fromCharCode(...digest)) !== attachment.checksumSha256) {
+      throw new Error('Downloaded attachment did not match the original file.');
+    }
+    return bytes;
   }
 
   /** Legacy route. Native processing must use the connector's fenced work claim. */

@@ -38,6 +38,15 @@ If the stored refresh credential has expired, the connector stops before making 
 
 ## Fenced work API contract
 
+A trusted `caseSessionHandler` can throw `PermanentWorkError` for a conclusively
+terminal runtime failure. The connector ends the scoped session and submits
+`fail` with `retryable: false` and that safe reason code. Only a matching canonical
+`{workId, status: "failed"}` acknowledgement lets it continue to later work.
+`processWorkOnce()` returning `true` means work was handled, including this failed
+settlement; the canonical receipt establishes success or failure. An unknown
+runtime outcome, an ordinary error with the same code, or a failed settlement
+does not take this path. Legacy handlers retain their existing retry policy.
+
 1. `POST /api/agent/work/claim` with `{}` returns `{work:null}` or `{work:{workId,message,leaseToken,leaseExpiresAt}}`. `message` is the full canonical recipient-inbox message. A processed message is never claimable; an expired lease may be reclaimed with a new fence.
 2. `POST /api/agent/work/:workId/renew` with `{leaseToken}` returns `{workId,leaseToken,leaseExpiresAt}` and rejects a stale or revoked holder.
 3. `POST /api/agent/work/:workId/acknowledge` with `{leaseToken}` and `Idempotency-Key` returns `{workId,status:'acknowledged',receipt}` after durable handler admission. An existing acknowledged receipt remains valid when a new fence reclaims unfinished work.

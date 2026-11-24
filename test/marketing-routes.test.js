@@ -9,10 +9,26 @@ test('marketing routes only expose the intended public pages and assets', () => 
   assert.deepEqual(marketingRoute('/create-account'), { redirect: '/create-account/' });
   assert.deepEqual(marketingRoute('/create-account/'), { file: 'create-account/index.html' });
   assert.deepEqual(marketingRoute('/team/'), { redirect: '/#team' });
+  assert.deepEqual(marketingRoute('/contact'), { redirect: '/contact/' });
+  assert.deepEqual(marketingRoute('/contact/'), { file: 'contact/index.html' });
+  assert.equal(marketingRoute('/contact/index.html'), null);
+  assert.equal(marketingRoute('/contact/../server.js'), null);
   assert.deepEqual(marketingRoute('/agents/muse.svg'), { file: 'agents/muse.svg' });
   assert.equal(marketingRoute('/api/auth/workos/sign-in'), null);
   assert.equal(marketingRoute('/src/server.js'), null);
   assert.equal(marketingRoute('/app'), null);
+});
+
+test('setup docs routes map only to built docs pages and the agent index', () => {
+  assert.deepEqual(marketingRoute('/docs'), { redirect: '/docs/' });
+  assert.deepEqual(marketingRoute('/docs/'), { file: 'docs/index.html' });
+  assert.deepEqual(marketingRoute('/docs/hermes'), { redirect: '/docs/hermes/' });
+  assert.deepEqual(marketingRoute('/docs/hermes/'), { file: 'docs/hermes/index.html' });
+  assert.deepEqual(marketingRoute('/docs/fix/'), { file: 'docs/fix/index.html' });
+  assert.deepEqual(marketingRoute('/llms.txt'), { file: 'llms.txt' });
+  for (const pathname of ['/docs/../src/server.js', '/docs/%2e%2e/', '/docs/Hermes/', '/docs/a/b/', '/docs/.hidden/', '/docs/-x/', `/docs/${'a'.repeat(41)}/`, '/docs/fix/index.html']) {
+    assert.equal(marketingRoute(pathname), null, pathname);
+  }
 });
 
 test('every inline or external Astro script and stylesheet receives the response nonce', () => {
@@ -49,7 +65,8 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   const product = await get('/product/');
   assert.equal(product.status, 200);
   const productHtml = await product.text();
-  assert.match(productHtml, /Track your agents work in different email threads/);
+  assert.match(productHtml, /<title>Product \| Envoi<\/title>/);
+  assert.match(productHtml, /data-page="product"/);
   assert.match(productHtml, /content="index, follow"/);
   assert.match(productHtml, /href="\/create-account\/"/);
   const account = await get('/create-account/');
@@ -63,6 +80,14 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   assert.equal(team.headers.get('location'), '/#team');
   assert.equal((await get('/team/?source=footer')).headers.get('location'), '/?source=footer#team');
   assert.equal((await get('/product?source=header')).headers.get('location'), '/product/?source=header');
+  const contactRedirect = await get('/contact?source=plugin');
+  assert.equal(contactRedirect.status, 301);
+  assert.equal(contactRedirect.headers.get('location'), '/contact/?source=plugin');
+  assert.match(aboutHtml, /href="\/contact\/"/);
+  const contact = await get('/contact/');
+  assert.equal(contact.status, 200);
+  assert.match(contact.headers.get('content-type'), /^text\/html/);
+  assert.match(await contact.text(), /<title>Contact \| Envoi<\/title>/);
   const logo = await get('/envoi-logo.png');
   assert.equal(logo.status, 200);
   assert.equal(logo.headers.get('content-type'), 'image/png');
@@ -81,4 +106,29 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   const authError = await get('/?auth_error=sign_in_failed');
   assert.equal(authError.status, 200);
   assert.match(await authError.text(), /data-auth-error/);
+});
+
+test('the combined server serves the public setup docs, indexable, with the response nonce', { timeout: 60000 }, async t => {
+  const server = await launch();
+  t.after(() => server.stop());
+  const get = async pathname => fetch(new URL(pathname, server.baseUrl), { redirect: 'manual' });
+  for (const pathname of ['/docs/', '/docs/openclaw/', '/docs/hermes/', '/docs/dots/', '/docs/fix/']) {
+    const page = await get(pathname);
+    assert.equal(page.status, 200, pathname);
+    assert.match(page.headers.get('content-type'), /^text\/html/, pathname);
+    const html = await page.text();
+    assert.match(html, /content="index, follow"/, `${pathname} is indexable`);
+    const nonce = page.headers.get('content-security-policy').match(/script-src 'nonce-([^']+)'/)?.[1];
+    assert.ok(nonce, pathname);
+    for (const tag of html.match(/<(?:script|style)\b[^>]*>|<link\b[^>]*rel="stylesheet"[^>]*>/g) || []) assert.ok(tag.includes(`nonce="${nonce}"`), `${pathname}: CSP nonce missing from ${tag.slice(0, 100)}`);
+  }
+  const fixes = await (await get('/docs/fix/')).text();
+  for (const code of ['ENROLLMENT_TOKEN_REJECTED', 'GATEWAY_UNREACHABLE', 'NODE_UNSUPPORTED', 'INSUFFICIENT_SCOPE']) assert.match(fixes, new RegExp(`id="${code}"`), `fix section for ${code}`);
+  assert.equal((await get('/docs')).headers.get('location'), '/docs/');
+  assert.equal((await get('/docs/hermes')).headers.get('location'), '/docs/hermes/');
+  assert.equal((await get('/docs/not-a-page/')).status, 404);
+  const index = await get('/llms.txt');
+  assert.equal(index.status, 200);
+  assert.match(index.headers.get('content-type'), /^text\/plain/);
+  assert.match(await index.text(), /\/docs\/fix\//);
 });

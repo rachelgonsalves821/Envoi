@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { contractRegistry, loadContractFixture } from '../../integrations/contract-fixtures/setup';
-import { dotsSetupPrompt, dotsSetupSteps, dotsVerificationPrompt } from '../src/quick-connect';
+import { dotsSetupPrompt, dotsSetupSteps, dotsVerificationPrompt, envoiWorkRule } from '../src/quick-connect';
 import { ConnectPage } from '../src/onboarding/ConnectPage';
 import { DotsPermissionRecovery, DotsSetupGuide } from '../src/onboarding/DotsSetupGuide';
 import { connectionOffer } from '../src/onboarding/connect-state';
@@ -19,9 +19,7 @@ describe('Dots onboarding route and grant recovery', () => {
     const body = fixture(name as string).response.body;
     expect(connectionOffer(body).remoteMcp).toBe(available);
     const html = renderToStaticMarkup(createElement(ConnectPage, { initialAvailability: body, initialAgentId: 'dots', origin }));
-    expect(html.includes('MCP server URL')).toBe(available);
-    expect(html.includes('Copy verification prompt')).toBe(available);
-    expect(html).not.toContain('envoi-link.mjs task');
+    expect(html.includes('aria-label="Dots connection instructions"')).toBe(available);
     if (!available) expect(html).toContain('Dots OAuth route is unavailable');
   });
 
@@ -34,21 +32,13 @@ describe('Dots onboarding route and grant recovery', () => {
     ]) { const value = structuredClone(body); mutate(value); expect(() => connectionOffer(value)).toThrow('unavailable'); }
   });
 
-  it('uses one official plugin and reserves the endpoint for diagnostics', () => {
+  it('links a Dots reconnect to the troubleshooting guide', () => {
     const html = renderToStaticMarkup(createElement(DotsSetupGuide, { origin, name: 'Example', address: 'example@envoi.example', reconnect: true }));
-    expect(html).toContain('value="https://envoi.example/mcp"');
-    expect(html).toContain('https://chatgpt.com/plugins');
+    expect(html).toContain('href="/docs/dots/"');
+    expect(html).toContain('Stuck? Dots setup guide');
+    expect(html).not.toContain('<textarea');
     expect(html).not.toContain('href="https://envoi.example/mcp"');
-    expect(html).not.toContain('Add custom MCP server');
-    expect(html).toContain('official Envoi plugin');
-    expect(html).toContain('Do not create a separate custom plugin');
-    expect(html).toContain('Repeated reconnects cannot fix a missing scope');
-    expect(html).toContain('For connection diagnostics');
-    expect(html).toContain('receive-only grant cannot send');
-    expect(html).toContain('Reconnect an existing agent');
-    expect(html).toContain('cases and history');
-    expect(html).toContain('Copy verification prompt');
-    expect(html).not.toContain('closed-app delivery is still being verified');
+    expect(html).not.toContain('href="https://chatgpt.com/plugins"');
   });
 
   it('reuses installed plugins and verifies identity and scope before any send', () => {
@@ -64,10 +54,33 @@ describe('Dots onboarding route and grant recovery', () => {
     expect(prompt).toContain('envoi_send_message');
     expect(prompt).toContain('native monitoring task');
     expect(prompt).toContain('canonical reply and settlement');
+    expect(prompt).toContain('Restore the native source on the existing task in its current execution chat');
+    expect(prompt).toContain('On a new claim for the same work, generate fresh admission and completion keys');
+    expect(prompt).toContain('Keep the identical reply payload and key across claims');
     expect(dotsSetupSteps(origin).join(' ')).toContain('Each owner connects their own account');
     const check = dotsVerificationPrompt('example@envoi.example');
     expect(check).toContain('example@envoi.example');
     expect(check).toContain('Do not claim work, send a message');
+  });
+
+  it.each(['routine', 'ask'] as const)('includes the selected rule and alert proof for saved and direct setup (%s)', mode => {
+    for (const saved of [false, true]) {
+      const prompt = dotsSetupPrompt(origin, 'Mark', 'mark@envoi.example', false, saved, mode);
+      expect(prompt).toContain(envoiWorkRule(mode));
+      expect(prompt).toContain('Say Ready only when backgroundReceiving.state is on and lastAlertAt is present and not null.');
+      expect(prompt).toContain('wait for the first alert run, then call envoi_agent_info once more');
+      expect(prompt).toContain('At the start of every monitoring run, call envoi_agent_info');
+      expect(prompt).toContain('endedReason: "credential_ended"');
+      expect(prompt).toContain('envoi_claim_work for the waiting work');
+      expect(prompt).toContain('Background receiving isn\'t available in this Dot yet, so Mark will only check Envoi when you ask.');
+      expect(prompt).toContain('/docs/fix/#background-receiving-unavailable');
+    }
+  });
+
+  it('keeps setup on demand when selected', () => {
+    const prompt = dotsSetupPrompt(origin, 'Mark', 'mark@envoi.example', true, false, 'on_demand');
+    expect(prompt).not.toContain('envoi.work_available');
+    expect(prompt.endsWith('Mark will only check Envoi when you ask. You can turn on background receiving any time.')).toBe(true);
   });
 
   it('does not offer OAuth permission recovery for frozen identities', () => {

@@ -39,7 +39,7 @@ The connector should expose adapters for common agent environments. For an agent
 
 1. The human authenticates, completes MFA, and creates or selects a workspace.
 2. The human creates an **agent seat** with a name, requested native address, capability profile, and least-privilege permissions. The beta remains limited to two active agent identities per human unless the product owner changes that limit.
-3. Envoi creates a 15-minute, single-use enrollment code. The code identifies the intended workspace, agent profile, and maximum permission policy; it is not a reusable API credential.
+3. Envoi creates a 30-minute, single-use enrollment code. The code identifies the intended workspace, agent profile, and maximum permission policy; it is not a reusable API credential.
 4. The user supplies the code to the agent's connector. The connector generates an installation key pair locally and redeems the code over HTTPS.
 5. Envoi atomically creates the active agent identity, dedicated inbox, installation record, and credential family. It returns the native address, installation ID, API base URL, event endpoint, short-lived access token, and rotating refresh token. Secrets are displayed or returned once.
 6. The connector stores its private key and refresh token in the host's secret store, not in prompts, conversation history, source code, or browser local storage.

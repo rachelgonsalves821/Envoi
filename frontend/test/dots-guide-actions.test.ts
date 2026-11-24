@@ -1,6 +1,7 @@
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DotsPermissionRecovery, DotsSetupGuide } from '../src/onboarding/DotsSetupGuide';
+import { dotsMessageAccessPrompt, dotsSetupPrompt } from '../src/quick-connect';
 
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0 }));
 vi.mock('react', async importOriginal => {
@@ -17,37 +18,53 @@ function elements(tree: ReactNode): ReactElement<any>[] {
   return found;
 }
 const origin = 'https://envoi.example';
-const render = () => { hooks.cursor = 0; return DotsSetupGuide({ origin, name: 'Example', address: 'example@envoi.example', reconnect: true }); };
+const name = 'Example';
+const address = 'example@envoi.example';
+const render = (reconnect = false, messageAccess = false) => { hooks.cursor = 0; return DotsSetupGuide({ origin, name, address, reconnect, messageAccess }); };
 beforeEach(() => { hooks.values = []; hooks.cursor = 0; });
 afterEach(() => vi.unstubAllGlobals());
 
 it.each([
-  ['Copy server URL', `${origin}/mcp`],
-  ['Copy verification prompt', 'the address is example@envoi.example'],
-  ['Copy connection prompt', 'select Example (example@envoi.example)']
-])('copies the selected %s action for the same identity', async (label, expected) => {
+  { reconnect: false, messageAccess: false, expected: dotsSetupPrompt(origin, name, address) },
+  { reconnect: true, messageAccess: false, expected: dotsSetupPrompt(origin, name, address, true) },
+  { reconnect: false, messageAccess: true, expected: dotsMessageAccessPrompt(address) }
+])('copies one prompt for the selected flow ($reconnect, $messageAccess)', async ({ reconnect, messageAccess, expected }) => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal('navigator', { clipboard: { writeText } });
-  const button = elements(render()).find(item => item.type === 'button' && item.props.children === label)!;
+  const buttons = elements(render(reconnect, messageAccess)).filter(item => item.type === 'button');
+  expect(buttons).toHaveLength(1);
+  const [button] = buttons;
+  expect(button.props.children).toBe(messageAccess ? 'Copy message access prompt' : 'Copy setup prompt');
   button.props.onClick(); await Promise.resolve(); await Promise.resolve();
-  expect(writeText).toHaveBeenCalledTimes(1);
-  expect(writeText.mock.calls[0][0]).toContain(expected);
-  if (label === 'Copy verification prompt') expect(writeText.mock.calls[0][0]).toContain('Do not claim work, send a message');
-  expect(elements(render()).some(item => item.props.role === 'status')).toBe(true);
+  expect(writeText.mock.calls).toEqual([[expected]]);
+  expect(elements(render(reconnect, messageAccess)).some(item => item.props.role === 'status')).toBe(true);
 });
 
-it('keeps the endpoint and prompt selectable when clipboard permission fails', async () => {
+it.each([false, true])('links troubleshooting to the guide (reconnect: %s)', reconnect => {
+  const tree = elements(render(reconnect));
+  expect(tree.find(item => item.type === 'a')?.props).toMatchObject({ href: '/docs/dots/', children: 'Stuck? Dots setup guide' });
+  expect(tree.filter(item => ['details', 'textarea'].includes(item.type as string))).toHaveLength(0);
+});
+
+it.each(['routine', 'ask', 'on_demand'] as const)('copies the selected receiving mode (%s)', async mode => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  const radios = elements(render()).filter(item => item.type === 'input');
+  expect(radios.map(item => [item.props.value, item.props.checked])).toEqual([['routine', true], ['ask', false], ['on_demand', false]]);
+  expect(elements(render(false, true)).filter(item => item.type === 'input')).toHaveLength(0);
+  radios.find(item => item.props.value === mode)!.props.onChange();
+  elements(render()).find(item => item.type === 'button')!.props.onClick();
+  await Promise.resolve();
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(dotsSetupPrompt(origin, name, address, false, false, mode));
+});
+
+it('makes the primary prompt selectable when clipboard permission fails', async () => {
   vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('unavailable')) } });
-  elements(render()).find(item => item.type === 'button' && item.props.children === 'Copy server URL')!.props.onClick();
+  elements(render()).find(item => item.type === 'button' && item.props.className === 'button primary')!.props.onClick();
   await Promise.resolve(); await Promise.resolve();
   const tree = elements(render());
-  expect(tree.some(item => item.props.role === 'alert')).toBe(true);
-  expect(tree.some(item => item.type === 'input' && item.props.readOnly && item.props.value === `${origin}/mcp`)).toBe(true);
-  const recovery = tree.find(item => item.type === 'textarea' && item.props['aria-label'] === 'Dots message access prompt')!;
-  expect(recovery.props.readOnly).toBe(true);
-  expect(recovery.props.value).toContain('my address is example@envoi.example');
-  expect(recovery.props.value).toContain('envoi_request_message_access');
-  expect(tree.some(item => item.type === 'textarea' && item.props['aria-label'] === 'Dots verification prompt')).toBe(true);
+  expect(tree.find(item => item.props.role === 'alert')?.props.children).toContain('Select the prompt');
+  expect(tree.find(item => item.type === 'textarea')?.props).toMatchObject({ readOnly: true, value: dotsSetupPrompt(origin, name, address) });
 });
 
 it('opens recovery for the selected existing agent and drops it when that identity is no longer offered', () => {
@@ -55,6 +72,6 @@ it('opens recovery for the selected existing agent and drops it when that identi
   const draw = (agents = [agent]) => { hooks.cursor = 0; return DotsPermissionRecovery({ agents, origin }); };
   elements(draw()).find(item => item.type === 'select')!.props.onChange({ target: { value: agent.id } });
   const guide = elements(draw()).find(item => item.type === DotsSetupGuide)!;
-  expect(guide.props).toMatchObject({ address: agent.address, reconnect: true });
+  expect(guide.props).toMatchObject({ address: agent.address, messageAccess: true });
   expect(draw([])).toBeNull();
 });

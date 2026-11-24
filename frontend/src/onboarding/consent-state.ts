@@ -6,6 +6,11 @@ import type { ConsentApproval, ConsentApproved, ConsentDecided, ConsentView, Rem
 function validView(raw: unknown): raw is ConsentView {
   if (!validate.consentView(raw)) return false;
   const view = raw as ConsentView;
+  const { savedSetup } = view;
+  if (savedSetup) {
+    const missing = savedSetup.permissions.filter(permission => !view.requestedPermissions.includes(permission));
+    if (missing.length !== savedSetup.notRequested.length || missing.some(permission => !savedSetup.notRequested.includes(permission))) return false;
+  }
   return hasRemotePermissions(view.requestedPermissions) && hasRemotePermissions(view.grantablePermissions)
     && (!view.decision || view.decision.status === 'denied' || (remoteGrantAllowed(view.decision.effectivePermissions) && remoteTargetValid(view.decision)));
 }
@@ -16,9 +21,23 @@ export function authorizationHandle(search: string) {
   const value = handles[0];
   return handles.length === 1 && value && value.length <= 2048 && !/[\s\u0000-\u001f\u007f]/.test(value) ? value : null;
 }
+const startErrors = {
+  invalid_client: 'Envoi could not verify the assistant’s OAuth client configuration. Contact Envoi support before retrying. Your agent permissions have not changed.',
+  invalid_redirect_uri: 'Envoi could not verify where this assistant should return after approval. Contact Envoi support before retrying.',
+  invalid_request: 'The assistant sent an invalid connection request. Start again from your assistant; contact Envoi support if it repeats.'
+} as const;
+export type AuthorizationStartError = keyof typeof startErrors;
+export function authorizationStartError(search: string): AuthorizationStartError | null {
+  const params = new URLSearchParams(search), errors = params.getAll('error');
+  if (params.has('request') || errors.length !== 1 || !Object.hasOwn(startErrors, errors[0])) return null;
+  return errors[0] as AuthorizationStartError;
+}
+export const authorizationStartMessage = (error: AuthorizationStartError) => startErrors[error];
 export function authorizationSignInPath(path: string, search: string) {
   const handle = authorizationHandle(search);
-  const target = handle ? '/authorize-agent?request=' + encodeURIComponent(handle) : '/authorize-agent';
+  const error = authorizationStartError(search);
+  const target = handle ? '/authorize-agent?request=' + encodeURIComponent(handle)
+    : error ? '/authorize-agent?error=' + error : '/authorize-agent';
   const url = new URL(path, 'https://www.envoi-agents.com');
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return '/api/auth/workos/sign-in?returnTo=' + encodeURIComponent(target);
   url.searchParams.set('returnTo', target);
@@ -85,7 +104,8 @@ export class ConsentController {
   async approve(body: ConsentApproval) {
     if (!this.allowed() || this.decision || this.state.outcome || !this.state.view || Date.parse(this.state.view.expiresAt) <= this.now()) return false;
     if (!validate.consentApproveRequest(body) || !remoteGrantAllowed(body.grantedPermissions)
-      || body.grantedPermissions.some(permission => !this.state.view!.requestedPermissions.includes(permission) || !this.state.view!.grantablePermissions.includes(permission))) return false;
+      || (body.savedSetupId && (body.target.kind !== 'new_agent' || body.savedSetupId !== this.state.view.savedSetup?.setupId))
+      || body.grantedPermissions.some(permission => !this.state.view!.grantablePermissions.includes(permission))) return false;
     this.decision = { kind: 'approve', body: structuredClone(body) };
     return this.sendDecision();
   }
@@ -111,13 +131,14 @@ export class ConsentController {
       if (decision.kind === 'approve' ? !validate.consentApproved(raw) : !validate.consentDenied(raw)) this.invalid();
       const response = raw as ConsentApproved;
       if (decision.kind === 'approve' && (!remoteTargetMatches(decision.body.target, response)
+        || response.savedSetup?.setupId !== decision.body.savedSetupId
         || !remoteGrantAllowed(response.effectivePermissions, decision.body.grantedPermissions))) this.invalid();
       const redirect = new URL(response.redirectTo);
       const client = this.state.view!.client;
       if (redirect.host !== client.redirectHost || redirect.username || redirect.password || redirect.hash
         || (client.loopbackRedirect ? redirect.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(redirect.hostname) : redirect.protocol !== 'https:')) this.invalid();
       const outcome = decision.kind === 'approve'
-        ? (({ redirectTo: _redirect, ...safe }) => ({ ...safe, status: 'pending_exchange' as const }))(response)
+        ? (({ redirectTo: _redirect, savedSetup: _savedSetup, ...safe }) => ({ ...safe, status: 'pending_exchange' as const }))(response)
         : { status: 'denied' as const };
       if (outcome.status === 'pending_exchange' && Date.parse(outcome.codeExpiresAt) <= this.now()) {
         this.decision = null; this.update({ outcome: { ...outcome, status: 'expired' }, phase: 'decided', busy: false, uncertain: false }); return true;

@@ -236,6 +236,6 @@ describe('Agent Interface to Human Interface translation', () => {
   });
 
   it('uses the action vocabulary end to end', () => {
-    expect(eventSummary({ id: 'evt_approval', type: 'humanAction', actor: 'human_rachel', createdAt: '2026-09-27T17:10:00.000Z', payload: { action: { actionKey: 'approveOnce', outcome: 'ok' } }, linkedPolicyEvaluation: 'policy_1', precedingEventRef: null })).toBe('Approved once.');
+    expect(eventSummary({ id: 'evt_approval', type: 'humanAction', actor: 'human_rachel', actorDisplayName: 'Rachel', createdAt: '2026-09-27T17:10:00.000Z', payload: { action: { actionKey: 'approveOnce', outcome: 'ok' } }, linkedPolicyEvaluation: 'policy_1', precedingEventRef: null })).toBe('Rachel approved the agent proposal');
   });
 });

@@ -168,8 +168,7 @@ test('Team uses the supplied names, roles, portraits and logos without invented 
   const artwork = await readFile(new URL('../public/team/founder-reference.png', import.meta.url));
   const website = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   assert.match(route, /Astro.redirect\('\/#team', 301\)/);
-  assert.match(website, /\{isAbout && <Team \/>\}/);
-  assert.ok(website.indexOf('<Team />') > website.indexOf('id="join"'));
+  assert.doesNotMatch(website, /<Team \/>/);
   assert.doesNotMatch(website, /href="\/team\/"|page === 'team'/);
   assert.match(team, /id="team"/);
   assert.match(team, /<h2 id="team-title"/);
@@ -178,7 +177,7 @@ test('Team uses the supplied names, roles, portraits and logos without invented 
   assert.equal([...team.matchAll(/<article\b/g)].length, 2);
   assert.equal([...team.matchAll(/<p\b/g)].length, 2);
   assert.equal([...team.matchAll(/href="\/team\/founder-reference.png"/g)].length, 2);
-  assert.match(footer, /href="\/#team">Team/);
+  assert.match(footer, /id=\{isAbout \? "team" : undefined\}/);
   assert.equal(artwork.subarray(1, 4).toString(), 'PNG');
   assert.equal(artwork.readUInt32BE(16), 826);
   assert.equal(artwork.readUInt32BE(20), 477);

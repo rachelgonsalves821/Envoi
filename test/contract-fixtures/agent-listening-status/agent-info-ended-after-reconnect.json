@@ -1,0 +1,75 @@
+{
+  "contract": "agent-listening-status",
+  "version": 1,
+  "id": "agent-info-ended-after-reconnect",
+  "description": "After a reconnect the old subscription ended and work is waiting. The Dot restores background receiving, or tells the owner the exact fix.",
+  "kind": "http",
+  "context": {
+    "now": "2026-11-12T19:30:00.000Z",
+    "deliveryMode": "on_demand",
+    "wakeAvailable": true,
+    "subscriptions": [
+      {
+        "id": "wake_sub_onion_old",
+        "installationId": "installation_dot_old",
+        "profile": "mcp_events",
+        "status": "ended",
+        "createdAt": "2026-11-10T10:00:00.000Z",
+        "activatedAt": "2026-11-10T10:00:05.000Z",
+        "endedAt": "2026-11-12T19:20:00.000Z",
+        "endedReason": "credential_ended",
+        "delivery": {
+          "state": "healthy",
+          "lastSuccessAt": "2026-11-12T18:40:00.000Z",
+          "consecutiveFailures": 0
+        }
+      }
+    ],
+    "claimable": {
+      "count": 1,
+      "oldestAt": "2026-11-12T19:26:00.000Z"
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "schema": "mcpToolsCall",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_agent_info",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpAgentInfoResponse",
+    "toolResult": "agentInfo",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"agentId\":\"agent_mark\",\"inboxId\":\"inbox_mark\",\"address\":\"mark@envoi-agents.com\",\"permissions\":[\"receive_agent_messages\",\"send_agent_messages\"],\"backgroundReceiving\":{\"state\":\"off\",\"since\":\"2026-11-12T19:20:00.000Z\",\"lastAlertAt\":\"2026-11-12T18:40:00.000Z\",\"endedReason\":\"credential_ended\",\"waiting\":{\"count\":1,\"more\":false,\"oldestAt\":\"2026-11-12T19:26:00.000Z\"}}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Restore the native event source on the existing task, then claim the waiting work. If it cannot, tell the owner and link /docs/fix/#listening-ended-after-reconnect."
+  }
+}

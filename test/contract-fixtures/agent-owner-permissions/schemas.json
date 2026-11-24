@@ -1,0 +1,310 @@
+{
+  "$id": "agent-owner-permissions/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "x-flags": {
+    "ENVOI_OWNER_PERMISSIONS": "Default off. Gates §2 and §3 only. §4 does not depend on it."
+  },
+  "x-codes": {
+    "OAUTH_RECONSENT_REQUIRED": {
+      "status": 409,
+      "when": "§3: adding a permission to an agent with a live OAuth family, while the flag is off, or adding a permission that has no OAuth scope (use_email_transport) at any time.",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "reconnect_agent"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "permission": {
+      "enum": [
+        "receive_agent_messages",
+        "send_agent_messages",
+        "create_assets",
+        "execute_cases",
+        "use_email_transport"
+      ]
+    },
+    "permissions": {
+      "description": "The route existing rule: known permissions, each once, always including Receive.",
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/definitions/permission"
+      },
+      "contains": {
+        "const": "receive_agent_messages"
+      }
+    },
+    "permissionsUpdateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "permissions",
+        "expectedPermissions"
+      ],
+      "properties": {
+        "permissions": {
+          "$ref": "#/definitions/permissions"
+        },
+        "expectedPermissions": {
+          "$ref": "#/definitions/permissions"
+        }
+      }
+    },
+    "permissionsUpdated": {
+      "description": "The route's existing response, unchanged: { agent } as the owner agent view. Only the fields this contract relies on are pinned.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent"
+      ],
+      "properties": {
+        "agent": {
+          "type": "object",
+          "required": [
+            "id",
+            "permissions"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+            },
+            "permissions": {
+              "$ref": "#/definitions/permissions"
+            }
+          }
+        }
+      }
+    },
+    "errorCode": {
+      "enum": [
+        "OAUTH_RECONSENT_REQUIRED"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "flags"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "request",
+            "response",
+            "client"
+          ]
+        },
+        {
+          "required": [
+            "steps"
+          ]
+        }
+      ],
+      "properties": {
+        "contract": {
+          "const": "agent-owner-permissions"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "enum": [
+            "consent-view-owner-choice",
+            "consent-approve-owner-choice",
+            "token-code-owner-choice",
+            "permissions-add-send",
+            "permissions-add-send-flag-off",
+            "permissions-add-unscoped",
+            "token-refresh-original-scope",
+            "token-refresh-removed-scope",
+            "token-refresh-recovered-after-removal"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "http"
+        },
+        "flags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ENVOI_OWNER_PERMISSIONS",
+            "ENVOI_REMOTE_MCP_OAUTH"
+          ],
+          "properties": {
+            "ENVOI_OWNER_PERMISSIONS": {
+              "type": "boolean"
+            },
+            "ENVOI_REMOTE_MCP_OAUTH": {
+              "type": "boolean"
+            }
+          }
+        },
+        "context": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "properties": {
+              "note": {
+                "type": "string"
+              },
+              "request": {
+                "type": "object"
+              },
+              "response": {
+                "type": "object"
+              },
+              "client": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "path",
+            "auth",
+            "headers"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/(?:api|oauth)/"
+            },
+            "auth": {
+              "enum": [
+                "human_session",
+                "public_client"
+              ]
+            },
+            "headers": {
+              "type": "object"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "body": {
+              "type": "object"
+            },
+            "form": {
+              "type": "object"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "schema",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "type": "integer"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "headers": {
+              "type": "object"
+            },
+            "body": {
+              "type": "object"
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "surface",
+            "next"
+          ],
+          "properties": {
+            "surface": {
+              "enum": [
+                "owner_ui",
+                "host"
+              ]
+            },
+            "lifecycle": {
+              "type": "string"
+            },
+            "retry": {
+              "type": "string"
+            },
+            "guidance": {
+              "type": "string"
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

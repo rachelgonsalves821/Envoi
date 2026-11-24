@@ -1,0 +1,56 @@
+{
+  "contract": "agent-saved-setup",
+  "version": 1,
+  "id": "setup-status-connected-seen",
+  "description": "The connected Dot made its first call to Envoi.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_SAVED_SETUP": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_workspace_example/agent-setups/setup_example_1",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "savedSetup",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "setupId": "setup_example_1",
+      "runtime": "dots",
+      "workspaceInboxId": "inbox_workspace_example",
+      "workspaceName": "Example workspace",
+      "name": "Milo",
+      "localPart": "milo",
+      "address": "milo@envoi-agents.com",
+      "permissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "status": "connected",
+      "createdAt": "2026-11-12T15:00:00.000Z",
+      "expiresAt": "2026-11-12T15:30:00.000Z",
+      "agent": {
+        "id": "agent_milo",
+        "name": "Milo",
+        "address": "milo@envoi-agents.com",
+        "lastSeenAt": "2026-11-12T15:04:10.000Z"
+      },
+      "effectivePermissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ]
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Status row: Milo is ready. It can receive and send. Stop polling."
+  }
+}

@@ -268,6 +268,7 @@ export function advanceNativeCase(caseInput, message, deliveryState, at, { scope
   const type = nativeMessageType(message);
   const payload = {
     messageId: message.id,
+    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
     messageType: type,
     actorType: 'agent',
     text: message.text,

@@ -45,6 +45,27 @@ it('keeps both agent inboxes in navigation before their views load', () => {
   expect(markup.match(/Expand Beacon/g)).toHaveLength(1);
 });
 
+it('shows previously loaded agent conversations when Done remounts after a workspace switch', () => {
+  const createdAt = '2026-11-05T12:00:00Z';
+  const root = { id: 'root_cached', organizationId: 'org_layout', name: 'My inbox', ownerHumanId: 'human_layout', ownerAgentId: null, status: 'active', createdAt } as Inbox;
+  const agentInbox = { ...root, id: 'agent_cached', name: 'Delta inbox', kind: 'agent', parentInboxId: root.id, ownerAgentId: 'agent_delta', ownerHumanId: null } as Inbox;
+  const archived = { id: 'case_cached_done', objective: 'Archived agent conversation', state: 'inProgress', createdAt, inboxPreference: { folderId: null, archived: true, read: true, readThrough: null, revision: 'a'.repeat(64) } } as WorkCase;
+  const rootView = { inbox: root, canManageInbox: true, mode: 'human-observer', agents: [], caseQueue: [], cases: [], messages: [], assets: [], folders: [], participantDirectory: {}, invitations: [], recentEvents: [], deliveryReceipts: [], calendarConnectors: [], calendarProviders: {}, summary: { agents: 0, cases: 0, messages: 0, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 0, waiting: 0, completed: 0 }, capabilities: [] } as HumanView;
+  const agentView = { ...rootView, inbox: agentInbox, caseQueue: [archived], cases: [archived] } as HumanView;
+  const pending = renderToStaticMarkup(createElement(AppShell, {
+    config: { provider: 'local', hosted: false }, human: { id: 'human_layout', displayName: 'Human' }, organizations: [], workspaces: [root, agentInbox], workspace: root, view: rootView,
+    initialSection: 'completed', onSelectWorkspace: vi.fn(), onRefresh: vi.fn(), onLogout: vi.fn(), syncNotice: ''
+  }));
+  expect(pending).toContain('Loading agent conversations');
+  expect(pending).not.toContain('No conversations yet');
+  const markup = renderToStaticMarkup(createElement(AppShell, {
+    config: { provider: 'local', hosted: false }, human: { id: 'human_layout', displayName: 'Human' }, organizations: [], workspaces: [root, agentInbox], workspace: root, view: rootView,
+    initialSection: 'completed', initialChildViews: { [agentInbox.id]: agentView }, onSelectWorkspace: vi.fn(), onRefresh: vi.fn(), onLogout: vi.fn(), syncNotice: ''
+  }));
+  expect(markup).toContain('Archived agent conversation');
+  expect(markup).not.toContain('No conversations yet');
+});
+
 it('does not label another human’s instruction as You', () => {
   const event = { id: 'evt_instruction', type: 'message', actor: 'human_sender', createdAt: '2026-10-06T12:00:00Z', payload: { senderHumanId: 'human_sender', messageType: 'instruction', text: 'Check the latest draft', deliveryState: 'delivered' }, linkedPolicyEvaluation: null, precedingEventRef: null } as CaseEvent;
   const workCase = { id: 'case_instruction', principal: 'human_sender', actingAgent: 'agent_owned' } as WorkCase;
@@ -93,4 +114,29 @@ it('honors initial Done on a fresh shell mount without selecting a case or relyi
   expect(onRefresh).not.toHaveBeenCalled();
   expect(archived.state).toBe('inProgress');
   expect(completed.state).toBe('completed');
+});
+
+it('does not use the wide layout without a window', async () => {
+  const { useWideLayout } = await import('../src/App');
+  const Probe = () => createElement('i', null, String(useWideLayout()));
+  expect(renderToStaticMarkup(createElement(Probe))).toBe('<i>false</i>');
+});
+
+it('shows historical attachments in workspace Files from an empty agent inbox', () => {
+  const createdAt = '2026-11-05T12:00:00Z';
+  const root = { id: 'root_files', name: 'My inbox', status: 'active', createdAt } as Inbox;
+  const selected = { ...root, id: 'selected_files', name: 'Empty inbox', kind: 'agent', parentInboxId: root.id } as Inbox;
+  const historical = { ...selected, id: 'history_files', name: 'Historical inbox' };
+  const view = { inbox: selected, recentEvents: [], invitations: [], agents: [], caseQueue: [], cases: [], messages: [], assets: [], folders: [], summary: { agents: 0, cases: 0, messages: 0, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 0, waiting: 0, completed: 0 } } as unknown as HumanView;
+  const historicalView = { ...view, inbox: historical, assets: [{ id: 'obj_history', workspaceId: historical.id, filename: 'older-report.csv', mimeType: 'text/csv', size: 30, state: 'clean', createdAt }] } as HumanView;
+  const props = {
+    config: { provider: 'local' as const, hosted: false }, human: { id: 'human_files', displayName: 'Human' }, organizations: [], workspaces: [root, selected, historical], workspace: selected, view,
+    initialSection: 'documents' as const, onSelectWorkspace: vi.fn(), onRefresh: vi.fn(), onLogout: vi.fn(), syncNotice: ''
+  };
+  const pending = renderToStaticMarkup(createElement(AppShell, props));
+  expect(pending).toContain('Loading files from your agent inboxes');
+  expect(pending).not.toContain('No files yet');
+  const markup = renderToStaticMarkup(createElement(AppShell, { ...props, initialChildViews: { [root.id]: { ...view, inbox: root }, [historical.id]: historicalView } }));
+  expect(markup).toContain('older-report.csv');
+  expect(markup).not.toContain('No files yet');
 });
