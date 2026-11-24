@@ -193,7 +193,7 @@ test('the staging agent-limit exception reaches the container and changes its se
 test('the all-environment owner exception reaches the container and changes its settings fingerprint', async () => {
   const key = 'ENVOI_UNCAPPED_AGENT_HUMAN_IDS';
   assert.ok(CONTAINER_ENV_KEYS.includes(key));
-  const baseline = { ENVOI_DEPLOYMENT_ENVIRONMENT: 'beta' };
+  const baseline = { ENVOI_DEPLOYMENT_ENVIRONMENT: 'production' };
   const configured = { ...baseline, [key]: 'human_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' };
   assert.deepEqual(selectEnvironment(configured, CONTAINER_ENV_KEYS, {}), configured);
   assert.notEqual(await environmentFingerprint(baseline), await environmentFingerprint(configured));

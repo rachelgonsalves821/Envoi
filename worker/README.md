@@ -15,6 +15,18 @@ Envoi runs in public production at `https://www.envoi-agents.com/`. Some Cloudfl
 
 The top-level Worker `sinaloa` is retired; nothing deploys to it. The `production` script names below are aliases for the `beta` Wrangler env. Cloudflare Workers Builds calls `npm run cf:deploy:beta` by name, so that script stays.
 
+### Deployment label and database stamp
+
+Each deployment names itself with `ENVOI_DEPLOYMENT_ENVIRONMENT` and stamps its database with that name (`src/deployment-identity.js`). A server refuses to start, report ready or claim outbox work on a database stamped by another name. Staging is `staging`. Production was `beta` and is now `production`.
+
+The first production release with this change also pins `ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM=beta`. Its first start moves the stamp from `beta` to `production` and logs a warning; later starts match and change nothing. Once production has started on the new label:
+
+1. A follow-up PR removes `ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM` from `wrangler.jsonc`.
+2. Because `keep_vars` is true, a deploy does not delete it from the Worker. The owner then deletes it in **Workers & Pages → sinaloa-beta → Settings → Variables and Secrets**.
+3. WorkOS identity-mapping manifests for production must then use `deployment.environment: "production"`. A manifest prepared with `beta` fails closed with `DEPLOYMENT_IDENTITY_MISMATCH` and must be regenerated.
+
+**Rollback across this change.** A release from before it is configured as `beta` and refuses the restamped database. Deploy it with `--var ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM:production` so its first start moves the stamp back. Without that, the rolled-back container stays unready and delivers nothing; it does not touch data.
+
 ## Release targets and recorded promotion
 
 Promote one reviewed, merged-main commit explicitly to staging, then to production. Record its full SHA, successful CI run, deployment outputs, Worker versions and Container image identifiers in the release evidence. Recheck `git rev-parse HEAD` against the recorded SHA before each deploy. Use a clean checkout; any fix requires a new merged SHA and renewed staging acceptance. The original [launch runbook](../docs/closed-beta-launch-runbook.md) records the first-release gates and evidence.

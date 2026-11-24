@@ -53,7 +53,11 @@ export function validateReleaseTargets(config) {
   assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.ENVOI_PUBLIC_URL}/api/auth/workos/callback`);
   // Each deployment stamps its own database with this name and refuses one stamped by another.
   assert.equal(config.env.staging.vars?.ENVOI_DEPLOYMENT_ENVIRONMENT, 'staging', 'Staging must name its deployment');
-  assert.equal(beta.vars?.ENVOI_DEPLOYMENT_ENVIRONMENT, 'beta', 'Production must name its deployment');
+  assert.equal(beta.vars?.ENVOI_DEPLOYMENT_ENVIRONMENT, 'production', 'Production must name its deployment "production"');
+  // The production database is still stamped with its earlier name "beta". The first start of this
+  // release moves the stamp to "production"; once it has, the setting matches nothing and is removed.
+  assert.equal(beta.vars?.ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM, 'beta', 'Production may move its database stamp only from its earlier name "beta"');
+  assert.equal(config.env.staging.vars?.ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM, undefined, 'Staging must never reassign its database');
 }
 
 export async function checkDeploymentConfiguration() {
