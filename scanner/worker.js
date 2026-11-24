@@ -1,5 +1,5 @@
 import { Container, getContainer } from '@cloudflare/containers';
-import { matchesSha256Base64, MAX_SCAN_BYTES, readBoundedBody } from './clamd-protocol.js';
+import { claimedSha256, matchesSha256Base64, MAX_SCAN_BYTES, readBoundedBody } from './clamd-protocol.js';
 import { CLAMD_PORT, queryClamd } from './clamd-io.js';
 
 const CONTAINER_NAME = 'staging-clamav-primary';
@@ -37,7 +37,7 @@ export class ClamAVContainer extends Container {
       }
       if (path === '/scan' && request.method === 'POST') {
         const body = await readBoundedBody(request.body);
-        if (!await matchesSha256Base64(body, request.headers.get('x-sinaloa-sha256'))) return json({ error: 'CHECKSUM_MISMATCH' }, 422);
+        if (!await matchesSha256Base64(body, claimedSha256(request.headers))) return json({ error: 'CHECKSUM_MISMATCH' }, 422);
         return json(await queryClamd(this, 'INSTREAM', body));
       }
       return json({ error: 'NOT_FOUND' }, 404);
