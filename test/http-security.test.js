@@ -53,7 +53,7 @@ test('REST flood stays limited when bearer tokens, cookies and forwarded IP head
   const { mkdtemp, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const path = await import('node:path');
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-http-rate-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-http-rate-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: new URL('../', import.meta.url),
     env: { ...process.env, DATABASE_URL: '', ENVOI_HOST: '127.0.0.1', ENVOI_PORT: '0',
@@ -70,7 +70,7 @@ test('REST flood stays limited when bearer tokens, cookies and forwarded IP head
       await stopped;
     }
     const relative = path.relative(tmpdir(), dataDir);
-    assert.ok(relative.startsWith('sinaloa-http-rate-') && !relative.includes(path.sep));
+    assert.ok(relative.startsWith('envoi-http-rate-') && !relative.includes(path.sep));
     await rm(dataDir, { recursive: true, force: true });
   });
   const baseUrl = await new Promise((resolve, reject) => {

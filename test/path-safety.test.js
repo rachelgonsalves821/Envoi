@@ -7,7 +7,7 @@ import { FileStore } from '../src/storage.js';
 import { assertSafeIdentifier, assertSafeRequestTarget, normalizeDocumentPath } from '../src/path-safety.js';
 
 test('document stores reject traversal, absolute paths, controls, and overlong identifiers', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sinaloa-paths-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'envoi-paths-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new FileStore(root);
   await store.init();

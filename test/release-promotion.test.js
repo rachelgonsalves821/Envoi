@@ -24,13 +24,17 @@ test('premerge candidate can be dry-run but cannot be published', () => {
   assert.doesNotThrow(() => promotionPlan(input));
   assert.throws(() => promotionPlan({ ...input, deploy: true }), /merge and fetch/);
 });
-test('accepted main can publish only the explicit beta target', () => {
-  assert.deepEqual(promotionPlan({ ...defaults, target: 'beta', deploy: true }).args,
-    ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]);
+test('accepted main can publish only the explicit production target', () => {
+  for (const target of ['production', 'beta']) {
+    const plan = promotionPlan({ ...defaults, target, deploy: true });
+    assert.equal(plan.target, 'beta');
+    assert.deepEqual(plan.args, ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]);
+  }
 });
 for (const [name, overrides, message] of [
-  ['old production target', { target: 'production' }, /explicit staging or beta/],
-  ['unqualified target', { target: undefined }, /explicit staging or beta/],
+  ['retired sinaloa Worker target', { target: 'sinaloa' }, /explicit staging or production/],
+  ['inherited object key as target', { target: 'toString' }, /explicit staging or production/],
+  ['unqualified target', { target: undefined }, /explicit staging or production/],
   ['dirty tracked or untracked work', { clean: false }, /must be clean/],
   ['short SHA', { sha: 'aabbcc' }, /40-hex/],
   ['SHA mismatching source', { sha: candidate }, /exactly match/],
@@ -54,13 +58,13 @@ test('secret-name gate allows a policy keyring and requires a separate scanner c
   assert.doesNotThrow(() => requireSecretNames(names));
   assert.throws(() => requireSecretNames(names, ['ENVOI_SCANNER_TOKEN']), /ENVOI_SCANNER_TOKEN/);
 });
-// N2-config-2: beta holds SINALOA_* secrets until H-5 adds the ENVOI_* twins. Every beta deploy path
+// N2-config-2: production holds SINALOA_* secrets until H-5 adds the ENVOI_* twins. Every production deploy path
 // refuses until then, except for the data encryption key, which may stay under its legacy name.
 const secretList = names => names.map(name => ({ name, type: 'secret_text' }));
 const betaInventory = ({ app, scanner }) => (...argv) => argv.includes('scanner/wrangler.beta.jsonc') ? secretList(scanner) : secretList(app);
 const migratedApp = APP_SECRET_NAMES.map(name => name === 'ENVOI_DATA_ENCRYPTION_KEY' ? 'SINALOA_DATA_ENCRYPTION_KEY' : name);
 const betaApp = [...migratedApp, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY', 'ENVOI_WAKE_SIGNING_KEYS'];
-test('beta deploys refuse until the ENVOI_* twins exist (H-5)', () => {
+test('production deploys refuse until the ENVOI_* twins exist (H-5)', () => {
   const legacyApp = APP_SECRET_NAMES.map(name => name.replace('ENVOI_', 'SINALOA_'));
   assert.throws(() => requireBetaSecretNames(betaInventory({ app: legacyApp, scanner: ['ENVOI_SCANNER_TOKEN'] })), /ENVOI_BETA_INVITED_EMAILS/);
   assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] })), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
@@ -83,7 +87,7 @@ test('secret inventory lists names in the pinned release account', () => {
   assert.deepEqual(calls, [{ args: ['secret', 'list', '--env', 'beta'], account: RELEASE_ACCOUNT_ID }]);
 });
 test('scanner deploys check the target scanner token name before running Wrangler', async () => {
-  for (const [target, config] of [['staging', 'scanner/wrangler.jsonc'], ['beta', 'scanner/wrangler.beta.jsonc']]) {
+  for (const [target, config] of [['staging', 'scanner/wrangler.jsonc'], ['beta', 'scanner/wrangler.beta.jsonc'], ['production', 'scanner/wrangler.beta.jsonc']]) {
     const runs = [];
     const asked = [];
     const run = (command, args, options) => { runs.push({ args: args.slice(1), account: options.env.CLOUDFLARE_ACCOUNT_ID }); return { status: 0 }; };
@@ -94,9 +98,9 @@ test('scanner deploys check the target scanner token name before running Wrangle
     assert.deepEqual(asked, [['--config', config], ['--config', config]]);
     assert.deepEqual(runs, [{ args: ['deploy', '--config', config], account: RELEASE_ACCOUNT_ID }]);
   }
-  await assert.rejects(deployScanner('production', { inventory: () => [], run: () => ({ status: 0 }) }), /staging\|beta/);
+  await assert.rejects(deployScanner('sinaloa', { inventory: () => [], run: () => ({ status: 0 }) }), /staging\|production/);
 });
-test('the direct beta deploy checks secret names before running Wrangler', async () => {
+test('the direct production deploy checks secret names before running Wrangler', async () => {
   const runs = [];
   const run = (command, args) => { runs.push(args.slice(1)); return { status: 0 }; };
   const source = () => ({ headSha: main, mainSha: main, clean: true, descendedFromMain: true });
@@ -105,7 +109,7 @@ test('the direct beta deploy checks secret names before running Wrangler', async
   await deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source });
   assert.deepEqual(runs, [['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]]);
 });
-test('automatic beta Builds pins the exact Git SHA and never selects the old production Worker', () => {
+test('automatic production Builds pins the exact Git SHA and never selects the retired sinaloa Worker', () => {
   assert.deepEqual(betaBuildDeployArgs(main), ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]);
   assert.throws(() => betaBuildDeployArgs('short-sha'), /full Git commit SHA/);
 });
@@ -164,7 +168,7 @@ for (const [label, overrides, expected] of [
   ['unmerged branch', { headSha: candidate }, /merge and fetch/],
   ['divergent branch', { headSha: candidate, descendedFromMain: false }, /descend/],
   ['invalid source SHA', { headSha: 'short' }, /40-hex/]
-]) test(`direct beta refuses ${label} before secret access or deployment`, async () => {
+]) test(`direct production refuses ${label} before secret access or deployment`, async () => {
   const calls = [];
   await assert.rejects(deployBetaBuild({
     source: () => ({ headSha: main, mainSha: main, clean: true, descendedFromMain: true, ...overrides }),
@@ -174,7 +178,7 @@ for (const [label, overrides, expected] of [
   assert.deepEqual(calls, []);
 });
 
-test('direct beta stops if refreshing the main reference fails', async () => {
+test('direct production stops if refreshing the main reference fails', async () => {
   const calls = [];
   await assert.rejects(deployBetaBuild({
     source: () => readBetaBuildSource({ cwd: process.cwd(), execute: () => { throw new Error('fetch failed'); } }),
@@ -184,7 +188,7 @@ test('direct beta stops if refreshing the main reference fails', async () => {
   assert.deepEqual(calls, []);
 });
 
-test('beta source refreshes an advanced local origin/main and detects hidden untracked work', async () => {
+test('production source refreshes an advanced local origin/main and detects hidden untracked work', async () => {
   const root = await mkdtemp(join(tmpdir(), 'envoi-beta-build-source-'));
   try {
     const remote = join(root, 'remote.git');
@@ -268,7 +272,7 @@ test('release CLI refuses duplicate or arbitrary profile flags before source or 
 });
 
 
-test('beta-only preservation profile retains live Monad and its issuer secret gate', async () => {
+test('production-only preservation profile retains live Monad and its issuer secret gate', async () => {
   const { releaseProfileVars } = await import('../scripts/promote-release.mjs');
   const vars = releaseProfileVars('hermes-openclaw-preserve-monad');
   assert.deepEqual(vars, { ...releaseProfileVars('hermes-openclaw'), ENVOI_MONAD_PERMISSIONS: 'true' });
@@ -279,7 +283,7 @@ test('beta-only preservation profile retains live Monad and its issuer secret ga
   assert.deepEqual(plan.vars, vars);
   assert.deepEqual(plan.args, ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`,
     ...Object.entries(vars).flatMap(([name,value]) => ['--var', `${name}:${value}`])]);
-  assert.throws(() => promotionPlan({ ...input, target: 'staging' }), /beta only/);
+  assert.throws(() => promotionPlan({ ...input, target: 'staging' }), /production only/);
   const profile = { profile: input.profile };
   assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), profile), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
   assert.doesNotThrow(() => requireBetaSecretNames(betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), profile));
@@ -289,8 +293,8 @@ test('beta-only preservation profile retains live Monad and its issuer secret ga
 test('preserve-Monad cannot enable staging or choose conflicting CLI profiles before source access', async () => {
   const { promoteRelease } = await import('../scripts/promote-release.mjs');
   const options = { cwd: 'missing-profile-source-must-not-be-read' };
-  await assert.rejects(promoteRelease(['staging', main, '--profile=hermes-openclaw-preserve-monad'], options), /beta only/);
-  await assert.rejects(promoteRelease(['staging', main, '--deploy', '--profile=hermes-openclaw-preserve-monad'], options), /beta only/);
+  await assert.rejects(promoteRelease(['staging', main, '--profile=hermes-openclaw-preserve-monad'], options), /production only/);
+  await assert.rejects(promoteRelease(['staging', main, '--deploy', '--profile=hermes-openclaw-preserve-monad'], options), /production only/);
   for (const profiles of [ ['--profile=hermes-openclaw','--profile=hermes-openclaw-preserve-monad'],
     ['--profile=hermes-openclaw-preserve-monad','--profile=hermes-openclaw'],
     ['--profile=hermes-openclaw-preserve-monad','--profile=hermes-openclaw-preserve-monad'] ]) {
@@ -298,6 +302,6 @@ test('preserve-Monad cannot enable staging or choose conflicting CLI profiles be
   }
 });
 
-test('configured beta native wake requires its existing signing-key secret before deployment',()=>{
+test('configured production native wake requires its existing signing-key secret before deployment',()=>{
   assert.throws(()=>requireBetaSecretNames(betaInventory({app:betaApp.filter(name=>name!=='ENVOI_WAKE_SIGNING_KEYS'),scanner:['ENVOI_SCANNER_TOKEN']})),/ENVOI_WAKE_SIGNING_KEYS/);
 });

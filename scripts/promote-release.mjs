@@ -40,15 +40,15 @@ export function secretInventory({ cwd, env, run = spawnSync }, ...argv) {
   catch { throw new Error('Worker secret inventory was not valid JSON'); }
 }
 
-// N2-config-2: beta still holds SINALOA_* secrets until its ENVOI_* twins are added (H-5). Every beta
-// deploy path checks names first, so code that no longer reads the old names cannot reach beta early.
-// The default beta path retains its separately reviewed Monad gate. Only the
+// N2-config-2: production still holds SINALOA_* secrets until its ENVOI_* twins are added (H-5). Every production
+// deploy path checks names first, so code that no longer reads the old names cannot reach production early.
+// The default production path retains its separately reviewed Monad gate. Only the
 // fixed core-only profile can omit that unused credential, never a caller's flag.
 export function requireBetaSecretNames(inventory, { profile } = {}) {
   const vars = releaseProfileVars(profile);
   const required = vars?.ENVOI_MONAD_PERMISSIONS === 'false'
     ? APP_SECRET_NAMES : [...APP_SECRET_NAMES, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY'];
-  // The configured beta route enables native wake; a missing signing key must
+  // The configured production route enables native wake; a missing signing key must
   // fail before deploying an image that cannot start with that configuration.
   const wakeKeys = vars?.ENVOI_HTTP_WAKE_V1 === 'false' ? [] : ['ENVOI_WAKE_SIGNING_KEYS'];
   requireSecretNames(inventory('--env', 'beta'), [...required, ...wakeKeys]);
@@ -70,10 +70,16 @@ export function releaseProfileVars(profile) {
     ENVOI_MONAD_PERMISSIONS: profile === 'hermes-openclaw-preserve-monad' ? 'true' : 'false' });
 }
 
+// "production" names the live www.envoi-agents.com deployment, which Wrangler still calls env "beta"
+// (Workers Builds runs cf:deploy:beta by name). It never selects the retired top-level `sinaloa` Worker.
+export const RELEASE_TARGET_ALIASES = Object.freeze({ production: 'beta' });
+export const releaseTarget = name => Object.hasOwn(RELEASE_TARGET_ALIASES, String(name)) ? RELEASE_TARGET_ALIASES[name] : name;
+
 export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedFromMain, deploy = false, profile }) {
+  target = releaseTarget(target);
   const vars = releaseProfileVars(profile);
-  if (profile === 'hermes-openclaw-preserve-monad' && target !== 'beta') throw new Error('The preserve-Monad profile is beta only');
-  if (!['staging', 'beta'].includes(target)) throw new Error('Choose the explicit staging or beta release target');
+  if (profile === 'hermes-openclaw-preserve-monad' && target !== 'beta') throw new Error('The preserve-Monad profile is production only');
+  if (!['staging', 'beta'].includes(target)) throw new Error('Choose the explicit staging or production release target');
   for (const value of [sha, headSha, mainSha]) {
     if (!/^[a-f0-9]{40}$/.test(value || '')) throw new Error('Release and Git references must use full lowercase 40-hex SHAs');
   }
@@ -90,14 +96,15 @@ export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedF
 }
 
 export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {
-  const [target, sha, ...flags] = args;
+  const [requested, sha, ...flags] = args;
+  const target = releaseTarget(requested);
   const profiles = flags.filter(flag => flag.startsWith('--profile='));
   if (flags.length > 2 || new Set(flags).size !== flags.length || profiles.length > 1
     || flags.some(flag => !['--deploy', '--profile=hermes-openclaw', '--profile=hermes-openclaw-preserve-monad'].includes(flag))) {
-    throw new Error('Usage: node scripts/promote-release.mjs staging|beta FULL_SHA [--deploy] [--profile=hermes-openclaw|hermes-openclaw-preserve-monad]');
+    throw new Error('Usage: node scripts/promote-release.mjs staging|production FULL_SHA [--deploy] [--profile=hermes-openclaw|hermes-openclaw-preserve-monad]');
   }
   const profile = profiles[0]?.slice('--profile='.length);
-  if (profile === 'hermes-openclaw-preserve-monad' && target !== 'beta') throw new Error('The preserve-Monad profile is beta only');
+  if (profile === 'hermes-openclaw-preserve-monad' && target !== 'beta') throw new Error('The preserve-Monad profile is production only');
   const git = (...argv) => execFileSync('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   if (flags.includes('--deploy')) git('fetch', 'origin', 'main');
   const headSha = git('rev-parse', 'HEAD');

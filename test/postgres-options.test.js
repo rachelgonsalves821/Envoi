@@ -8,10 +8,10 @@ test('PostgreSQL options refuse retired SINALOA_* settings', () => {
 });
 
 test('production PostgreSQL requires certificate-verified TLS', () => {
-  assert.throws(() => createPostgresOptions('postgresql://user:secret@db.example/sinaloa', {
+  assert.throws(() => createPostgresOptions('postgresql://user:secret@db.example/envoi', {
     ENVOI_AUTH_MODE: 'production', ENVOI_DB_SSL_MODE: 'disable'
   }), /verify-full/);
-  const options = createPostgresOptions('postgresql://user:secret@db.example/sinaloa', {
+  const options = createPostgresOptions('postgresql://user:secret@db.example/envoi', {
     ENVOI_AUTH_MODE: 'production', ENVOI_DB_SSL_MODE: 'verify-full', ENVOI_DB_CA: 'test-ca'
   });
   assert.deepEqual(options.ssl, { rejectUnauthorized: true, ca: 'test-ca' });
@@ -25,7 +25,7 @@ test('PostgreSQL reads ENVOI-prefixed TLS settings', () => {
 });
 
 test('PostgreSQL options reject URL-level TLS overrides and invalid timeouts', () => {
-  assert.throws(() => createPostgresOptions('postgresql://db.example/sinaloa?sslmode=require', {}), /not DATABASE_URL query parameters/);
-  assert.throws(() => createPostgresOptions('postgresql://db.example/sinaloa', { ENVOI_DB_POOL_SIZE: 'NaN' }), /positive integer/);
-  assert.throws(() => createPostgresOptions('postgresql://db.example/sinaloa', { ENVOI_DB_QUERY_TIMEOUT_MS: '0' }), /positive integer/);
+  assert.throws(() => createPostgresOptions('postgresql://db.example/envoi?sslmode=require', {}), /not DATABASE_URL query parameters/);
+  assert.throws(() => createPostgresOptions('postgresql://db.example/envoi', { ENVOI_DB_POOL_SIZE: 'NaN' }), /positive integer/);
+  assert.throws(() => createPostgresOptions('postgresql://db.example/envoi', { ENVOI_DB_QUERY_TIMEOUT_MS: '0' }), /positive integer/);
 });

@@ -8,7 +8,7 @@ import { DeliveryWorker } from '../src/delivery-worker.js';
 import { assertDeliveryWritesCommitWithSettlement } from './delivery-commit-harness.js';
 
 test('resolved webhook routing locks delivery and failure against inbox mutations', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-webhook-lock-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-webhook-lock-')));
   await store.init();
   const now = store.now();
   await store.enqueueOutbox([], { id: 'webhook_lock', kind: 'emailWebhook', senderInboxId: null, recipientInboxId: null, status: 'queued', attempts: 0, maxAttempts: 2, availableAt: now, createdAt: now, updatedAt: now });
@@ -51,7 +51,7 @@ test('resolved webhook routing locks delivery and failure against inbox mutation
 });
 
 test('delivery worker retries transient failures, dead-letters, and supports operator replay', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-test-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-delivery-test-')));
   await store.init();
   const createdAt = store.now();
   await store.enqueueOutbox([], {
@@ -100,7 +100,7 @@ test('delivery worker retries transient failures, dead-letters, and supports ope
 });
 
 test('permanent delivery failures bypass retries and enter the dead-letter queue', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-permanent-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-delivery-permanent-')));
   await store.init();
   const createdAt = store.now();
   await store.enqueueOutbox([], {
@@ -127,7 +127,7 @@ test('permanent delivery failures bypass retries and enter the dead-letter queue
 });
 
 test('outbox preserves order within a conversation while allowing leased workers', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-order-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-delivery-order-')));
   await store.init();
   const firstAt = '2026-09-27T10:00:00.000Z';
   const secondAt = '2026-09-27T10:00:01.000Z';
@@ -144,7 +144,7 @@ test('outbox preserves order within a conversation while allowing leased workers
 });
 
 test('reclaimed delivery lease fences stale settlements and their documents', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-fence-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-delivery-fence-')));
   await store.init();
   const createdAt = store.now();
   await store.enqueueOutbox([], { id: 'delivery_fenced', kind: 'test', status: 'queued', attempts: 0, maxAttempts: 2, availableAt: createdAt, createdAt, updatedAt: createdAt });
@@ -161,7 +161,7 @@ test('reclaimed delivery lease fences stale settlements and their documents', as
 });
 
 test('writes made while delivering, such as the recipient wake, commit only with the settlement', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-commit-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-delivery-commit-')));
   await store.init();
   await assertDeliveryWritesCommitWithSettlement(store, {
     expireLease: record => store.putJson(path.join('outbox', `${record.id}.json`), { ...record, lockedAt: '2000-01-01T00:00:00.000Z' })

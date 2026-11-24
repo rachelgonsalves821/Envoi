@@ -1,8 +1,8 @@
 # Deployment and migration contract
 
-Current closed-beta operations use the [launch runbook](closed-beta-launch-runbook.md). The merged implementation baseline is main at `fc2e1d8b72280789e365e9f8b8e399717933ccb6`; hosted release acceptance must be recorded against the actual candidate SHA. This contract describes implementation behavior, not completed live acceptance.
+Envoi runs in public production at `https://www.envoi-agents.com/`. Release steps are in the [Cloudflare deployment guide](../worker/README.md); the original [launch runbook](closed-beta-launch-runbook.md) records the first-release gates. Hosted release acceptance must be recorded against the actual candidate SHA. This contract describes implementation behavior, not completed live acceptance.
 
-The closed beta runs one Cloudflare application Container behind its Worker. PostgreSQL row leases fence delivery processing, but local rate counters and event fanout do not establish multi-instance readiness. Keep max_instances at 1 until shared enforcement and fanout have been implemented and accepted. PostgreSQL commits the sender message, case event, audit event, and outbox record in one transaction. Production assets use a private S3-compatible bucket; PostgreSQL owns atomic per-workspace quota reservations and immutable metadata.
+Production runs one Cloudflare application Container behind its Worker. PostgreSQL row leases fence delivery processing, but local rate counters and event fanout do not establish multi-instance readiness. Keep max_instances at 1 until shared enforcement and fanout have been implemented and accepted. PostgreSQL commits the sender message, case event, audit event, and outbox record in one transaction. Production assets use a private S3-compatible bucket; PostgreSQL owns atomic per-workspace quota reservations and immutable metadata.
 
 ## Required environment variables
 
@@ -24,7 +24,7 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 - `ENVOI_DELIVERY_LEASE_MS`: lease duration used to recover work from an interrupted process; defaults to `30000` milliseconds.
 - `ENVOI_DELIVERY_RETRY_BASE_MS`, `ENVOI_DELIVERY_RETRY_MAX_MS`: exponential-backoff bounds.
 - `ENVOI_STREAM_MEMBERSHIP_RECHECK_MS`: how long an open event stream trusts one WorkOS organization-membership answer before asking again; defaults to `60000` (one minute). Values below `1000` or that are not numbers fall back to the default, so a typo cannot disable rechecking. Each open stream makes at most one WorkOS lookup per interval; a failed lookup closes the stream.
-- `ENVOI_AGENT_DOMAIN`: native platform-address domain. Local development defaults to `envoi.mail`; beta issues new addresses under `envoi-agents.com`. Previously issued `agents.envoi-agents.com` addresses remain routable. Native delivery uses the Envoi protocol, not SMTP.
+- `ENVOI_AGENT_DOMAIN`: native platform-address domain. Local development defaults to `envoi.mail`; production issues new addresses under `envoi-agents.com`. Previously issued `agents.envoi-agents.com` addresses remain routable. Native delivery uses the Envoi protocol, not SMTP.
 - `ENVOI_AGENT_ACCESS_TOKEN_TTL_SECONDS`: lifetime of an agent workload access token; defaults to `900` seconds and cannot be less than `60`.
 - `ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS`: maximum lifetime of an agent credential family; defaults to `30` days.
 - `ENVOI_AUTH_MODE`: use `production` outside local development; this enables secure-cookie and fail-closed production safeguards.
@@ -97,7 +97,7 @@ Preparing or merging this change does not authorize deployment or enabling
 Cloudflare Builds. Keep Builds paused until the human separately approves the
 validated release and any later automatic-build resumption.
 
-Use one beta backend Container behind TLS with PostgreSQL and private S3-compatible object storage. Promote an exact recorded candidate to staging, then beta, using the explicit environment commands in the launch runbook. The beta application is custom-domain-only; run its smoke after binding www.envoi-agents.com. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
+Use one backend Container behind TLS with PostgreSQL and private S3-compatible object storage. Promote an exact recorded candidate to staging, then production, using the explicit environment commands in the [Cloudflare deployment guide](../worker/README.md). The production application is custom-domain-only; run its smoke against www.envoi-agents.com. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
 
 The backend exposes `/health` for liveness and `/ready` for dependency readiness. In production, readiness fails with HTTP `503` if PostgreSQL, private object storage, the malware scanner, or an enabled public-email transport is unavailable. Checks are bounded by `ENVOI_READINESS_TIMEOUT_MS` and return only sanitized reasons. It handles `SIGTERM` by stopping quota cleanup and delivery workers, closing SSE connections, and closing the HTTP server cleanly.
 
@@ -107,25 +107,25 @@ Run `npm run db:migrate` as a release job before switching traffic. The same che
 
 Cloudflare starts a container near the request that wakes it, so a visit from Asia can start it in Hong Kong. OpenAI blocks chatgpt.com there, so Envoi cannot fetch ChatGPT's OAuth client metadata (`https://chatgpt.com/oauth/client.json`). Every ChatGPT sign-in and token refresh then fails with `invalid_client`. The container log shows `envoi.oauth_client_rejected` with `stage: fetch`, `reason: fetch_failed` and `colo: HKG` (staging, 2026-11-13).
 
-Staging and beta pin their containers with `"constraints": { "regions": ["ENAM", "WNAM"] }`. Some Wrangler versions reject `constraints` for Durable Object-managed containers (cloudflare/workers-sdk#15995), but the locked Wrangler accepted it. Staging @1749906 deployed with it on 2026-11-13, ran in `iad03` and logged colo `EWR`, and ChatGPT sign-in worked again. Beta takes the same constraint. After a beta deploy, check Containers → sinaloa-beta-release → Instances for a North American location.
+Staging and production pin their containers with `"constraints": { "regions": ["ENAM", "WNAM"] }`. Some Wrangler versions reject `constraints` for Durable Object-managed containers (cloudflare/workers-sdk#15995), but the locked Wrangler accepted it. Staging @1749906 deployed with it on 2026-11-13, ran in `iad03` and logged colo `EWR`, and ChatGPT sign-in worked again. Production takes the same constraint. After a production deploy, check Containers → sinaloa-beta-release → Instances for a North American location.
 
 Fallback when the container lands outside a region ChatGPT serves: restart it from a US request, then check the container logs' `colo`.
 
 ## Hosted acceptance and later multi-instance gates
 
-The following are required before opening the service to untrusted external traffic:
+These gates applied before the service opened to external traffic, and still apply before raising capacity or enabling new external integrations:
 
-1. Configure isolated WorkOS, exact-email beta admission, encrypted runtime secrets and current organization membership/management policies.
+1. Configure isolated WorkOS, human admission (exact-email invitations plus bounded public signup), encrypted runtime secrets and current organization membership/management policies.
 2. Prove the single-instance request, stream and credential-abuse bounds for the reviewed candidate. Add shared rate enforcement, event fanout and request tracing before multiple instances; configured local limits alone do not prove the rotating-credential stress gate.
 3. Provision the private bucket and scanner, then verify upload, quarantine, scan, and signed-download behavior in the production region.
 4. Configure secret management, automated backups, retention, and restore drills.
-5. Keep optional external email disabled for initial beta. Before separately enabling `use_email_transport`, verify a controlled public email domain, provider SPF/DKIM and DMARC, and inbound and bounce/complaint webhooks.
+5. Keep optional external email disabled until it passes its own gate. Before separately enabling `use_email_transport`, verify a controlled public email domain, provider SPF/DKIM and DMARC, and inbound and bounce/complaint webhooks.
 
 Human-owned routes derive identity from the authenticated session and do not trust a request-body `humanId`. Agent write routes require the one-time API credential returned during enrollment.
 
 Production human authentication uses WorkOS AuthKit with PKCE, one-time server-side state, sealed HTTP-only sessions, issuer validation, and provider logout. `/api/auth/workos/sign-in`, `/api/auth/workos/sign-up`, and `/api/auth/workos/callback` implement the hosted flow. Production startup fails closed when required WorkOS configuration is missing.
 
-The approved invite-only beta has WorkOS MFA Off and self-service signup disabled. Hosted sessions expose assurance: provider; this is provider authentication, not evidence of a second factor. WorkOSAuthService requires an authenticated sealed provider session, an email-verified user and an exact entry in ENVOI_BETA_INVITED_EMAILS. Protected organization actions also require current active membership and management authority. Hosted getHuman does not impose the local requireMfa option. The local provider uses `/api/auth/phone/start` and `/api/auth/phone/verify` only in development; those hosted routes return 404. Development one-time codes and local TOTP assurance must not be used as hosted acceptance evidence. Twilio Verify is not a beta prerequisite. A future MFA or SSO policy change needs a reviewed provider and application contract.
+Production has WorkOS MFA Off. Self-service signup is open in public signup mode (`ENVOI_HUMAN_SIGNUP_MODE=public`), bounded by `ENVOI_PUBLIC_SIGNUP_LIMIT`; see the [dual-admission rollout](workos-public-signup-rollout.md). Hosted sessions expose assurance: provider; this is provider authentication, not evidence of a second factor. WorkOSAuthService requires an authenticated sealed provider session and either an exact entry in ENVOI_BETA_INVITED_EMAILS or, in public mode, a verified email within the signup limit. Protected organization actions also require current active membership and management authority. Hosted getHuman does not impose the local requireMfa option. The local provider uses `/api/auth/phone/start` and `/api/auth/phone/verify` only in development; those hosted routes return 404. Development one-time codes and local TOTP assurance must not be used as hosted acceptance evidence. Twilio Verify is not a production prerequisite. A future MFA or SSO policy change needs a reviewed provider and application contract.
 
 Local-development TOTP setup and verification are available through `/api/auth/totp/setup` and `/api/auth/totp/verify`. Hosted WorkOS sessions cannot use those local routes; the current provider policy has MFA Off. Local authenticator secrets are encrypted with AES-256-GCM.
 

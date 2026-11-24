@@ -9,7 +9,7 @@ import { generateSync } from 'otplib';
 import { BrowserSession } from './browser-session.js';
 
 async function startServer(t, environment = {}) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-session-test-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-session-test-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
     env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, WORKOS_COOKIE_NAME: 'envoi_session', ENVOI_CSRF_COOKIE_NAME: 'envoi_csrf', ...environment },

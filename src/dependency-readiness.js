@@ -40,7 +40,7 @@ export function dependencyReadinessChecks({ store, adapter, provider, env, exter
     { name: 'deploymentIdentity', failureReason: 'Database is not stamped for this deployment',
       run: () => assertDeploymentIdentity(store, configuredDeploymentIdentity(env).environment) },
     { name: 'objectStorageReadAccess', critical: production, run: async () => {
-      if (provider === 's3') await adapter.headObject('__sinaloa_readiness_probe__');
+      if (provider === 's3') await adapter.headObject('__envoi_readiness_probe__');
     } },
     { name: 'malwareScanner', critical: production, run: signal => checkScannerHealth(env, { signal }) },
     { name: 'publicEmailConfiguration', critical: externalEmailEnabled, run: async () => {

@@ -189,7 +189,7 @@ test('direct and group chat attachments preserve PDF bytes across separate agent
 });
 
 test('two independent owners share ordered typed cases without cross-case or authority leakage', async t => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-shared-case-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-shared-case-'));
   let server = await launch(dataDir);
   t.after(async () => { await server.stop(); await rm(dataDir, { recursive: true, force: true }); });
   const { baseUrl } = server;

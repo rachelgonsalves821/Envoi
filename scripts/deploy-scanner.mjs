@@ -4,14 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { checkDeploymentConfiguration } from './check-deployment.mjs';
 import { RELEASE_ACCOUNT_ID, requireSecretNames, secretInventory } from './promote-release.mjs';
 
-export const SCANNER_CONFIGS = Object.freeze({ staging: 'scanner/wrangler.jsonc', beta: 'scanner/wrangler.beta.jsonc' });
+export const SCANNER_CONFIGS = Object.freeze({ staging: 'scanner/wrangler.jsonc', beta: 'scanner/wrangler.beta.jsonc', production: 'scanner/wrangler.beta.jsonc' });
 
 // N2-config-2: the scanner reads only ENVOI_SCANNER_TOKEN. Refuse to deploy to a scanner Worker that
 // lacks it, or every scan would fail closed with 401.
 export async function deployScanner(target, { cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env,
   inventory = (...argv) => secretInventory({ cwd, env }, ...argv), run = spawnSync } = {}) {
-  const config = SCANNER_CONFIGS[target];
-  if (!config) throw new Error('Usage: node scripts/deploy-scanner.mjs staging|beta');
+  const config = Object.hasOwn(SCANNER_CONFIGS, String(target)) ? SCANNER_CONFIGS[target] : null;
+  if (!config) throw new Error('Usage: node scripts/deploy-scanner.mjs staging|production');
   await checkDeploymentConfiguration();
   requireSecretNames(inventory('--config', config), ['ENVOI_SCANNER_TOKEN']);
   const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');

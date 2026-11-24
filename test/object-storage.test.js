@@ -38,7 +38,7 @@ test('agent removal blocks late scan updates and seals owned bytes before releas
 });
 
 async function createLocalService({ scanner = { scan: async () => ({ status: 'clean', engine: 'test' }) }, quota = 1000, ...serviceOptions } = {}) {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sinaloa-object-store-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'envoi-object-store-'));
   const adapter = new LocalObjectStorageAdapter(root);
   const service = new ObjectStorageService({
     adapter,
@@ -151,7 +151,7 @@ test('quota reservations are race-safe and only commit verified uploads', async 
 });
 
 test('persistent quota releases expired reservations and rejects late commits', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sinaloa-object-quota-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'envoi-object-quota-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new FileStore(root);
   await store.init();
@@ -401,7 +401,7 @@ test('missing upload bytes are retryable until the cleanup deadline', async () =
 });
 
 test('retained FileStore holds survive raw expiration and block quota reuse until sealed cleanup', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sinaloa-retained-upload-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'envoi-retained-upload-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new FileStore(root);
   await store.init();
@@ -489,7 +489,7 @@ test('verification persists scan work before a restart and never cleans it as ab
 });
 
 test('FileStore metadata transaction protects verification against concurrent expired cleanup', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sinaloa-upload-fence-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'envoi-upload-fence-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new FileStore(root);
   await store.init();
@@ -521,7 +521,7 @@ test('FileStore metadata transaction protects verification against concurrent ex
 });
 
 test('durable upload-start failure rolls back both retained quota and cleanup metadata', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sinaloa-upload-start-rollback-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'envoi-upload-start-rollback-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new FileStore(root);
   await store.init();

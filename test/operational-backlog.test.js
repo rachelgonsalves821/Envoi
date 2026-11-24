@@ -7,7 +7,7 @@ import { operationalBacklogSnapshot } from '../src/operational-backlog.js';
 import { FileStore } from '../src/storage.js';
 
 test('file-backed outbox logs only aggregate backlog and age', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-backlog-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-backlog-')));
   await store.init();
   await store.putJson('outbox/delivery_1.json', { id: 'delivery_1', status: 'queued', createdAt: '2026-09-29T00:00:00.000Z', senderInboxId: 'secret-tenant', lastError: 'private content' });
   await store.putJson('outbox/delivery_2.json', { id: 'delivery_2', status: 'deadLettered', createdAt: '2026-09-29T00:01:00.000Z' });

@@ -114,7 +114,7 @@ const dataDir = path.resolve(process.env.ENVOI_DATA_DIR || 'data');
 const maxBodyBytes = Number(process.env.ENVOI_MAX_BODY_BYTES || 10 * 1024 * 1024);
 const corsOrigin = process.env.ENVOI_CORS_ORIGIN || 'http://localhost:3000';
 const agentDomain = process.env.ENVOI_AGENT_DOMAIN || 'envoi.mail';
-// Keep already-issued native addresses reachable after the beta address-domain change.
+// Keep already-issued native addresses reachable after the earlier address-domain change.
 const acceptedAgentDomains = new Set([agentDomain, ...(agentDomain === 'envoi-agents.com' ? ['agents.envoi-agents.com'] : [])]);
 const deliveryMaxAttempts = Number(process.env.ENVOI_DELIVERY_MAX_ATTEMPTS || 5);
 const externalEmailEnabled = process.env.ENVOI_ENABLE_EXTERNAL_EMAIL === 'true';

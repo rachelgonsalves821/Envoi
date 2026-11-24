@@ -10,7 +10,7 @@ import { BrowserSession } from './browser-session.js';
 import { enrollmentConnectionStatus, validateConnectionReport } from '../src/agent-connection.js';
 
 async function startServer(t) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-quick-connect-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-quick-connect-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
     env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com/' },
@@ -207,7 +207,7 @@ test('all runtimes bind setup reports and reconnect without replacing identity o
   for (const invalid of ['unknown', null, {}, 'Hermes']) assert.equal((await create(invalid)).status, 400);
   for (const runtime of ['openclaw', 'hermes', 'grok']) {
     if (runtime !== 'openclaw') {
-      // The existing beta policy deliberately caps active agents at two per human.
+      // The existing policy deliberately caps active agents at two per human.
       owner = await human(baseUrl, runtime === 'hermes' ? '335' : '336');
       workspace = await api(baseUrl, '/api/inboxes', { session: owner.session, body: { name: `Unified ${runtime}` } });
     }

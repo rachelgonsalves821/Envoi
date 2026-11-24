@@ -6,18 +6,18 @@ import { smokeDeployment } from '../scripts/smoke-deployment.mjs';
 
 const config = JSON.parse(await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
 
-test('release configuration permits staging workers.dev and only the beta custom domain', () => {
+test('release configuration permits staging workers.dev and only the production custom domain', () => {
   assert.doesNotThrow(() => validateReleaseTargets(config));
 });
 
 for (const [description, mutate] of [
-  ['deploying staging to the old production Worker', candidate => { candidate.env.staging.name = 'sinaloa'; }],
-  ['deploying beta to the old production Worker', candidate => { candidate.env.beta.name = 'sinaloa'; }],
+  ['deploying staging to the retired sinaloa Worker', candidate => { candidate.env.staging.name = 'sinaloa'; }],
+  ['deploying production to the retired sinaloa Worker', candidate => { candidate.env.beta.name = 'sinaloa'; }],
   ['enabling beta preview URLs', candidate => { candidate.env.beta.preview_urls = true; }],
   ['re-enabling beta workers.dev', candidate => { candidate.env.beta.workers_dev = true; }],
   ['disabling staging workers.dev', candidate => { candidate.env.staging.workers_dev = false; }],
   ['discarding dashboard runtime variables', candidate => { candidate.keep_vars = false; }],
-  ['changing the old production Worker identity', candidate => { candidate.name = 'sinaloa-beta'; }],
+  ['changing the retired sinaloa Worker identity', candidate => { candidate.name = 'sinaloa-beta'; }],
   ['binding beta to the old production hostname', candidate => { candidate.env.beta.routes = [{ pattern: 'sinaloa-inbox.com', custom_domain: true }]; }],
   ['adding a beta workers.dev route', candidate => { candidate.env.beta.routes.push({ pattern: 'sinaloa-beta.rachelgonsalves821.workers.dev' }); }],
   ['broadening beta edge hostname admission', candidate => { candidate.env.beta.vars.ENVOI_EDGE_ALLOWED_HOSTS += ',sinaloa-beta.rachelgonsalves821.workers.dev'; }],
@@ -35,7 +35,7 @@ const releaseSha = '0123456789abcdef0123456789abcdef01234567';
 function smokeResponses(overrides = {}) {
   return async url => {
     const pathname = url.pathname;
-    if (pathname === '/health') return Response.json({ service: 'sinaloa', mode: 'production', configurationValidated: true, releaseSha, ...overrides.health });
+    if (pathname === '/health') return Response.json({ service: 'envoi', mode: 'production', configurationValidated: true, releaseSha, ...overrides.health });
     if (pathname === '/ready') return Response.json({ ready: true, mode: 'production', configurationValidated: true, releaseSha, ...overrides.ready });
     if (pathname === '/api/onboarding/routes') return Response.json({registrationEnabled:true,installationsEnabled:true,
       routes:[{connectionRoute:'remote_mcp_oauth',available:true}],deliveryModes:[{deliveryMode:'on_demand',available:true}],...overrides.dots});
@@ -65,6 +65,10 @@ for (const dots of [
 ]) test(`production smoke rejects healthy service with disabled Dots ${JSON.stringify(dots)}`,async()=>{
   await assert.rejects(()=>smokeDeployment('https://www.envoi-agents.com/',releaseSha,{fetchImpl:smokeResponses({dots}),log(){}}),
     /Production Dots OAuth\/on-demand route is unavailable/);
+});
+
+test('release smoke refuses a backend that reports the retired Sinaloa service identity', async () => {
+  await assert.rejects(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ health: { service: 'sinaloa' } }), log() {} }), /Unexpected service/);
 });
 
 test('release smoke refuses a backend that still returns 404 for the Product page', async () => {

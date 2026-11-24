@@ -34,7 +34,7 @@ export function validateProductionConfiguration(env = process.env) {
   // The name this deployment stamps on its database (src/deployment-identity.js). wrangler.jsonc
   // sets it per environment; without it two deployments could share one database unnoticed.
   const deploymentEnvironment = required(env, 'ENVOI_DEPLOYMENT_ENVIRONMENT', errors);
-  if (deploymentEnvironment && !isDeploymentName(deploymentEnvironment)) errors.push('ENVOI_DEPLOYMENT_ENVIRONMENT must be a lowercase deployment name such as staging or beta');
+  if (deploymentEnvironment && !isDeploymentName(deploymentEnvironment)) errors.push('ENVOI_DEPLOYMENT_ENVIRONMENT must be a lowercase deployment name such as staging or production');
   const reassignFrom = env.ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM;
   if (reassignFrom !== undefined && (!isDeploymentName(reassignFrom) || reassignFrom === deploymentEnvironment)) errors.push('ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM must name a different deployment');
   const publicUrl = httpsUrl(required(env, 'ENVOI_PUBLIC_URL', errors), 'ENVOI_PUBLIC_URL', errors);
@@ -57,7 +57,7 @@ export function validateProductionConfiguration(env = process.env) {
   if (invitedEmails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) errors.push('ENVOI_BETA_INVITED_EMAILS must contain exact email addresses');
   // The launch allowlist includes 31 waitlist recipients and one existing internal owner
   // whose Production WorkOS email is not on that list. The extra address is not an invite.
-  if (new Set(invitedEmails).size > 32) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 32 distinct addresses for the first beta');
+  if (new Set(invitedEmails).size > 32) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 32 distinct addresses');
   try { uncappedAgentHumanIds(env, deploymentEnvironment); }
   catch (error) { errors.push(error.message); }
   const signupMode = env.ENVOI_HUMAN_SIGNUP_MODE || 'invite-only';

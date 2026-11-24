@@ -22,7 +22,7 @@ const response = () => ({
 });
 
 async function fixture({ sessionHours = 24 } = {}) {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-session-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-session-')));
   await store.init();
   let now = 1_800_000_000_000;
   const user = { id: 'user_one', email: 'member@example.com', emailVerified: true };

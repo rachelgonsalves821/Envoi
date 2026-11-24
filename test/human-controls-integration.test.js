@@ -9,7 +9,7 @@ import { generateSync } from 'otplib';
 import { BrowserSession } from './browser-session.js';
 
 async function launch(existingDataDir = null) {
-  const dataDir = existingDataDir || await mkdtemp(path.join(tmpdir(), 'sinaloa-controls-'));
+  const dataDir = existingDataDir || await mkdtemp(path.join(tmpdir(), 'envoi-controls-'));
   const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });

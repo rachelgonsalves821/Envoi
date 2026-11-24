@@ -7,7 +7,7 @@ const validProduction = (overrides = {}) => ({
   ENVOI_AUTH_MODE: 'production',
   ENVOI_DEPLOYMENT_ENVIRONMENT: 'beta',
   ENVOI_PUBLIC_URL: 'https://app.sinaloa.example',
-  DATABASE_URL: 'postgresql://user:secret@db.example/sinaloa',
+  DATABASE_URL: 'postgresql://user:secret@db.example/envoi',
   ENVOI_DB_SSL_MODE: 'verify-full',
   ENVOI_HUMAN_AUTH_PROVIDER: 'workos',
   WORKOS_CLIENT_ID: 'client_123',
@@ -24,7 +24,7 @@ const validProduction = (overrides = {}) => ({
   ENVOI_AGENT_DOMAIN: 'agents.sinaloa.example',
   ENVOI_OBJECT_STORAGE_PROVIDER: 's3',
   ENVOI_S3_ENDPOINT: 'https://s3.ca-central-1.amazonaws.com',
-  ENVOI_S3_BUCKET: 'sinaloa-private',
+  ENVOI_S3_BUCKET: 'envoi-private',
   ENVOI_S3_REGION: 'ca-central-1',
   ENVOI_S3_ACCESS_KEY_ID: 'access',
   ENVOI_S3_SECRET_ACCESS_KEY: 'secret',
@@ -154,7 +154,7 @@ test('deployment preflight rejects database URLs that cannot start the container
     assert.ok(report.errors.some(message => /not DATABASE_URL query parameters/.test(message)));
     assert.doesNotMatch(JSON.stringify(report), /user:secret/);
   }
-  for (const databaseUrl of ['postgresql://user:secret@[broken/db', 'postgresql:///sinaloa', 'https://db.example/sinaloa']) {
+  for (const databaseUrl of ['postgresql://user:secret@[broken/db', 'postgresql:///sinaloa', 'https://db.example/envoi']) {
     const report = deploymentPreflight({ ...environment, DATABASE_URL: databaseUrl });
     assert.equal(report.ready, false);
     assert.ok(report.errors.some(message => message.includes('DATABASE_URL')));

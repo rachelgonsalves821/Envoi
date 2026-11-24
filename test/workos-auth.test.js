@@ -55,7 +55,7 @@ test('malformed cookies do not bypass admission or crash CSRF validation', () =>
 });
 
 test('WorkOS auth uses one-time PKCE state and maps provider users to stable humans', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-workos-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-workos-')));
   await store.init();
   const calls = { organizations: [], memberships: [] };
   const user = { id: 'user_workos_1', email: 'rachel@example.com', emailVerified: true, name: 'Rachel Gonsalves', firstName: 'Rachel', lastName: 'Gonsalves' };
@@ -117,7 +117,7 @@ test('WorkOS auth uses one-time PKCE state and maps provider users to stable hum
 });
 
 test('WorkOS email verification alone does not admit an uninvited human', async () => {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-workos-uninvited-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-workos-uninvited-')));
   await store.init();
   const user = { id: 'user_uninvited', email: 'outsider@example.com', emailVerified: true };
   const workos = { userManagement: {
@@ -143,7 +143,7 @@ async function fixtureAuth(workos) {
     }),
     ...workos.userManagement
   } };
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-workos-fixture-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-workos-fixture-')));
   await store.init();
   const auth = new WorkOSAuthService(store, {
     clientId: 'client_fixture', apiKey: 'fixture', cookiePassword: '12345678901234567890123456789012',
