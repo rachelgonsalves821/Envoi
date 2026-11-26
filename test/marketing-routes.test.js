@@ -7,6 +7,10 @@ test('marketing routes only expose the intended public pages and assets', () => 
   assert.deepEqual(marketingRoute('/'), { file: 'index.html' });
   assert.deepEqual(marketingRoute('/product/'), { file: 'product/index.html' });
   assert.deepEqual(marketingRoute('/team/'), { redirect: '/#team' });
+  assert.deepEqual(marketingRoute('/contact'), { redirect: '/contact/' });
+  assert.deepEqual(marketingRoute('/contact/'), { file: 'contact/index.html' });
+  assert.equal(marketingRoute('/contact/index.html'), null);
+  assert.equal(marketingRoute('/contact/../server.js'), null);
   assert.deepEqual(marketingRoute('/agents/muse.svg'), { file: 'agents/muse.svg' });
   assert.equal(marketingRoute('/api/auth/workos/sign-in'), null);
   assert.equal(marketingRoute('/src/server.js'), null);
@@ -54,6 +58,9 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   assert.equal(team.headers.get('location'), '/#team');
   assert.equal((await get('/team/?source=footer')).headers.get('location'), '/?source=footer#team');
   assert.equal((await get('/product?source=header')).headers.get('location'), '/product/?source=header');
+  const contact = await get('/contact?source=plugin');
+  assert.equal(contact.status, 301);
+  assert.equal(contact.headers.get('location'), '/contact/?source=plugin');
   const logo = await get('/envoi-logo.png');
   assert.equal(logo.status, 200);
   assert.equal(logo.headers.get('content-type'), 'image/png');

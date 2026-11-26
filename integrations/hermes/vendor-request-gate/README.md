@@ -1,5 +1,7 @@
 # Isolated Hermes physical-request gate (review only)
 
+Hermes constructs its main client before initializing the session ID. The patched factory defers reading the real agent identity until each physical dispatch, including SDK copies/rebuilds. A missing, invalid or unavailable deferred identity refuses before opening the loopback connection; it cannot fall back to another active turn. The meter still requires that exact native session's authenticated work binding. Pinned constructor-order tests execute the upstream initializer, client factory and session initializer with inert setup phases; real SDK tests then verify the resulting identity and rejection of mismatched work against the loopback meter.
+
 This optional patch targets native Hermes `ccc695635094d7615373db267b77f894d978b1a0` exactly. It is not an automatic Hermes update or an installed runtime change. The Envoi helper behaves normally unless the private operator requires a gate; when required, missing proof refuses before a native session is created. It changes no Envoi server contract, enrollment, saved journal, provider, model, credential or upstream TLS.
 
 `prepare_patch.py --source <clean pinned native checkout> --output <NEW isolated folder> --write-fixtures` checks the native HEAD and every touched file against its Git blob. It prepares seven review files, a unified patch and a hash manifest. It never writes the source input or a profile. Re-run it only with a new output directory. A source adoption/restart is a separate human decision.
@@ -10,7 +12,20 @@ Each physical attempt reaches an authenticated loopback meter. It binds the role
 
 The private gateway control proof uses a fresh challenge and the selected gateway instance, loaded gate module/factory fingerprints, profile, immutable policy and window. The receiving adapter checks it before session creation and again before prompt submission. Disk files or an environment flag alone are insufficient; an unpatched/old gateway cannot satisfy the proof. This is an authenticated local process check, not a claim of hardware attestation.
 
-The request ledger carries 30 historical model calls (Hermes24/OpenClaw6), 22 conservative message reservations, 9 canonical effects, 4 cases, all5 new installations and0 assets. Global limits remain48/60/9/5/6. A directory anchor rejects a second fresh ledger filename. Resume must open the same private canonical path, retain its seed and hash chain, reconcile outstanding attempts and the authoritative action inventory, and preserve the old stopped/failure records. A new directory/seed is not a supported resume operation. Uncertain writes/dispatches retain their charge and stop execution; a known not-forwarded reservation is labelled separately. `cumulativeBudgetReport` requires a fresh authoritative action inventory rather than presenting carried baselines as current counts.
+Persistent Phase C workflows use a separately reviewed version 2 gate policy.
+Its exact fields replace `hardStopUnix` with
+`lifetime: "until-complete-or-cancel"`; a fake deadline or both fields refuse.
+The native proof is explicitly version 2 and signs that lifetime in field 9.
+The TypeScript verifier accepts it only when its trusted expectation explicitly
+selects the same lifetime. Old version 1 policies and proofs retain their fixed
+deadline checks. Version 2 removes no per-work HMAC, source/profile/config check,
+120-second physical-request bound, current native admission deadline or durable
+meter charge. Stopping/cancelling the workflow closes its designated hosts and
+forwarding gate. Materializing this new module in an isolated native tree still
+requires exact source review and adoption; changing a policy alone cannot turn an
+old loaded native module into the new one.
+
+The immutable ledger seed carries 30 historical model calls (Hermes24/OpenClaw6), 22 conservative message reservations, 9 canonical effects, 4 cases, all5 new installations and0 assets. These are historical seed values, not perpetual current use. Later human-approved caps and actual cumulative use must be verified from the reviewed receipt and current ledgers. A directory anchor rejects a second fresh ledger filename. Resume must open the same private canonical path, retain its seed and hash chain, reconcile outstanding attempts and the authoritative action inventory, and preserve the old stopped/failure records. A new directory/seed is not a supported resume operation. Uncertain writes/dispatches retain their charge and stop execution; a known not-forwarded reservation is labelled separately. `cumulativeBudgetReport` requires a fresh authoritative action inventory rather than presenting carried baselines as current counts.
 
 `bindNativeBudget` is a trusted operator hook, not a model or public API. Construct it only from the exact authenticated canonical receipt for the reviewed work graph. Never select the first claim by role or allow a model to select its flow. The meter defaults to inactive. The library, patch generator and tests grant no live-window, source-adoption, claim, send, merge or deployment authority. No runnable whole-gate continuation is inferred from passing tests.
 
@@ -20,6 +35,6 @@ Validation:
 * `python test_request_gate.py --sdk` additionally uses the real installed Anthropic/httpx SDKs. It blocks the default HTTPX transport and tests config-failure fallback, sync/async native factory and cache hits, client rebuilds, API-key/OAuth routing, SSE, cancellation and deadlines. It never calls a real provider. SDK packages are not added to the project dependency graph.
 * `npx vitest run --config integrations/vitest.config.ts` exercises durable request charging, canonical work binding, native private proof and the complete receiving composition using inert transports.
 
-Eager presentation is limited to already-authorized `mcp_envoi_turn_<16hex>_*` case schemas. It does not enable foreign MCP tools, change grants, disable tool scope/authority checks or globally change profile tool search. Canonical snapshots already supplied in a native turn remain authoritative; required host snapshot-tool observations must still execute on both Hermes and OpenClaw.
+Eager presentation is limited to already-authorized turn schemas. The opt-in recognizes legacy `mcp_envoi_turn_<16hex>_*` names and the pinned Hermes `editor_envoi_turn_<16hex>_<8hex>` namespace, including the native 64-character hash shortening for the nine canonical case-tool names. Foreign, malformed and wrong-hash editor lookalikes stay deferred. It does not enable foreign MCP tools, change schemas or grants, disable tool scope/authority checks or globally change profile tool search. Canonical snapshots already supplied in a native turn remain authoritative; required host snapshot-tool observations must still execute on both Hermes and OpenClaw.
 
 Rollback preserves installed native source and profiles because preparation never changes them. If a future reviewed adoption is authorized, stop the designated test processes and restore the prior selected native tree/client as a pair; never clear journals, refund charges, re-enroll or replay an accepted send to achieve rollback.

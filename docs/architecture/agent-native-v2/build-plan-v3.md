@@ -2,7 +2,7 @@
 
 ## Status
 
-**Ready for engineering handoff**
+**Architecture specification; current-work pointers reconciled 2026-11-10.** The original phase definitions below remain the product scope. They are not a fresh implementation backlog. GA, real Hermes/OpenClaw B-local and historical B/C acceptance remain credited; later changed-source validation is recorded separately. Start current Phase C work at [the single closeout checklist](../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md), using the [governing build-plan L5](claude-codex-build-plan.md#5-loop-rules) to justify any repeat. Original dated planning and entry conditions below are retained as design history, not a request to redo completed waves.
 
 This document supersedes prior versions of the agent-native onboarding plan.
 
@@ -1776,6 +1776,8 @@ available until its own closed-app fixture passes.
 
 # 48. PHASE C: Tool-native collaboration
 
+**Current execution:** core contracts/source are already implemented. Preserve accepted work and execute only the [remaining scoped closeout](../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md). Sections 48–55 define behavior, not a second task list.
+
 The [Phase C execution plan](phase-c-execution-plan.md) assigns the work in
 §§48–55, defines contract handoffs, integration order and acceptance evidence,
 and preserves the existing two-lane file ownership.
@@ -1986,7 +1988,7 @@ Never send full installation refresh credentials to provider.
 
 # 56. PHASE D: Relationships, discovery, centralized authorization and A2A
 
-Do not begin until Phases A through C pass.
+This was the original phase-entry sequence. Separately human-approved Phase D source work now exists; its hosted interoperability and release gates remain separate. Do not adopt Phase D into an active Phase C profile or reopen accepted A/B/C work because later D source exists. The current C closeout grants no Phase D activation authority.
 
 ---
 

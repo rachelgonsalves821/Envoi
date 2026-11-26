@@ -1,4 +1,6 @@
-# Phase B/C closure checklist
+# Historical Phase B/C closure reconciliation
+
+**2026-11-10 current-work pointer:** use [Phase C CURRENT-CLOSEOUT.md](phase-c/CURRENT-CLOSEOUT.md) for the single remaining checklist. The October acceptance/inclusion records below are preserved. Pending-source, route-default and operations snapshots below are historical, not instructions to replay integration, redo onboarding or reset host acceptance. Only a documented affected change can justify repeating an accepted observation under governing L5.
 
 Audited 2026-10-23 America/New_York by Je/Codex. Phase D belongs to Rachel and is excluded. This is the client-owned closure handoff; board [#34](https://github.com/rachelgonsalves821/Envoi/issues/34) remains the coordination authority. It supplements the Phase B completion and Phase C execution plans, preserving their history and original acceptance scope.
 
@@ -18,7 +20,7 @@ This is the earlier audit snapshot, retained for traceability. The [client compo
 
 A PR being open, or its head not being an integration ancestor after reviewed cherry-picking, does not prove its implementation is absent. Use inclusion records and the selected source increment. Historical acceptance, changed-source checks and Production operations retain separate evidence.
 
-## Prepared source still needing an integration decision
+## Historical source-selection queue (not the current backlog)
 
 All heads below are snapshots, not moving-head approvals. Existing owners keep their branches. Refresh on the terminal-green integration baseline, rebuild generated files only with `npm run build`, and publish the resulting composition's own checks. Je makes integration decisions; Lane A remains integrator under the repository rules.
 
@@ -46,7 +48,7 @@ Marketing #145/#191 and the historical provider designs are not new prerequisite
 
 These are client documentation corrections within existing contracts. They do not reopen contract approval and do not justify editing another owner's branch here.
 
-## Remaining host and contract exits
+## Historical additional-host and contract exits (separate tracks)
 
 | Host / boundary | Current evidence | Concrete remaining exit / owner |
 | --- | --- | --- |
@@ -61,7 +63,7 @@ These are client documentation corrections within existing contracts. They do no
 
 For each additional advertised host: exact product/version/route, one approved source/artifact set, current identity/installation, owner consent, canonical exchange, two separately timed closed-app arrivals if automatic reachability is promised, interruption/restart, refresh/reconnect, pause/held/resume, revoke/late denial and truthful owner status. An on-demand-only pass has that scope. Provider-blocked rows remain open until evidenced or explicitly removed by the human's scope decision.
 
-## REQUEST lane-a: one bounded handoff
+## Historical REQUEST lane-a and its reconciliation
 
 [Posted handoff 6371261746](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6371261746). The terminal client integration receipt completed after that comment; the next paragraph supersedes its pending-CI snapshot.
 
@@ -71,7 +73,7 @@ For each additional advertised host: exact product/version/route, one approved s
 4. Publish separate contract drafts/fixtures for (a) OAuth/MCP-scoped wake, (b) the selected Dots/Grok event interface after account capability, and (c) Instinct scheduled native processing/Stage 2 if selected. Include installation/tenant binding, least privilege, opaque delivery, idempotency/fences, duplicate/lost delivery, current permission/pause/revoke, custody, bounded retry and flag rollback. Reuse the canonical queue/case/audit system. Each new contract needs client ACK and human approval before dependent implementation.
 5. Existing release owner updates the final exact candidate/receiver and changed-row packet. This request approves no new source integration, flag change, deployment or live host action.
 
-## Production operations are a separate closure track
+## Historical production-operations snapshot (separate closure track)
 
 [Runner authentication 6370743004](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6370743004) supersedes the old missing-authentication blocker: approved OAuth grant and read-only account/Worker/Container/registry checks passed. Missing a registry-named permission in an older inventory alone does not prove capability failure. Provider write capability and cutover are not exercised by those reads. Billing/Production unlock preparation has advanced; old billing-deferred notes are historical, not a new instruction to change billing.
 

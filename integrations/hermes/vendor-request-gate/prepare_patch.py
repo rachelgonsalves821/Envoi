@@ -25,7 +25,9 @@ def patched(name,text):
     elif name=='agent/agent_init.py':
         text=insert(text,'_build_client',"from agent.envoi_request_gate import guard_provider\nguard_provider(agent.provider, agent.model)")
         old='agent._anthropic_client = build_anthropic_client(effective_key, base_url, timeout=_provider_timeout)';assert text.count(old)==1
-        text=text.replace(old,'agent._anthropic_client = build_anthropic_client(effective_key, base_url, timeout=_provider_timeout, gate_session_id=agent.session_id)')
+        # init_agent builds the client BEFORE _init_session_state assigns the
+        # native identity. Resolve that real identity only at physical dispatch.
+        text=text.replace(old,'agent._anthropic_client = build_anthropic_client(effective_key, base_url, timeout=_provider_timeout, gate_session_id=lambda: agent.session_id)')
     elif name=='hermes_cli/runtime_provider.py':
         text=insert(text,'_runtime',"from agent.envoi_request_gate import guard_provider, pin_endpoint\nguard_provider(provider)\nbase_url = pin_endpoint(base_url)")
         old='    requested_provider = resolve_requested_provider(requested)\n';assert text.count(old)==1
@@ -84,7 +86,7 @@ def main():
         target=out/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_text(after,encoding='utf-8',newline='\n')
         manifest[name]={'beforeSha256':hashlib.sha256(b).hexdigest(),'afterSha256':hashlib.sha256(after.encode()).hexdigest()}
         diff+=list(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile='a/'+name,tofile='b/'+name))
-        wanted={'_new_sdk_client','_build_anthropic_client_with_bearer_hook','build_anthropic_bedrock_client','_build_client','_runtime','resolve_provider_client','_create_openai_client','_try_discovery_chain','_try_anthropic','classify_tools','_try_openrouter','_try_nous','_try_custom_endpoint','_build_xai_oauth_aux_client','_build_codex_client','_try_azure_foundry','_build_bedrock_client','_build_vertex_client','_resolve_external_process_branch','resolve_vision_provider_client','_resolve_strict_vision_backend','_get_cached_client','_to_async_client','_resolve_vertex_runtime','_auto_detect_local_model','resolve_runtime_provider','_ladder_rungs'}
+        wanted={'init_agent','_init_anthropic_client','_init_session_state','_new_sdk_client','_build_anthropic_client_with_bearer_hook','build_anthropic_bedrock_client','_build_client','_runtime','resolve_provider_client','_create_openai_client','_try_discovery_chain','_try_anthropic','classify_tools','_try_openrouter','_try_nous','_try_custom_endpoint','_build_xai_oauth_aux_client','_build_codex_client','_try_azure_foundry','_build_bedrock_client','_build_vertex_client','_resolve_external_process_branch','resolve_vision_provider_client','_resolve_strict_vision_backend','_get_cached_client','_to_async_client','_resolve_vertex_runtime','_auto_detect_local_model','resolve_runtime_provider','_ladder_rungs'}
         snippets={}
         for node in ast.parse(after).body:
             if isinstance(node,(ast.FunctionDef,ast.ClassDef)) and node.name in wanted | {'_AsyncCompletionsAdapter','_AsyncAuxiliaryClientBase','AsyncAnthropicAuxiliaryClient'}:snippets[node.name]=ast.get_source_segment(after,node)
@@ -98,7 +100,16 @@ def main():
     (out/'native-patch-manifest.json').write_text(json.dumps(bundle,indent=2)+'\n',encoding='utf-8')
     (out/'envoi-request-gate.patch').write_text(''.join(diff),encoding='utf-8',newline='\n')
     if a.write_fixtures:
-        (HERE/'pinned-factory-fixtures.json').write_text(json.dumps({'base':PIN,'files':manifest,'functions':fixtures},indent=2)+'\n',encoding='utf-8')
+        naming_file='tools/mcp_tool_schema.py';naming_bytes=(source/naming_file).read_bytes()
+        if naming_bytes!=subprocess.check_output(['git','-C',str(source),'show',PIN+':'+naming_file]):
+            raise ValueError('NATIVE_DIRTY_BYTES_REFUSED: '+naming_file)
+        naming_text=naming_bytes.decode('utf-8');naming_tree=ast.parse(naming_text)
+        naming_functions={n.name:ast.get_source_segment(naming_text,n) for n in naming_tree.body if isinstance(n,ast.FunctionDef)
+            and n.name in {'sanitize_mcp_name_component','mcp_prefixed_tool_name'}}
+        naming_constants={target.id:ast.literal_eval(n.value) for n in naming_tree.body if isinstance(n,ast.Assign) for target in n.targets
+            if isinstance(target,ast.Name) and target.id in {'MCP_TOOL_NAME_PREFIX','_MCP_TOOL_NAME_MAX_LENGTH','_MCP_TOOL_NAME_HASH_LENGTH'}}
+        naming={'file':naming_file,'sha256':hashlib.sha256(naming_bytes).hexdigest(),'functions':naming_functions,'constants':naming_constants}
+        (HERE/'pinned-factory-fixtures.json').write_text(json.dumps({'base':PIN,'files':manifest,'functions':fixtures,'toolNaming':naming},indent=2)+'\n',encoding='utf-8')
         (HERE/'native-request-gate.patch').write_text(''.join(diff),encoding='utf-8',newline='\n')
     print(json.dumps({'state':'ISOLATED_NATIVE_PATCH_PREPARED','nativeBase':PIN,'files':len(manifest)+1,'sourceInputChanged':False,'profilesChanged':False,'providerRequests':0}))
 if __name__=='__main__':main()

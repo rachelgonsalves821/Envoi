@@ -15,6 +15,7 @@ export const WORKSPACE_EVENT_TYPES = [
   'agent.gateway_scope_changed', 'agent.gateway_work_released', 'agent.gateway_work_replied',
   'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed',
   'case.human_decision_requested', 'case.human_decision_resolved',
+  'group.case_created', 'group.message_posted', 'group.assignment_updated',
   'agent.case_tool_used',
   'agent.wake_subscription_created', 'agent.wake_subscription_activated', 'agent.wake_subscription_ended',
   'agent.wake_target_secret_set', 'agent.wake_target_attention',
@@ -26,6 +27,8 @@ export const WORKSPACE_EVENT_TYPES = [
   'email.queued', 'asset.created', 'asset.granted', 'asset.upload_started',
   'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error',
   'contact.blocked', 'contact.unblocked', 'contact.approved',
+  'discovery_invitation.issued', 'discovery_invitation.revoked',
+  'relationship.granted', 'relationship.revoked',
   'calendar.connected', 'calendar.connection_started', 'calendar.disconnected',
   'invitation.accepted', 'invitation.declined'
 ] as const;

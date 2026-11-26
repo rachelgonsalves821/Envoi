@@ -161,7 +161,9 @@ describe('OpenClaw relay against the real Envoi MCP handler', () => {
       expect(revoked.status).toBe(200);
       const afterRevocation = await call(aliceRelay, 'envoi_send_message', { recipientAddress: bob.address,
         caseId: first.value.payload.caseId, text: 'Must not send', idempotencyKey: 'relay-revoked-send' });
-      expect(afterRevocation.status).toBe(502);
+      expect(afterRevocation.status).toBe(401);
+      expect(afterRevocation.payload).toMatchObject({ code: 'CREDENTIAL_REVOKED', error: 'CREDENTIAL_REVOKED' });
+      expect((await aliceStore.load())?.lifecycle?.state).toBe('REVOKED');
       expect(JSON.stringify(afterRevocation.payload)).not.toContain('agentRefreshToken');
     } finally {
       await Promise.allSettled([aliceRelay?.close(), bobRelay?.close()]);

@@ -79,6 +79,26 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('scoped trusted-host work loop', () => {
+  it('settles the expected peer work with owner instructions excluded from the claim', async () => {
+    const test = harness();
+    const expected = { workId: test.work.workId, caseId: test.work.message.caseId };
+    await expect(test.connector.scopedWakeWorkDriver().processWorkBatch([expected], undefined, { acceptHumanInstructions: false }))
+      .resolves.toEqual([{ ...expected, status: 'fulfilled', worked: true }]);
+    const claim = test.requests().find(request => request.path.endsWith('/claim'))!;
+    expect(JSON.parse(String(claim.options?.body))).toEqual({ acceptHumanInstructions: false });
+    expect(test.order).toContain('complete');
+  });
+
+  it('refuses an excluded owner instruction before acknowledgement or handler admission', async () => {
+    const test = harness();
+    test.work.message = { ...test.work.message, kind: 'humanInstruction' } as WorkLease['message'];
+    const expected = { workId: test.work.workId, caseId: test.work.message.caseId };
+    await expect(test.connector.scopedWakeWorkDriver().processWorkBatch([expected], undefined, { acceptHumanInstructions: false }))
+      .rejects.toMatchObject({ code: 'SCOPED_BATCH_CLAIM_MISMATCH' });
+    expect(test.order).toEqual(['status', 'claim']);
+    expect(test.handler.admit).not.toHaveBeenCalled();
+  });
+
   it('records a permanent scoped failure, then processes later work with the same connector', async () => {
     let failed = false;
     const test = harness(async () => {

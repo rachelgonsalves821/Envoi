@@ -365,6 +365,37 @@ describe('Envoi outbound connector', () => {
     expect(order).toEqual(['claim', 'admit', 'ack', 'process', 'reply', 'complete']);
   });
 
+  it('posts a group assignment reply under the existing case and references the canonical message', async () => {
+    const memory = memoryStore(session());
+    const message = {
+      id: 'msg_assignment', caseId: 'case_group', senderAgentId: 'agent_two', recipientAgentId: 'agent_one',
+      from: { agentId: 'agent_two', address: 'two@envoi.mail' }, text: 'Investigate this',
+      groupCase: { messageId: 'msg_canonical', memberAgentIds: ['agent_one', 'agent_two', 'agent_three'] }
+    };
+    const fetcher: typeof fetch = async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith('/claim')) return Response.json({ work: {
+        workId: message.id, message, leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString()
+      } });
+      if (path === '/api/agent/group-cases/case_group/messages') {
+        expect(new Headers(init?.headers).get('Idempotency-Key')).toBe('reply-group-1');
+        expect(JSON.parse(String(init?.body))).toEqual({ text: 'Here is the result', inReplyTo: 'msg_canonical' });
+        return Response.json({ id: 'msg_group_reply', caseId: 'case_group' });
+      }
+      if (path.endsWith('/acknowledge') || path.endsWith('/complete')) {
+        const state = path.endsWith('/acknowledge') ? 'acknowledged' : 'processed';
+        return Response.json({ workId: message.id, status: state, receipt: { messageId: message.id, state } });
+      }
+      throw new Error(`Unexpected route ${path}`);
+    };
+    const process = vi.fn(async (_message: unknown, context: Parameters<WorkHandler['process']>[1]) => {
+      expect(await context.reply('Here is the result', 'reply-group-1')).toMatchObject({ caseId: 'case_group' });
+    });
+    const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, handler: { admit: async () => {}, process } });
+    expect(await connector.processWorkOnce()).toBe(true);
+    expect(process).toHaveBeenCalledOnce();
+  });
+
   it('reports handler failure through a retryable fenced fail without sending raw error text', async () => {
     const memory = memoryStore(session());
     const paths: string[] = [];
@@ -536,6 +567,29 @@ describe('Envoi outbound connector', () => {
       expect(memory.current()?.lifecycle?.state).toBe(code === 'CREDENTIAL_REVOKED' ? 'REVOKED' : 'NEEDS_RECONNECT');
       expect(process).not.toHaveBeenCalled();
     } finally { stop.abort(); }
+  });
+
+  it('stops on a plain 404 from paused status without treating it as an unavailable wake endpoint', async () => {
+    vi.useFakeTimers();
+    const memory = memoryStore({ ...session(), lifecycle: { state: 'PAUSED', paused: true, failures: 0, changedAt: new Date().toISOString() } });
+    const stop = new AbortController();
+    const onTerminalFailure = vi.fn();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response('Status endpoint unavailable', { status: 404 }));
+    const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher });
+    const running = connector.run(stop.signal, onTerminalFailure);
+    let error: unknown;
+    const settled = running.catch(value => { error = value; });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(error).toMatchObject({ status: 404 });
+      expect(onTerminalFailure).toHaveBeenCalledOnce();
+      expect(onTerminalFailure).toHaveBeenCalledWith('status_check', error);
+      expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://api.example/api/agent/status']);
+    } finally {
+      stop.abort();
+      await settled;
+      vi.useRealTimers();
+    }
   });
 
   it.each(['network', '503'])('survives one transient %s renewal failure without cancelling or rerunning work', async failure => {

@@ -1,4 +1,6 @@
-# Phase C client evidence worksheet
+# Historical Phase C client evidence and accepted B/C baseline
+
+**Current remaining work moved to [CURRENT-CLOSEOUT.md](CURRENT-CLOSEOUT.md), reconciled 2026-11-10.** This file preserves historical human acceptance and source-specific evidence. Its old candidate fields and rows are not a current all-pass claim or an unchecked rerun plan. Do not replace its attestations with results from newer binaries; do not reopen accepted work merely to fill missing historical citations. Apply governing L5 impact review to later changes.
 
 **Prior B/C testing: human-attested complete and countersigned.** On 2026-10-21 (America/New_York), pjsk02 explicitly confirmed that the testing had passed, had been reviewed for remaining work, and could be closed. They instructed Codex to record the signature if missing. [Attributed countersign on the canonical board](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6330847176).
 
@@ -6,7 +8,7 @@ This corrects the stale preparation-only status below. It records the human's ac
 
 The new P0 client composition combines #174 and #184 after that historical work. Its build and offline Windows checks are separate from the accepted historical runs. The countersign does not assert that these later client bytes were installed or deployed. See [remaining P0 work](../P0-COMPLETION.md).
 
-## Candidate and scope
+## Historical candidate and scope
 
 | Field | Value |
 | --- | --- |
@@ -20,7 +22,7 @@ The new P0 client composition combines #174 and #184 after that historical work.
 | Live send/fault/revoke approval references | Preserve prior run authorizations; this document starts no new live operations. |
 | Rollback reference | Historical test acceptance and the next release's operational rollback are tracked separately. |
 
-## Client observations
+## Historical client observations (preserve acceptance)
 
 | Rows | Evidence to capture | Status |
 | --- | --- | --- |
@@ -35,7 +37,7 @@ The new P0 client composition combines #174 and #184 after that historical work.
 
 For each observation save exact request/work/case/operation IDs, expected and actual outcome, UTC times, host logs and canonical receipt/audit references. Store credentials and raw private snapshots outside tracked evidence. Distinguish model invocation count from canonical effect count and message processing from case completion. A mock or a different connector build remains diagnostic evidence. The offline inspector checks metadata and bounded local proof-file existence/containment, not proof contents or authenticity; a structurally valid index never certifies a hosted gate.
 
-## Work status
+## Historical source-inclusion status (not new assignments)
 
 | Task | Current state | Dependency |
 | --- | --- | --- |

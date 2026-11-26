@@ -1,23 +1,25 @@
 # Phase C staging rollout runbook (C-A6)
 
-**Owner:** Lane A (server, contracts, integration). **Approver and operator:** Je (pjsk02); Rachel approves the release where the Phase C plan says so. **Scope:** staging only. This runbook does not cover beta or `main`.
+**2026-11-10 reconciliation:** this is the original rollout reference, not a new deployment or full-gate instruction. Use [CURRENT-CLOSEOUT.md](../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md) for the sole remaining Phase C checklist and [governing L5](claude-codex-build-plan.md#5-loop-rules) for preservation and affected-row regressions. The dated candidates, pending fields and first-batch wake decision below are historical. Do not repeat completed setup, deployments, sends or controls to fill them. The currently approved minimal server/client profile and persistent workflow remain governed by their actual owner receipts.
+
+**Owner:** Lane A (server, contracts, integration). **Sole approver:** pjsk02; the authorized human operator performs the approved live actions. **Scope:** staging only. This runbook does not cover beta or `main`.
 
 This runbook covers turning on the Phase C server features on staging for the hosted C01–C24 run ([Phase C plan](phase-c-execution-plan.md), "Phase C hosted acceptance matrix"), and turning them off again. It changes nothing by itself. Every deploy, setting and flag change below is a human action (build plan §1 D3), and each one is confirmed on board #34 before it happens.
 
-Values marked **TO CONFIRM** are not recorded in this repository. Fill them in from a read-only check before the run. Do not guess them.
+Values marked **TO CONFIRM** belong to the original preparation snapshot. Reconcile already recorded values before requesting a fresh read. New live actions need current guards, but a newer runbook or source commit does not invalidate every saved observation. Do not guess values or change hosted settings to match this historical table.
 
 ## 1. Facts this runbook depends on
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Candidate SHA | **TO CONFIRM.** *(Reconciled 2026-10-23: `integration/agent-native` is now `d05498d`, with push CI green. The Stage A candidate, batch and receiver are unchanged and still need the human's exact selection; nothing below selects a newer SHA, and the remote-authorization flags stay OFF.)* `integration/agent-native` was `f3a71f6` at C-A6. The follow-ups #150, #151 and #152 are integrated in `e8a958f` (#162), the SHA that passed Gate B-local (countersigned on #34, comment 6304550858); `f7cafcb` adds only its evidence. The vite advisory fix (#169, vite 8.3.3) leaves `web/**` and the helper byte-identical, and vite is a dev dependency the image never installs, so it doesn't change the gated runtime. Recheck that on the final candidate: `npm run build` must leave `git status` clean and the helper must stay `5c2a4318…`. Any change to `src/**`, `web/**`, `db/**`, `protocol/**` or the helper needs the applicable gate again (L5). | board #34 |
+| Candidate SHA | **TO CONFIRM.** *(Reconciled 2026-10-23: `integration/agent-native` is now `d05498d`, with push CI green. The Stage A candidate, batch and receiver are unchanged and still need the human's exact selection; nothing below selects a newer SHA, and the remote-authorization flags stay OFF.)* `integration/agent-native` was `f3a71f6` at C-A6. The follow-ups #150, #151 and #152 are integrated in `e8a958f` (#162), the SHA that passed Gate B-local (countersigned on #34, comment 6304550858); `f7cafcb` adds only its evidence. The vite advisory fix (#169, vite 8.3.3) leaves `web/**` and the helper byte-identical, and vite is a dev dependency the image never installs, so it doesn't change the gated runtime. Recheck that on the final candidate: `npm run build` must leave `git status` clean and the helper must stay `5c2a4318…`. A change to source, artifacts, protocol or helper requires an L5 impact assessment and justified affected checks; it does not automatically invalidate every accepted observation. | board #34 |
 | Release manifest and helper hashes | **TO CONFIRM for the final candidate.** At `9b9c109`/`f3a71f6` the owner recorded release-manifest `7b75636c…a013c` and onboarding-helper `0921201a…16f0`. The follow-ups change no generated output, but recompute the hashes on the final candidate anyway. | INTEGRATED C-A6 post |
 | Staging Worker | Wrangler environment `staging` in `wrangler.jsonc` (`workers_dev: true`, one `basic` container, `max_instances: 1`, cron `* * * * *`). Deployed with `npm run cf:deploy:staging`, which passes only `ENVOI_RELEASE_SHA` and refuses a dirty worktree. | `wrangler.jsonc`, `scripts/deploy-staging.mjs` |
 | Staging URL | `https://sinaloa-staging.rachelgonsalves821.workers.dev` as recorded on 2026-09-29. **TO CONFIRM** that it is still current. | `docs/runtime-configuration-status.md` |
 | Cloudflare account | `RELEASE_ACCOUNT_ID` in `scripts/promote-release.mjs`. **TO CONFIRM** that staging is in this account. | repo |
 | Staging database identity and backup | **TO CONFIRM.** It must be separate from beta; the GA rerun found that sharing caused contamination. | Je, read-only |
 | Currently deployed staging version | **TO CONFIRM.** Record the Worker version ID, the container image reference and `/health` `releaseSha`. This is the rollback target (§6). | Je, read-only |
-| Wake settings and signing key | **TO CONFIRM** (§3). **The first hosted batch runs with wake ON, and rows C19–C21 are in it** (Rachel's scope decision, board #34 comments 6278276747 and 6299040516). So that batch needs a public HTTPS receiver, the signing key and the wake settings before it starts. Wake OFF with C19–C21 reported as not run is no longer an option for it; that applies only to a later run Je and Rachel scope that way, and then those rows are never reported as passed. | Je, Rachel |
+| Historical first-batch wake decision | The original first batch selected wake ON and C19–C21 (board #34 comments 6278276747 and 6299040516). That is not today's activation instruction. Current closeout retains historical C19–C21 credit under the existing wake-off profile; do not enable wake, create a receiver or repeat callbacks solely to complete this old table. A genuinely changed wake implementation/profile needs a separately justified impact review and actual authority. | Historical decision; current operator profile |
 | Pinned Wrangler | `wrangler ^4.144.0` (root `package.json`). Check each command's flags with `--help` on the installed version before use. | repo |
 
 ## 2. Flags: order and dependencies
@@ -127,15 +129,15 @@ An older server ignores them, and the epochs keep them from coming back to life.
 
 ## 7. Freeze rules for the hosted C01–C24 run
 
-1. **One candidate.** The whole run uses one exact candidate SHA, deployed once to staging and confirmed by the preflight. Clients and connectors come from the matching release set, with hashes recorded.
+1. **One approved active profile.** New observations use the exact approved server/client/artifact profile with recorded hashes. A reviewed minimal staging server may differ from integration. Carried observations retain their original source and impact justification; do not claim mixed evidence is a newly executed single-SHA run. Existing accepted deployment or source need not be repeated for paperwork.
 2. **No code change mid-run.**
    - Nothing is deployed to staging during the run, including no Cloudflare dashboard edits that create a new version.
-   - A fix means a new candidate: integrate it, run exact-head CI, deploy it, and **rerun the whole applicable matrix**, not just the failed row (build plan §5 L5).
+   - A fix requires focused reproduction, affected checks and exact resulting-source CI. Document which accepted observations it invalidates under L5; preserve the rest. Source adoption/deployment occurs only if needed and authorized. Repeat the full hosted scope only if the impact review invalidates it all or the human explicitly requests that scope. Do not silently patch the active profile or restart the matrix from zero.
 3. **No configuration change mid-run.**
    - Flags, wake settings and secrets stay as recorded at the start.
    - The exceptions are a rollback (§6), which ends the run, and a step a row explicitly calls for, such as a flag-off rollback row in C22–C24. Each of those is approved on #34 before it happens and recorded in the worksheet.
 4. **Restarts are recorded.** Record every container restart with its time and cause, because it may end live case sessions (§4).
-5. **Live actions need approval.** Every new live send, fault injection or destructive step needs Je's approval first (Phase C plan, "Integration procedure and stopping points", step 6). Use fresh disposable identities and cases. Keep `case_0260691b187444b08368d1047ee317cb` paused, and never re-enrol a revoked test identity.
+5. **Live actions need approval.** Every new live send, fault injection or destructive step uses pjsk02's actual approved scope (Phase C plan, "Integration procedure and stopping points", step 6). Preserve existing disposable identities, accepted tasks and completed controls in the current continuation; create new fixtures only where a separately approved destructive scenario requires them. Keep `case_0260691b187444b08368d1047ee317cb` paused, and never re-enrol a revoked test identity.
 6. **Evidence for each row:**
    - the candidate SHA and artifact hashes;
    - the runtime and its version, and the route;

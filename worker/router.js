@@ -43,10 +43,22 @@ export async function environmentFingerprint(envVars) {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-// Restart only when the running container's settings are known and differ from the Worker's,
-// and at most once per new set of settings, so a container that still disagrees cannot flap.
-export function settingsChanged(startedFingerprint, currentFingerprint, lastRestartFingerprint) {
-  return Boolean(startedFingerprint) && startedFingerprint !== currentFingerprint && lastRestartFingerprint !== currentFingerprint;
+export const SETTINGS_RESTART_ATTEMPTS = 3;
+export const SETTINGS_RESTART_RETRY_MS = 5 * 60_000;
+
+// Restart only when the running container's settings are known and differ from the Worker's.
+// A rollout can bring the container back with the previous version's settings (see
+// releaseIsStale), so one restart per edit is not enough: retry a few times, spaced apart,
+// then stop so a container that still disagrees cannot flap. Returns the record to store
+// before restarting, or null. A bare fingerprint is the previous once-only record.
+export function planSettingsRestart(startedFingerprint, currentFingerprint, previous, now) {
+  if (!startedFingerprint || !currentFingerprint || startedFingerprint === currentFingerprint) return null;
+  const record = typeof previous === 'string' ? { fingerprint: previous, attempts: 1, at: 0 } : previous;
+  if (record?.fingerprint !== currentFingerprint) return { fingerprint: currentFingerprint, attempts: 1, at: now };
+  const { attempts, at } = record;
+  if (!Number.isSafeInteger(attempts) || attempts < 1 || !Number.isFinite(at)) return null;
+  if (attempts >= SETTINGS_RESTART_ATTEMPTS || now - at < SETTINGS_RESTART_RETRY_MS) return null;
+  return { fingerprint: currentFingerprint, attempts: attempts + 1, at: now };
 }
 
 export function createForwardedRequest(request) {

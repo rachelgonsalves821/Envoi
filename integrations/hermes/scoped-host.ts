@@ -270,8 +270,8 @@ function receipt(value: Record<string, any>, sessionId: string, admissionId?: st
   return value;
 }
 
-async function cancelAdmission(wire: HermesHostWire, sessionId: string, admissionId: string) {
-  const signal = AbortSignal.timeout(5000);
+async function cancelAdmission(wire: HermesHostWire, sessionId: string, admissionId: string,outerSignal?:AbortSignal) {
+  const signal = AbortSignal.any([AbortSignal.timeout(5000),...(outerSignal?[outerSignal]:[])]);
   try { await wire.rpc('prompt.cancel', { session_id: sessionId, admission_id: admissionId }, signal); }
   catch (error) { if (!(error instanceof EnvoiError) || error.code !== 'HERMES_STALE_GENERATION') throw error; }
   let current = receipt(await wire.rpc('prompt.receipt', { session_id: sessionId, admission_id: admissionId }, signal), sessionId, admissionId, wire.profileId);
@@ -315,6 +315,58 @@ export async function inspectHermesTerminalEvidence(host: HermesScopedHost, run:
 /** Backwards-compatible terminal verdict from the same read-only native proof. */
 export async function inspectHermesTerminalTurn(host: HermesScopedHost, run: ScopedRunRecord, signal: AbortSignal): Promise<string> {
   return(await inspectHermesTerminalEvidence(host,run,signal)).outcome;
+}
+
+/** Explicit bounded cleanup of ONE pinned unfinished admission on an already
+ * selected host. Requires separate operator authority. Starts no host, creates
+ * no session, submits no prompt, calls no model/tool and never edits a journal.
+ * An already terminal outcome is returned honestly, including actual success.
+ * Unknown admissions require a separately approved, exact discard decision.
+ * The caller must suppress native background draining before opening this host:
+ * resolving uncertainty can wake successors even though it never replays this input. */
+export async function cancelRetainedHermesAdmission(host:HermesScopedHost,input:Readonly<{workId:string;journalRawBytes:string;journalSha256:string;
+  discardUnknown?:Readonly<{operatorDecisionSha256:string;sessionId:string;admissionId:string;inputId:string;profileId:string;executionGeneration:number}>}>,signal:AbortSignal){
+  if(typeof input.journalRawBytes!=='string'||Buffer.byteLength(input.journalRawBytes)>1000000||!/^[a-f0-9]{64}$/.test(input.journalSha256)
+    ||createHash('sha256').update(input.journalRawBytes).digest('hex')!==input.journalSha256)throw failure('EXACT_RETAINED_JOURNAL_REQUIRED');
+  const run=JSON.parse(input.journalRawBytes) as ScopedRunRecord,state=run.input?.[0];
+  if(run.workId!==input.workId||!/^msg_[A-Za-z0-9_-]+$/.test(input.workId)||run.completed!==false||!hermesJournalMatches(run,host)
+    ||run.input.length!==1||state?.kind!=='hermes-scoped-v1'||!Array.isArray(run.pending)||run.pending.length||run.admission
+    ||typeof state.inputId!=='string'||!/^[a-f0-9-]{36}$/.test(state.inputId)||typeof state.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(state.requestId)
+    ||typeof state.sessionId!=='string'||!state.sessionId||state.sessionId.length>256
+    ||typeof state.admissionId!=='string'||!state.admissionId||state.admissionId.length>256)throw failure('EXACT_UNFINISHED_ADMISSION_REQUIRED');
+  const discard=input.discardUnknown;
+  if(discard&&(!/^[a-f0-9]{64}$/.test(discard.operatorDecisionSha256)||discard.sessionId!==state.sessionId
+    ||discard.admissionId!==state.admissionId||discard.inputId!==state.inputId||typeof discard.profileId!=='string'||!discard.profileId
+    ||!Number.isSafeInteger(discard.executionGeneration)||discard.executionGeneration<1))throw failure('EXACT_UNKNOWN_DISCARD_DECISION_REQUIRED');
+  const bounded=AbortSignal.any([signal,AbortSignal.timeout(10000)]),wire=await connectHermesHost(host,bounded);let subscription:string|undefined;
+  try{
+    if(discard&&discard.profileId!==wire.profileId)throw failure('EXACT_UNKNOWN_DISCARD_DECISION_REQUIRED');
+    const attached=await wire.rpc('session.resume',{session_id:state.sessionId,omit_messages:true},bounded);
+    if(attached.session_id!==state.sessionId||typeof attached.subscription_id!=='string')throw failure();subscription=attached.subscription_id;
+    let current=receipt(await wire.rpc('prompt.receipt',{session_id:state.sessionId,admission_id:state.admissionId},bounded),state.sessionId,state.admissionId,wire.profileId);
+    if(current.input_id!==undefined&&current.input_id!==state.inputId)throw failure('HERMES_TURN_RECOVERY_REQUIRED');
+    let unknownDiscardRequested=false;
+    if(current.status==='unknown'){
+      if(!discard)throw failure('HERMES_EXECUTION_UNCERTAIN');
+      if(current.execution_generation!==discard.executionGeneration)throw failure('EXACT_UNKNOWN_DISCARD_DECISION_REQUIRED');
+      await wire.rpc('prompt.resolve_unknown',{session_id:state.sessionId,admission_id:state.admissionId,
+        execution_generation:discard.executionGeneration},bounded);
+      unknownDiscardRequested=true;bounded.throwIfAborted();
+      current=receipt(await wire.rpc('prompt.receipt',{session_id:state.sessionId,admission_id:state.admissionId},bounded),state.sessionId,state.admissionId,wire.profileId);
+      if(current.input_id!==undefined&&current.input_id!==state.inputId)throw failure('HERMES_TURN_RECOVERY_REQUIRED');
+      if(current.status!=='terminal')throw failure('HERMES_EXECUTION_UNCERTAIN');
+    }
+    const cancellationRequested=current.status!=='terminal';
+    if(cancellationRequested){await cancelAdmission(wire,state.sessionId,state.admissionId,bounded);bounded.throwIfAborted();
+      current=receipt(await wire.rpc('prompt.receipt',{session_id:state.sessionId,admission_id:state.admissionId},bounded),state.sessionId,state.admissionId,wire.profileId);}
+    const receiptRawBytes=nativeRpcBytes.get(current);
+    if(current.status!=='terminal'||!['completed','failed','interrupted','cancelled','rejected'].includes(current.outcome)||!receiptRawBytes
+      ||current.input_id!==undefined&&current.input_id!==state.inputId)throw failure('HERMES_TURN_RECOVERY_REQUIRED');
+    return Object.freeze({purpose:'retained-hermes-admission-cleanup',workId:input.workId,journalSha256:input.journalSha256,journalModified:false,
+      cancellationRequested,unknownDiscardRequested,...(unknownDiscardRequested?{operatorDecisionSha256:discard!.operatorDecisionSha256}:{}),
+      modelPromptsSubmitted:0,receipt:Object.freeze({...current,ref:Object.freeze({...current.ref})}),receiptRawBytes,
+      sessionId:state.sessionId,admissionId:state.admissionId,profileId:wire.profileId,instanceId:wire.instanceId,outcome:current.outcome as string});
+  }finally{if(subscription)await wire.rpc('session.detach',{session_id:state.sessionId,subscription_id:subscription},AbortSignal.timeout(1000)).catch(()=>{});wire.close();}
 }
 
 export async function checkHermesRequestGate(host: HermesScopedHost, expected: NativeRequestGateExpectation,

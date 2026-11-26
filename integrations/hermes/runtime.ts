@@ -23,9 +23,10 @@ export interface HermesBridgeConfiguration {
 /** Shared by the existing manual bridge and the unified installer. Recovery stays intact. */
 export async function createHermesBridge(config: HermesBridgeConfiguration,
   options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number; onSuccessfulToolCall?: (name: string) => void;
-    timeoutMs?: number; pollMs?: number; onRuntimeEvent?: ScopedRuntimeObserver;
+    timeoutMs?: number; pollMs?: number; onRuntimeEvent?: ScopedRuntimeObserver; onToolDiscovery?: (names: string[]) => void;
     beforeNativeSubmit?: import('./native-binding').NativeSubmissionGuard;
     beforeScopedTurn?: import('./native-binding').ScopedPreparationGuard;
+    scopedReadOnlyWork?: (workId: string) => boolean;
     nativeRequestGate?: import('./request-gate-attestation').NativeRequestGateExpectation } = {}) {
   const env = options.env ?? process.env;
   const scoped = await selectScopedHermes({ env, stateDir: config.stateDir }, config.runtime);
@@ -46,7 +47,7 @@ export async function createHermesBridge(config: HermesBridgeConfiguration,
     fetch: options.fetch, allowEnvoiMcpWrites: config.writeEnabled,
     mcpReplySent: config.writeEnabled ? id => store.mcpReplySent(id) : undefined,
     assetHandles: [...approvedAssets.values()].map(({ handle, filename }) => ({ handle, filename })),
-    history: caseId => connector.listCaseMessages(caseId, 20),
+    history: async (caseId, group) => group ? (await connector.getGroupCase(caseId)).messages : connector.listCaseMessages(caseId, 20),
     onActive(message, signal) { active = signal ? { message, signal } : null; }
   });
   const turn = config.writeEnabled ? withRecordedMcpReply(provider, id => store.mcpReplySent(id)) : provider;
@@ -58,9 +59,10 @@ export async function createHermesBridge(config: HermesBridgeConfiguration,
   const relay = config.relayToken ? await startMcpRelay({
     connector, bearerToken: config.relayToken, port: config.relayPort ?? 8789,
     allowCollaborationWrites: config.writeEnabled,
-    collaborationToolNames: ['envoi_start_case', 'envoi_send_message', 'envoi_send_proposal', 'envoi_send_decision'],
+    collaborationToolNames: ['envoi_start_case', 'envoi_send_message', 'envoi_start_group_case', 'envoi_send_group_message', 'envoi_send_proposal', 'envoi_send_decision'],
     authorizeWrite: (name, args) => authorizedHermesWrite(active, name, args),
     onSuccessfulToolCall: options.onSuccessfulToolCall,
+    onToolDiscovery: options.onToolDiscovery,
     onSuccessfulWrite: async (name, args) => { const id = mcpReplyMessageId(name, args); if (id) await store.markMcpReplySent(id); }
   }) : null;
   return { connector, store, relayUrl: relay?.url, close: async () => { await relay?.close(); } };

@@ -42,12 +42,12 @@ All newly introduced server transport is restricted to its disposable loopback o
 
 ## Selected references
 
-- Client: `5b4d7c2941be4052564f12d02c4d5f304af76ffc` (selected client; the exercised SDK implementations are unchanged on the current base).
-- Current integration base: `d38469b62fd0e7da6cda12a9dbb75813a07b9b8c`.
+- Selected client: `5b4d7c2941be4052564f12d02c4d5f304af76ffc`.
+- Reviewed integration base: `18387fd2368108d6c101f5106ddce13c9684272b`.
 - Selected server: `d98b4d9d6941ab267a2f0f120db891ddababad6e`.
 - v4 packet SHA-256: `a7c64dc7f7b0730cf2b8efa89ec496f5768727faf5b8823d8d1d7cb7306076f5`.
 - SDK operator package SHA-256: `a9784135e825265cf94d675aef2dcf5b3e97cb0e721e589649e8e05a940966ec`.
-- [Production references](production-source.json): fifteen SDK/server implementation files, their selected source and SHA-256 after CRLF→LF normalization only. Fourteen are byte-identical to the selected implementations. `src/server.js` additionally permits one exact current-base hash after reviewing its deployment-identity import and staging agent-slot configuration changes; its case handlers are unchanged. The command is tested with both server sources. Other server files differ between the complete releases; this does not claim complete release-tree equality.
+- [Production references](production-source.json) records the fifteen selected implementation files and their SHA-256 hashes after CRLF→LF normalization. Ten files have an additional exact hash for the reviewed integration base. The per-file notes record how the group-case paths, connector lifecycle changes and scoped runtime changes relate to the exercised direct-case and operator flows. The original selected hashes and the earlier compatible server hash remain available for their respective sources.
 - [v4 excerpts](v4-source.json): original module byte hashes, exact source strings, source lines, delimiter ranges and excerpt hashes. The sole syntax adaptation is wrapping class methods/blocks for injected boundaries and removing `export`. Full private operator modules, packets and historical task data are excluded.
 - [Original assembly references](assembly-source.json): code filenames/hashes and opaque private-support input hashes only. Executable/data contents stay outside the repository and CI fixtures.
 

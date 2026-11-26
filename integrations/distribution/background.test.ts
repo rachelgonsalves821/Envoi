@@ -30,8 +30,14 @@ describe('background-operation preparation', () => {
       const directory = path.resolve('saved state with spaces');
       const plan = backgroundPlan('install', directory, { ...options, platform });
       expect(plan.definition).toEqual(connectorService(directory, { ...options, platform }));
-      expect(plan.definition.contents).toContain('connector.mjs');
-      expect(plan.definition.contents).not.toMatch(/session\.json|accessToken|refreshToken/);
+      const launch = plan.definition.windowsAction;
+      const launchText = launch ? Buffer.from(launch.args.at(-1)!, 'base64').toString('utf16le') : plan.definition.contents;
+      expect(launchText).toContain('connector.mjs');
+      expect(launchText).not.toMatch(/session\.json|accessToken|refreshToken/);
+      if (launch) {
+        expect(launch.args).toContain('Hidden');
+        expect(launchText).toContain('-RedirectStandardOutput');
+      }
       expect(plan.preservesCredentials).toBe(true);
     });
 

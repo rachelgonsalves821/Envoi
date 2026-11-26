@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnrollmentDialog, RuntimePicker, RuntimePreparation } from '../src/App';
 import { api } from '../src/api';
-import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, hermesPreparationPrompt, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
 import type { Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
@@ -13,6 +13,32 @@ const status = (phase: EnrollmentStatus['phase']): EnrollmentStatus => ({ enroll
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('Quick Connect handoff', () => {
+  it('provides a token-free Hermes preparation prompt before the owner creates enrollment', () => {
+    const prompt = hermesPreparationPrompt(handoff.apiUrl);
+    expect(prompt).toContain('prepare --runtime hermes --api-url https://envoi.example --prepare-runtime');
+    expect(prompt).toContain('checks: passed');
+    expect(prompt).toContain('same --profile');
+    expect(prompt).toContain('Do not copy provider keys between profiles');
+    expect(prompt).not.toContain(handoff.enrollmentToken);
+    expect(prompt).not.toContain('enrollmentToken');
+    expect(prompt).not.toContain('setup --handoff');
+    const markup = renderToStaticMarkup(createElement(RuntimePreparation, {
+      runtime: 'hermes', command: 'prepare', apiUrl: handoff.apiUrl
+    }));
+    expect(markup).toContain('Copy preparation prompt');
+    expect(markup).toContain('checks: passed');
+  });
+
+  it('keeps preparation ahead of token use in the copied Hermes handoff', () => {
+    const prompt = setupPrompt({ ...handoff, runtime: 'hermes' });
+    const prepareAt = prompt.indexOf('prepare --runtime hermes --api-url https://envoi.example --prepare-runtime');
+    const setupAt = prompt.indexOf('setup --handoff envoi-setup.json');
+    expect(prepareAt).toBeGreaterThan(-1);
+    expect(prepareAt).toBeLessThan(setupAt);
+    expect(prompt).toContain('If preparation already passed for this same profile');
+    expect(prompt).toContain('Do not copy provider keys between profiles');
+  });
+
   it('gives the runtime private-file setup instructions without passing secrets in command arguments', () => {
     const prompt = setupPrompt({ ...handoff, gatewayToken: 'provider_secret_should_not_be_sent' } as QuickConnectHandoff);
     expect(prompt).toContain('node envoi-connector.mjs setup --handoff envoi-setup.json');

@@ -14,11 +14,47 @@ const execute = promisify(execFile);
 const xml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
 const unitArgument = (value: string) => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%').replaceAll('$', () => '$$')}"`;
 const windowsArgument = (value: string) => `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
+const powershellLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
 const defaultPeriodicStart = new Date(Math.ceil((Date.now() + 60_000) / 60_000) * 60_000).toISOString();
 
-export interface ServiceDefinition { name: string; filename: string; contents: string; commands: Array<{ executable: string; args: string[] }> }
+export interface ServiceDefinition { name: string; filename: string; contents: string; commands: Array<{ executable: string; args: string[] }>;
+  windowsAction?: { executable: string; args: string[] } }
 export type ServiceRegistration = 'registered' | 'not_installed' | 'unverified';
 export type ServiceManagerState = 'running' | 'stopped' | 'failed' | 'unknown';
+
+function windowsLaunch(directory: string, node: string, args: string[], env?: NodeJS.ProcessEnv) {
+  const stdout = path.join(directory, 'connector.stdout.log'), stderr = path.join(directory, 'connector.stderr.log');
+  const history = path.join(directory, 'connector-supervisor.log');
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    `$envoiNode = ${powershellLiteral(node)}`,
+    `$envoiDirectory = ${powershellLiteral(directory)}`,
+    `$envoiArguments = ${powershellLiteral(args.map(windowsArgument).join(' '))}`,
+    `$envoiStdout = ${powershellLiteral(stdout)}`,
+    `$envoiStderr = ${powershellLiteral(stderr)}`,
+    `$envoiHistory = ${powershellLiteral(history)}`,
+    'try {',
+    '  foreach ($envoiLog in @($envoiStdout, $envoiStderr)) {',
+    "    if (Test-Path -LiteralPath $envoiLog -PathType Leaf) { Move-Item -LiteralPath $envoiLog -Destination ($envoiLog + '.previous') -Force }",
+    '  }',
+    '  if ((Test-Path -LiteralPath $envoiHistory -PathType Leaf) -and (Get-Item -LiteralPath $envoiHistory).Length -gt 1048576) {',
+    "    Move-Item -LiteralPath $envoiHistory -Destination ($envoiHistory + '.previous') -Force",
+    '  }',
+    '  $envoiChild = Start-Process -FilePath $envoiNode -ArgumentList $envoiArguments -WorkingDirectory $envoiDirectory -WindowStyle Hidden -RedirectStandardOutput $envoiStdout -RedirectStandardError $envoiStderr -PassThru',
+    '  $null = $envoiChild.Handle',
+    '  Add-Content -LiteralPath $envoiHistory -Encoding UTF8 -Value "$([DateTime]::UtcNow.ToString(\'o\')) started pid=$($envoiChild.Id)" -ErrorAction SilentlyContinue',
+    '  $envoiChild.WaitForExit()',
+    '  $envoiExit = $envoiChild.ExitCode',
+    '  Add-Content -LiteralPath $envoiHistory -Encoding UTF8 -Value "$([DateTime]::UtcNow.ToString(\'o\')) exit=$envoiExit hex=$(\'0x{0:X8}\' -f [int]$envoiExit)" -ErrorAction SilentlyContinue',
+    '  exit $envoiExit',
+    '} catch {',
+    '  Add-Content -LiteralPath $envoiHistory -Encoding UTF8 -Value "$([DateTime]::UtcNow.ToString(\'o\')) launch failed; inspect the private task and executable paths" -ErrorAction SilentlyContinue',
+    '  exit 1',
+    '}'
+  ].join('\n');
+  return { executable: windowsExecutable('powershell.exe', env), args: ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+    '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')] };
+}
 
 /** All service manifests contain file paths only. Credentials remain in private local storage. */
 export function connectorService(directory: string, options: { platform?: string; home?: string; node?: string; user?: string; runtime?: string; env?: NodeJS.ProcessEnv; now?: Date } = {}): ServiceDefinition {
@@ -52,8 +88,9 @@ export function connectorService(directory: string, options: { platform?: string
     // task is registered during an existing session. Keep logon startup and
     // add an independently scheduled one-minute recovery trigger.
     const periodicStart = options.now ? new Date(options.now.getTime() + 60_000).toISOString() : defaultPeriodicStart;
-    return { name, filename,
-      contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${xml(options.user)}</UserId></LogonTrigger><TimeTrigger><Enabled>true</Enabled><StartBoundary>${periodicStart}</StartBoundary><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></TimeTrigger></Triggers><Principals><Principal id="Author"><UserId>${xml(options.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${xml(node)}</Command><Arguments>${xml(args.map(windowsArgument).join(' '))}</Arguments><WorkingDirectory>${xml(directory)}</WorkingDirectory></Exec></Actions></Task>`,
+    const launch = windowsLaunch(directory, node, args, options.env);
+    return { name, filename, windowsAction: launch,
+      contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${xml(options.user)}</UserId></LogonTrigger><TimeTrigger><Enabled>true</Enabled><StartBoundary>${periodicStart}</StartBoundary><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></TimeTrigger></Triggers><Principals><Principal id="Author"><UserId>${xml(options.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${xml(launch.executable)}</Command><Arguments>${xml(launch.args.map(windowsArgument).join(' '))}</Arguments><WorkingDirectory>${xml(directory)}</WorkingDirectory></Exec></Actions></Task>`,
       commands: [{ executable: windowsExecutable('schtasks.exe', options.env), args: ['/Create', '/TN', name, '/XML', filename, '/F'] }, { executable: windowsExecutable('schtasks.exe', options.env), args: ['/Run', '/TN', name] }] };
   }
   throw new QuickConnectError('Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor');
@@ -77,7 +114,7 @@ export async function inspectConnectorService(directory: string, runtime: string
   const command = platform === 'linux' ? { executable: 'systemctl', args: ['--user', 'show', '-p', 'LoadState', '-p', 'UnitFileState', '-p', 'ActiveState', `${service.name}.service`] }
     : platform === 'darwin' ? { executable: 'launchctl', args: ['list'] }
     : { executable: windowsExecutable('powershell.exe', options.env), args: ['-NoProfile', '-NonInteractive', '-Command',
-      `$task = Get-ScheduledTask -TaskName '${service.name}' -TaskPath '\\' -ErrorAction Stop; $logon = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' -and $_.Enabled }).Count -gt 0; $periodic = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskTimeTrigger' -and $_.Enabled -and $_.StartBoundary -and [string]$_.Repetition.Interval -eq 'PT1M' -and -not $_.Repetition.Duration }).Count -gt 0; Write-Output "$($task.State)|$($logon -and $periodic)"`] };
+      `$task = Get-ScheduledTask -TaskName '${service.name}' -TaskPath '\\' -ErrorAction Stop; $logon = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' -and $_.Enabled }).Count -gt 0; $periodic = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskTimeTrigger' -and $_.Enabled -and $_.StartBoundary -and [string]$_.Repetition.Interval -eq 'PT1M' -and -not $_.Repetition.Duration }).Count -gt 0; $launch = @($task.Actions).Count -eq 1 -and $task.Actions[0].Execute -ieq ${powershellLiteral(service.windowsAction?.executable ?? '')} -and $task.Actions[0].Arguments -ceq ${powershellLiteral((service.windowsAction?.args ?? []).map(windowsArgument).join(' '))} -and $task.Actions[0].WorkingDirectory -ieq ${powershellLiteral(directory)}; Write-Output "$($task.State)|$($logon -and $periodic -and $launch)"`] };
   try {
     const output = options.run ? await options.run(command.executable, command.args)
       : (await execute(command.executable, command.args, { timeout: 15_000, windowsHide: true })).stdout;

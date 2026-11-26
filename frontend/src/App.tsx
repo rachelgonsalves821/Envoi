@@ -1,3 +1,4 @@
+import { ManagedFiles } from './onboarding/ManagedFiles';
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
@@ -11,6 +12,9 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
+import { appLocation, appPath, createAppNavigation } from './app-navigation';
+import { createWorkspaceSwitch } from './workspace-switch';
+import { INTERNAL_ROUTE_EVENT, internalRoute, navigateInternal } from './internal-navigation';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { agentCatalog, productAsset } from './onboarding/agent-catalog';
@@ -19,6 +23,7 @@ import { AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
 import { authorizationHandle, authorizationSignInPath } from './onboarding/consent-state';
 import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
+import { PhaseDTrustControls } from './PhaseDTrustControls';
 import { MonadPermissionPanel } from './MonadPermissionPanel';
 import { claimSignInPath } from './onboarding/connect-state';
 import { CsrfReloadBoundary, createHumanStreamRecovery } from './browser-session-recovery';
@@ -30,16 +35,16 @@ import { applyInboxPreference, filterInboxCases, readAcknowledgementForCase } fr
 import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from './agent-permissions';
 import { previewRequested } from './preview';
 import { agentLabel, connectionLabel } from './agent-presence';
-import { mergeHistory, olderCursors } from './history';
+import { mergeHistory, olderCursors, readOlderNativeContactChange } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
-import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, isLoopbackOrigin, runtimeLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, hermesPreparationPrompt, isLoopbackOrigin, runtimeLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
-  caseSourceView, localAgentId, eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
+  caseSourceView, localAgentId, eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, latestNativeContactChange, onboardingSteps, participantIds, resolveParticipant,
   sectionForCase, stateLabel, timelineForCase
 } from './model';
 import type {
@@ -122,12 +127,41 @@ previewView.caseQueue = previewView.cases.map(workCase => {
 return { ...workCase, inboxPreference, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
 });
 export default function App() {
-  return <CsrfReloadBoundary>{typeof window !== 'undefined' && window.location.pathname === '/connect' ? <ConnectPage /> : <WorkspaceApp />}</CsrfReloadBoundary>;
+  const [route, setRoute] = useState(() => `${window.location.pathname}${window.location.search}${window.location.hash}`);
+  const path = route.split(/[?#]/, 1)[0];
+  const [workspaceMounted, setWorkspaceMounted] = useState(() => window.location.pathname !== '/connect');
+  const [connectMounted, setConnectMounted] = useState(() => window.location.pathname === '/connect');
+  useEffect(() => {
+    const updatePath = () => {
+      setRoute(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+      if (window.location.pathname === '/connect') setConnectMounted(true);
+      else setWorkspaceMounted(true);
+    };
+    const followInternalLink = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      const anchor = (event.target as Element)?.closest?.('a[href]');
+      if (!anchor) return;
+      const route = internalRoute(anchor.getAttribute('href') || '', window.location.origin, anchor.getAttribute('target') || '', anchor.hasAttribute('download'), event.metaKey || event.ctrlKey || event.shiftKey || event.altKey, event.button);
+      if (!route) return;
+      event.preventDefault();
+      navigateInternal(route);
+    };
+    window.addEventListener('popstate', updatePath);
+    window.addEventListener(INTERNAL_ROUTE_EVENT, updatePath);
+    document.addEventListener('click', followInternalLink);
+    return () => {
+      window.removeEventListener('popstate', updatePath);
+      window.removeEventListener(INTERNAL_ROUTE_EVENT, updatePath);
+      document.removeEventListener('click', followInternalLink);
+    };
+  }, []);
+  return <CsrfReloadBoundary>{workspaceMounted && <div hidden={path === '/connect'} style={path === '/connect' ? { display: 'none' } : undefined}><WorkspaceApp route={route} /></div>}{connectMounted && <div hidden={path !== '/connect'} style={path !== '/connect' ? { display: 'none' } : undefined}><ConnectPage /></div>}</CsrfReloadBoundary>;
 }
 
-function WorkspaceApp() {
-  const isPreview = typeof window !== 'undefined' && previewRequested(window.location.search, import.meta.env.DEV);
-  const isLandingPreview = import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('landing-preview');
+function WorkspaceApp({ route }: { route: string }) {
+  const routePath = route.split(/[?#]/, 1)[0];
+  const [isPreview] = useState(() => previewRequested(window.location.search, import.meta.env.DEV));
+  const [isLandingPreview] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).has('landing-preview'));
   const [boot, setBoot] = useState<BootState>('loading');
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [human, setHuman] = useState<Human | null>(null);
@@ -167,6 +201,8 @@ function WorkspaceApp() {
   const loadRodeOutTabSwitch = useRef(false);
   const validation = useRef<AbortController | null>(null);
   const viewRequests = useRef(new AbortController());
+  const workspaceSwitch = useRef(createWorkspaceSwitch<HumanView>());
+  const workspaceSelection = useRef(0);
   const viewOrder = useRef(createViewResponseOrder());
   const eventCursors = useRef(createEventCursorStore());
   const quietReads = useRef<{ workspaceId: string; generation: number; coordinator: ReturnType<typeof createRefreshCoordinator<HumanView>> } | null>(null);
@@ -180,6 +216,8 @@ function WorkspaceApp() {
   }, []);
 
   const clearPrivateState = useCallback(() => {
+    workspaceSelection.current++;
+    workspaceSwitch.current.cancel();
     validation.current?.abort(new SessionRequestCancelled());
     validation.current = null;
     cancelWorkspaceReads();
@@ -326,7 +364,9 @@ function WorkspaceApp() {
       publishSessionIdentity(nextHuman.id);
       const nextWorkspaces = await loadWorkspaceDirectory();
       if (!isCurrentSession(generation)) return;
-      const savedId = localStorage.getItem(WORKSPACE_KEY);
+      const linkedInbox = window.location.pathname === '/app' ? new URLSearchParams(window.location.search).get('inbox') : null;
+      const savedId = linkedInbox || localStorage.getItem(WORKSPACE_KEY);
+      if (linkedInbox && !nextWorkspaces.some(item => item.id === linkedInbox)) throw new Error('This inbox is unavailable for your account.');
       const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
       if (!selected) {
         setWorkspace(null);
@@ -523,11 +563,22 @@ function WorkspaceApp() {
   }, [boot, config, expireSession, human?.id, quietRefresh, loadWorkspaceDirectory, sessionCheck, workspace]);
 
   async function selectWorkspace(next: Workspace) {
+    const selection = ++workspaceSelection.current;
+    if (next.id === workspace?.id) {
+      workspaceSwitch.current.cancel();
+      return;
+    }
+    const generation = sessionGeneration();
+    // Keep the current authorized workspace mounted while the next one loads.
+    // Commit its identity and view together only after the server authorizes it.
+    const nextView = await workspaceSwitch.current.load(next.id, (id, signal) => api.humanView(id, undefined, signal), checkViewIdentity);
+    if (!nextView || !isCurrentSession(generation) || selection !== workspaceSelection.current) throw new SessionRequestCancelled();
     cancelWorkspaceReads();
+    activeWorkspace.current = next.id;
     setHistoryBusy(false);
     setWorkspace(next);
+    setView(nextView);
     localStorage.setItem(WORKSPACE_KEY, next.id);
-    await loadView(next.id);
   }
 
   async function createWorkspace(name: string) {
@@ -559,10 +610,10 @@ function WorkspaceApp() {
   const renderedGeneration = sessionGeneration();
   const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
   if (isLandingPreview) return <LandingPage signInPath={`${import.meta.env.VITE_PUBLIC_URL || 'https://www.envoi-agents.com'}/api/auth/workos/sign-in`} />;
-  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
+  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} claimRoute={['/claim', '/authorize-agent'].includes(routePath)} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} onLogout={hadAuthenticatedSession.current && !signingOut.current ? () => { void logout(); } : undefined} />;
   if (boot === 'signedOut' && config) return config.provider === 'workos'
-    ? <LandingPage signInPath={window.location.pathname === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : window.location.pathname === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
+    ? <LandingPage signInPath={routePath === '/authorize-agent' ? authorizationSignInPath(config.signInPath || '/api/auth/workos/sign-in', window.location.search) : routePath === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
     : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
   if (boot === 'setup' && human) return <><SignOutControl onLogout={() => { void logout(); }} /><WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} /></>;
   if (boot === 'error') return <FailureScreen message={error} title={signingOut.current ? 'Sign out incomplete' : undefined} retryLabel={signingOut.current ? 'Retry sign out' : undefined} onRetry={signingOut.current ? logout : loadAccount} onLogout={signingOut.current || hadAuthenticatedSession.current ? () => { void logout(); } : undefined} />;
@@ -581,9 +632,10 @@ function WorkspaceApp() {
       syncNotice={syncNotice}
       onLoadOlder={async () => { checkRenderedSession(); await loadOlder(); }}
       historyBusy={historyBusy}
-      claimRoute={['/claim', '/authorize-agent'].includes(window.location.pathname)}
+      claimRoute={['/claim', '/authorize-agent'].includes(routePath)}
       initialSection={requestedSection}
-      onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); setRequestedSection(nextSection); await selectWorkspace(next); }}
+      onCancelNavigation={() => { workspaceSelection.current++; workspaceSwitch.current.cancel(); }}
+      onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); await selectWorkspace(next); setRequestedSection(nextSection); }}
       onPreferenceUpdated={(inboxId, caseId, preference) => {
         checkRenderedSession();
         if (activeWorkspace.current !== inboxId) return;
@@ -756,6 +808,7 @@ interface ShellProps {
   config: AuthConfig; human: Human; organizations: Organization[]; workspaces: Workspace[];
   workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace, section?: NavSection) => Promise<void>;
   initialSection?: NavSection;
+  onCancelNavigation?: () => void;
   claimRoute?: boolean;
   onPreferenceUpdated?: (inboxId: string, caseId: string, preference: InboxPreference) => void;
   onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>; syncNotice: string;
@@ -768,15 +821,20 @@ export function AppShell(props: ShellProps) {
   const { human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
   const canManageInbox = view.canManageInbox === true;
   const authorizationRoute = typeof window !== 'undefined' && window.location.pathname === '/authorize-agent';
-  const [section, setSection] = useState<NavSection>(props.initialSection || 'inbox');
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [initialLocation] = useState(() => {
+    const fallback = { inbox: workspace.id, section: props.initialSection || 'inbox', folder: null, case: null };
+    return typeof window === 'undefined' ? fallback : appLocation(window.location.search, fallback);
+  });
+  const [section, setSection] = useState<NavSection>(initialLocation.section);
+
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialLocation.case);
   const [railOpen, setRailOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<string[]>([]);
   const [toast, setToast] = useState('');
   const [childViews, setChildViews] = useState<Record<string, HumanView>>({});
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(initialLocation.folder);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [advancedConnectOpen, setAdvancedConnectOpen] = useState(false);
   const [connectResult, setConnectResult] = useState<EnrollmentResult | null>(null);
@@ -784,6 +842,44 @@ export function AppShell(props: ShellProps) {
   const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderError, setFolderError] = useState('');
+  const navigationProps = useRef(props);
+  navigationProps.current = props;
+  const ownHistoryWrite = useRef(false);
+  const navigation = useRef<ReturnType<typeof createAppNavigation> | null>(null);
+  if (!navigation.current) navigation.current = createAppNavigation(initialLocation, {
+    cancel: () => navigationProps.current.onCancelNavigation?.(),
+    select: async target => {
+      const next = navigationProps.current.workspaces.find(item => item.id === target.inbox);
+      if (!next) throw new Error('This inbox is unavailable for your account.');
+      await navigationProps.current.onSelectWorkspace(next, target.section);
+    },
+    commit: target => {
+      setSection(target.section); setSelectedFolderId(target.folder); setSelectedCaseId(target.case);
+      setFolderMenuId(null); setNavOpen(false);
+    },
+    write: (target, replace) => {
+      ownHistoryWrite.current = true;
+      try { navigateInternal(appPath(target, new URLSearchParams(window.location.search).has('preview')), replace); }
+      finally { ownHistoryWrite.current = false; }
+    },
+    error: caught => { if (!(caught instanceof SessionRequestCancelled)) setToast(errorMessage(caught)); }
+  });
+  useEffect(() => {
+    const restore = () => {
+      if (ownHistoryWrite.current) return;
+      if (window.location.pathname !== '/app') { navigation.current!.cancel(); return; }
+      const params = new URLSearchParams(window.location.search);
+      void navigation.current!.go(appLocation(window.location.search, navigation.current!.current()), params.has('inbox') && params.has('section') ? 'restore' : 'replace');
+    };
+    window.addEventListener('popstate', restore);
+    window.addEventListener(INTERNAL_ROUTE_EVENT, restore);
+    if (window.location.pathname === '/app') void navigation.current!.go(appLocation(window.location.search, navigation.current!.current()), 'replace');
+    return () => {
+      navigation.current!.cancel();
+      window.removeEventListener('popstate', restore);
+      window.removeEventListener(INTERNAL_ROUTE_EVENT, restore);
+    };
+  }, []);
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
   const agentInboxes = workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === rootWorkspace.id);
   const agentInboxKey = agentInboxes.map(item => item.id).sort().join(',');
@@ -862,13 +958,10 @@ export function AppShell(props: ShellProps) {
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
 
   function chooseSection(next: NavSection) {
-    setSelectedFolderId(null);
-    setFolderMenuId(null);
-    setSection(next); setSelectedCaseId(null); setNavOpen(false);
+    void navigation.current!.go({ inbox: workspace.id, section: next, folder: null, case: null });
   }
-  function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox') {
-    chooseSection(nextSection);
-    if (next.id !== workspace.id) void onSelectWorkspace(next, nextSection).catch(caught => setToast(errorMessage(caught)));
+  async function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox'): Promise<void> {
+    await navigation.current!.go({ inbox: next.id, section: nextSection, folder: null, case: null });
   }
   async function refreshSelectedCase() {
     if (selectedCaseView.inbox.id === workspace.id) { await onRefresh(); return; }
@@ -909,7 +1002,7 @@ export function AppShell(props: ShellProps) {
     try {
       if (workspace.id === previewWorkspace.id) throw new Error('Folder changes are unavailable in the design preview. Sign in to save changes.');
       await api.deleteInboxFolder(workspace.id, folderToDelete.id);
-      if (selectedFolderId === folderToDelete.id) setSelectedFolderId(null);
+      if (navigation.current!.current().folder === folderToDelete.id) await navigation.current!.go({ ...navigation.current!.current(), folder: null, case: null }, 'replace');
       setFolderToDelete(null);
       try { await refreshInboxPreferences(); setToast('Folder deleted'); }
       catch { setToast('Folder deleted. Refresh to update the list.'); }
@@ -919,7 +1012,7 @@ export function AppShell(props: ShellProps) {
   function openCase(item: WorkCase) {
     const source = caseSources.find(entry => entry.workCase === item);
     if (!source) return;
-    setSelectedCaseId(source.key);
+    void navigation.current!.go({ inbox: workspace.id, section, folder: selectedFolderId, case: source.key });
     const patch = readAcknowledgementForCase(item);
     if (patch && !item.inboxPreference?.read && source.sourceView.inbox.id !== previewWorkspace.id) {
       void api.updateInboxPreference(source.sourceView.inbox.id, item.id, patch)
@@ -934,8 +1027,7 @@ export function AppShell(props: ShellProps) {
     const source = caseSources.find(entry => entry.workCase.id === item.id && entry.sourceView.inbox.id === view.inbox.id)
       || caseSources.find(entry => entry.workCase.id === item.id);
     if (!source) { setToast('Load the conversation’s history before opening it.'); return; }
-    chooseSection(source.workCase.inboxPreference?.archived ? 'completed' : 'inbox');
-    openCase(source.workCase);
+    void navigation.current!.go({ inbox: workspace.id, section: source.workCase.inboxPreference?.archived ? 'completed' : 'inbox', folder: null, case: source.key });
   }
   function toggleAgent(agentId: string) {
     setExpandedAgents(current => current.includes(agentId) ? current.filter(id => id !== agentId) : [...current, agentId]);
@@ -966,7 +1058,7 @@ export function AppShell(props: ShellProps) {
           {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
           <div className="nav-section-heading"><span>Folders</span><button aria-label="Create folder" disabled={!view.folders} onClick={() => { setFolderError(''); setFolderDialogOpen(true); }}><Plus size={15} /></button></div>
           {view.folders?.map(folder => <div key={folder.id} className="folder-nav-row" onContextMenu={event => { event.preventDefault(); setFolderMenuId(folder.id); }}>
-            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>
+            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { void navigation.current!.go({ inbox: workspace.id, section: 'inbox', folder: folder.id, case: null }); }}><Folder size={16} /><span>{folder.name}</span></button>
             <button className="folder-menu-trigger icon-button" aria-label={`More options for ${folder.name}`} aria-haspopup="menu" aria-expanded={folderMenuId === folder.id} onClick={() => setFolderMenuId(current => current === folder.id ? null : folder.id)}><MoreHorizontal size={16} /></button>
             {folderMenuId === folder.id && <div className="folder-context-menu" role="menu" aria-label={`${folder.name} options`}><button role="menuitem" onClick={() => { setFolderMenuId(null); setFolderError(''); setFolderToDelete(folder); }}><Trash2 size={16} />Delete folder</button></div>}
           </div>)}
@@ -985,19 +1077,23 @@ export function AppShell(props: ShellProps) {
       <section className={`application ${utilitySection || props.claimRoute ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
         {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span></div>}
 
-        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
+        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await navigation.current!.go({ inbox: inbox.id, section: 'integrations', folder: null, case: null }); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
-{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={() => chooseSection('integrations')} />}
+{section === 'documents' && <SharedFilesPage view={queueView} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={() => chooseSection('integrations')}  managedInboxes={agentEntries.filter(({ inbox, agent, view: agentView }) =>
+                inbox.ownerAgentId === agent.id && inbox.status !== 'removed' && agentView.canManageInbox
+              ).map(({ inbox, agent, view: agentView }) => ({ id: inbox.id, name: agent.name, assets: agentView.assets.filter(asset =>
+                asset.workspaceId === inbox.id && asset.state === 'clean' && asset.id.startsWith('obj_')
+              ) }))} />}
             {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={() => chooseSection('integrations')} />}
-            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onAdvancedConnect={() => setAdvancedConnectOpen(true)} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
+            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onAdvancedConnect={() => setAdvancedConnectOpen(true)} onSelectWorkspace={next => chooseInbox(next)} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
           </main>
         ) : (
           <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}`}>
 {!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={() => chooseSection('integrations')} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
             {selectedCase && <main id="main-content" className="case-main">
-<CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
+<CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { void navigation.current!.go({ inbox: workspace.id, section, folder: selectedFolderId, case: null }); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); if (navigation.current!.current().case === selectedCaseEntry?.key) await navigation.current!.go({ ...navigation.current!.current(), case: null }, 'replace'); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
             </main>}
           </div>
         )}
@@ -1013,7 +1109,7 @@ export function AppShell(props: ShellProps) {
 
 function ClaimWorkspace({ humanId, workspaces, entries, onRefresh, onSelectAgent, authorizationSearch }: { authorizationSearch?: string; humanId: string; workspaces: Workspace[]; entries: AgentEntry[]; onRefresh: () => Promise<unknown>; onSelectAgent: (agentId: string, address?: string) => Promise<void> }) {
   const [revision, setRevision] = useState(0);
-  return <>{authorizationSearch !== undefined ? <AuthorizeAgentPage humanId={humanId} handle={authorizationHandle(authorizationSearch)} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent' && entry.view.canManageInbox).map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} /> : <ClaimPage humanId={humanId} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent').map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} onComplete={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={() => window.location.assign('/app')} />}<OwnerClaims key={`${humanId}:${revision}`} humanId={humanId} onSelectAgent={(agentId, address) => { void onSelectAgent(agentId, address); }} /></>;
+  return <>{authorizationSearch !== undefined ? <AuthorizeAgentPage humanId={humanId} handle={authorizationHandle(authorizationSearch)} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent' && entry.view.canManageInbox).map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} /> : <ClaimPage humanId={humanId} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent').map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} onComplete={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={() => navigateInternal('/app')} />}<OwnerClaims key={`${humanId}:${revision}`} humanId={humanId} onSelectAgent={(agentId, address) => { void onSelectAgent(agentId, address); }} /></>;
 }
 
 const AGENT_COLORS = ['var(--accent)', 'var(--agent-purple)', 'var(--green)', 'var(--orange)', 'var(--agent-teal)', 'var(--red)', 'var(--ink2)'];
@@ -1071,14 +1167,15 @@ export function CaseRow({ workCase, view, showOwner, selected, onSelect }: { wor
   const events = timelineForCase(workCase, view.messages);
   const counterpartId = participantIds(workCase, events).find(id => id !== localAgentId(workCase, view) && id !== workCase.principal);
   const counterparty = resolveParticipant(workCase, counterpartId, view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const senderLabel = workCase.caseMode === 'group' ? `Group · ${workCase.participants?.length || 0} agents` : counterparty.displayName;
   const owner = view.agents.find(item => item.id === localAgentId(workCase, view));
   const today = new Date(updated).toDateString() === new Date().toDateString();
   const counterpartyColor = AGENT_COLORS[Math.abs(Array.from(counterparty.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const ownerColor = AGENT_COLORS[Math.max(0, view.agents.findIndex(item => item.id === owner?.id)) % AGENT_COLORS.length];
   return (
 <button role="option" aria-selected={selected} className={`case-row inbox-message-row ${selected ? 'selected' : ''} ${(workCase.inboxPreference ? !workCase.inboxPreference.read : workCase.needsAttention) ? 'is-unread' : ''} ${caseState(workCase) === 'completed' ? 'is-done' : ''}`} onClick={() => onSelect(workCase)}>
-      <span className="counterparty-avatar" style={{ '--avatar-color': counterpartyColor } as React.CSSProperties}>{initials(counterparty.displayName)}{showOwner && owner && <span className="owner-badge" style={{ '--owner-color': ownerColor } as React.CSSProperties} title={owner.name}>{initials(owner.name)[0]}</span>}</span>
-      <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}</span><strong>{workCase.objective || 'Untitled case'}</strong><small className="case-preview">{conversationPreview(workCase)}</small></span>
+      <span className="counterparty-avatar" style={{ '--avatar-color': counterpartyColor } as React.CSSProperties}>{workCase.caseMode === 'group' ? 'G' : initials(counterparty.displayName)}{showOwner && owner && <span className="owner-badge" style={{ '--owner-color': ownerColor } as React.CSSProperties} title={owner.name}>{initials(owner.name)[0]}</span>}</span>
+      <span className="case-row-copy"><span className="thread-sender">{senderLabel}</span><strong>{workCase.objective || 'Untitled case'}</strong><small className="case-preview">{conversationPreview(workCase)}</small></span>
       <span className="case-row-meta">{workCase.needsAttention && <span className="case-chip">Needs you</span>}<time dateTime={updated}>{today ? formatTime(updated) : formatDate(updated)}</time></span>
     </button>
   );
@@ -1103,6 +1200,17 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   const local = resolveParticipant(workCase, localAgentId(workCase, view), view.agents, view.participantDirectory, localAgentId(workCase, view));
   const counterpartyId = participantIds(workCase, events).find(id => id !== localAgentId(workCase, view) && id !== workCase.principal);
   const counterparty = resolveParticipant(workCase, counterpartyId, view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const sameOrganization = Boolean(counterparty.organizationId && view.inbox?.organizationId
+    && counterparty.organizationId === view.inbox.organizationId);
+  const isGroup = workCase.caseMode === 'group';
+  const messageEvents = new Map<string, CaseEvent>();
+  if (isGroup) {
+    for (const event of events) {
+      if (event.type === 'message' && typeof event.payload.messageId === 'string') {
+        messageEvents.set(event.payload.messageId, event);
+      }
+    }
+  }
 
   async function act(actionKey: HumanActionKey) {
     setBusy(actionKey);
@@ -1112,7 +1220,7 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
     } catch (caught) { notify(errorMessage(caught)); } finally { setBusy(null); }
   }
 
-  const hasOpenDecision = Boolean(workCase.schemaVersion) && !['completed', 'expired', 'revoked'].includes(state);
+  const hasOpenDecision = !isGroup && Boolean(workCase.schemaVersion) && !['completed', 'expired', 'revoked'].includes(state);
   const canAct = canManageInbox && hasOpenDecision;
   const canOrganize = Boolean(workCase.inboxPreference && view.folders);
   const ownAgent = view.agents.find(agent => agent.id === localAgentId(workCase, view));
@@ -1155,18 +1263,24 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
         <div className="thread-scroll"><div className="thread-inner">
           <h1 className="thread-subject">{workCase.objective || 'Untitled case'}</h1>
           <div className="thread-meta"><StatusBadge workCase={workCase} /><button className="add-folder" disabled={!canOrganize || preferenceBusy} onClick={() => { setPreferenceError(''); setMoveOpen(true); }}><Folder size={13} />{view.folders?.find(folder => folder.id === workCase.inboxPreference?.folderId)?.name || 'Folder'}</button></div>
-          <div className="participant-duo">
+          {isGroup ? <section aria-label="Group members" className="participant-duo participant-group">
+            {workCase.participants?.map(id => {
+              const member = groupParticipant(workCase, view, id);
+              return <ParticipantCard key={id} participant={member} label={member.relationship === 'localAgent' ? 'Your agent' : 'Group member'} />;
+            })}
+          </section> : <div className="participant-duo">
             <ParticipantCard participant={local} label={local.relationship === 'localAgent' ? 'Your agent' : 'Local identity unavailable'} />
             <ArrowLeftRight size={18} className="participant-swap" aria-hidden="true" />
-            <ParticipantCard participant={counterparty} label={`Agent for ${counterparty.orgRef || 'another organization'}`} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
-          </div>
+            <ParticipantCard key={counterparty.id} participant={counterparty} label={sameOrganization ? 'Agent in your organization' : `Agent for ${counterparty.orgRef || 'another organization'}`} contactChange={latestNativeContactChange(view.recentEvents || [], counterparty.id)} historyCursor={view.history?.recentEvents?.nextCursor} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
+          </div>}
           {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => key === 'decline' ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
           {state === 'unknownExternalResult' && <InlineNotice title="Result unknown" body="The external service did not confirm the result. Do not retry with a new key." tone="unknown" />}
           {state === 'revoked' && <InlineNotice title="Authority revoked" body="New agent work for this case is blocked." tone="danger" />}
-          <div className="conversation" aria-label="Conversation">{events.length ? events.map((event, index) => <ConversationEntry key={event.id} event={event} previous={events[index - 1]} workCase={workCase} view={view} />) : <div className="empty-list"><Inbox size={20} /><strong>No messages yet</strong></div>}</div>
+          <div className="conversation" aria-label="Conversation">{events.length ? events.map((event, index) => <ConversationEntry key={event.id} event={event} previous={events[index - 1]} workCase={workCase} view={view} replyTarget={messageEvents.get(event.payload.inReplyTo)} />) : <div className="empty-list"><Inbox size={20} /><strong>No messages yet</strong></div>}</div>
           {workCase.receipt && <ReceiptCard workCase={workCase} />}
+          {isGroup && <FormError message={preferenceError} />}
         </div></div>
-        <div className="thread-composer"><form className="composer-box" onSubmit={event => void sendInstruction(event)}><input aria-label={local.relationship === 'localAgent' ? `Instructions for ${local.displayName}` : 'Instructions unavailable: local identity unknown'} value={instruction} onChange={event => setInstruction(event.target.value)} maxLength={15000} placeholder={canInstruct ? 'Send an instruction to your agent' : 'Instructions require an active agent and conversation'} disabled={!canInstruct || instructionBusy} /><button aria-label="Send instruction" disabled={!canInstruct || instructionBusy || !instruction.trim()}><ArrowRight size={16} /></button></form><FormError message={instructionError || preferenceError} /></div>
+        {!isGroup && <div className="thread-composer"><form className="composer-box" onSubmit={event => void sendInstruction(event)}><input aria-label={local.relationship === 'localAgent' ? `Instructions for ${local.displayName}` : 'Instructions unavailable: local identity unknown'} value={instruction} onChange={event => setInstruction(event.target.value)} maxLength={15000} placeholder={canInstruct ? 'Send an instruction to your agent' : 'Instructions require an active agent and conversation'} disabled={!canInstruct || instructionBusy} /><button aria-label="Send instruction" disabled={!canInstruct || instructionBusy || !instruction.trim()}><ArrowRight size={16} /></button></form><FormError message={instructionError || preferenceError} /></div>}
       </div>
       {moveOpen && <Modal title="Move conversation" dismissible={!preferenceBusy} onClose={() => setMoveOpen(false)}><MoveInboxCaseContent folders={view.folders || []} currentFolderId={workCase.inboxPreference?.folderId || null} busy={preferenceBusy} error={preferenceError} onClose={() => setMoveOpen(false)} onMove={folderId => void updatePreference({ folderId })} /></Modal>}
       {railOpen && <aside className="case-details" aria-label="Case details"><div className="details-heading"><strong>Details</strong><button className="icon-button" aria-label="Close details" onClick={onRailToggle}><X size={16} /></button></div><h2>{ownAgent ? `${local.displayName} can` : 'Local permissions unavailable'}</h2>{ownAgent?.permissions.map(permission => <div className="details-row" key={permission}><Check size={14} />{humanize(permission)}</div>) || <p>No permissions listed</p>}{ownAgent && <><h2>{local.displayName} asks you before</h2><p>Actions outside its permissions</p></>}<h2>Files</h2>{view.assets.filter(item => item.caseId === workCase.id).map(asset => <AssetRow key={asset.id} asset={asset} inboxId={view.inbox.id} notify={notify} />)}<h2>Case</h2><dl><dt>Deadline</dt><dd>{workCase.deadline ? formatDate(workCase.deadline) : 'None'}</dd><dt>ID</dt><dd className="case-id">{workCase.id}</dd></dl></aside>}
@@ -1176,20 +1290,45 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   );
 }
 
-export function ConversationEntry({ event, previous, workCase, view }: { event: CaseEvent; previous?: CaseEvent; workCase: WorkCase; view: HumanView }) {
+function groupParticipant(workCase: WorkCase, view: HumanView, agentId: string) {
+  const participant = resolveParticipant(workCase, agentId, view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const member = workCase.members?.find(item => item.agentId === agentId);
+  return participant.address || !member ? participant : { ...participant, displayName: member.address, address: member.address };
+}
+
+export function ConversationEntry({ event, previous, workCase, view, replyTarget }: { event: CaseEvent; previous?: CaseEvent; workCase: WorkCase; view: HumanView; replyTarget?: CaseEvent }) {
   view = caseSourceView(workCase, view);
   const ownHuman = Boolean(event.payload.senderHumanId && event.payload.senderHumanId === view.requester?.id);
   const ownerInstruction = String(event.payload.messageType || '').toLowerCase() === 'instruction' && Boolean(event.payload.senderHumanId || event.payload.senderType === 'human');
   const senderId = event.payload.senderAgentId || event.payload.senderHumanId || event.actor;
   const mine = Boolean(localAgentId(workCase, view) && senderId === localAgentId(workCase, view)) || ownHuman;
-  const participant = resolveParticipant(workCase, event.payload.senderAgentId || event.payload.senderHumanId || event.actor, view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const isGroup = workCase.caseMode === 'group';
+  const participant = isGroup ? groupParticipant(workCase, view, senderId) : resolveParticipant(workCase, senderId, view.agents, view.participantDirectory, localAgentId(workCase, view));
   const date = new Date(event.createdAt);
   const priorDate = previous ? new Date(previous.createdAt) : null;
   const showDay = !priorDate || date.toDateString() !== priorDate.toDateString();
   const delivery = String(event.payload.deliveryState || 'unknown');
   const deliveryLabel = delivery === 'delivered' ? 'Delivered' : ['acknowledged', 'processed'].includes(delivery) ? 'Read' : ['queued', 'retrying', 'deadLettered'].includes(delivery) ? 'Not sent' : 'Unknown';
   const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
-return <>{showDay && <div className="conversation-day">{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</div>}{isExchangeEvent(event) ? <div className={`conversation-message ${mine ? 'mine' : 'theirs'}${ownerInstruction ? ' owner-instruction' : ''}`}><span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{ownerInstruction ? <UserRound size={15} aria-hidden="true" /> : initials(participant.displayName)}</span><div className="message-content"><div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong><span>{ownerInstruction ? 'Owner instruction' : exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div><div className="message-bubble">{ownerInstruction && event.payload.text ? String(event.payload.text) : eventSummary(event)}</div>{mine && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}</div></div> : <div className="conversation-event"><Sparkles size={13} /><span>{eventSummary(event)}</span></div>}</>;
+  const assigneeIds: string[] = isGroup && Array.isArray(event.payload.assigneeAgentIds) ? event.payload.assigneeAgentIds : [];
+  const replyAuthor = replyTarget ? groupParticipant(workCase, view, replyTarget.payload.senderAgentId || replyTarget.actor) : null;
+  return <>
+    {showDay && <div className="conversation-day">{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</div>}
+    {isExchangeEvent(event) ? <div id={isGroup && typeof event.payload.messageId === 'string' ? `message-${event.payload.messageId}` : undefined} className={`conversation-message ${mine ? 'mine' : 'theirs'}${ownerInstruction ? ' owner-instruction' : ''}`}>
+      <span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{ownerInstruction ? <UserRound size={15} aria-hidden="true" /> : initials(participant.displayName)}</span>
+      <div className="message-content">
+        <div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong><span>{ownerInstruction ? 'Owner instruction' : exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div>
+        {isGroup && typeof event.payload.inReplyTo === 'string' && <div className="group-reply">{replyAuthor ? <a href={`#message-${encodeURIComponent(event.payload.inReplyTo)}`}>Reply to {replyAuthor.displayName}</a> : 'Reply to an earlier message'}</div>}
+        <div className="message-bubble">{ownerInstruction && event.payload.text ? String(event.payload.text) : eventSummary(event)}</div>
+        {assigneeIds.length > 0 && <ul className="group-assignments" aria-label="Assignments">{assigneeIds.map(agentId => {
+          const assignee = groupParticipant(workCase, view, agentId);
+          const assignment = workCase.assignments?.find(item => item.messageId === event.payload.messageId && item.agentId === agentId);
+          return <li key={agentId}>Assigned to {assignee.displayName}{assignment && <> · {humanize(assignment.status)}</>}</li>;
+        })}</ul>}
+        {mine && !isGroup && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}
+      </div>
+    </div> : <div className="conversation-event"><Sparkles size={13} /><span>{eventSummary(event)}</span></div>}
+  </>;
 }
 
 function NegotiationParticipants({ workCase, view, events, canManageInbox, onRefresh, notify }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; canManageInbox: boolean; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
@@ -1204,24 +1343,45 @@ function NegotiationParticipants({ workCase, view, events, canManageInbox, onRef
       <div className="participant-flow">
         <ParticipantCard participant={local} label={local.relationship === 'localAgent' ? 'Your agent' : 'Local identity unavailable'} />
         <div className="participant-connector" aria-hidden="true"><ArrowRight size={17} /><span>Negotiating with</span></div>
-        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && participant.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />)}</div>
+        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} contactChange={latestNativeContactChange(view.recentEvents || [], participant.id)} historyCursor={view.history?.recentEvents?.nextCursor} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && participant.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />)}</div>
       </div>
     </section>
   );
 }
 
-export function ParticipantCard({ participant, label, nativeControl }: { participant: ReturnType<typeof resolveParticipant>; label: string; nativeControl?: { inboxId: string; onRefresh: () => Promise<unknown>; notify: (message: string) => void } }) {
+type ContactChange = { blocked: boolean; updatedAt: string };
+
+export function ParticipantCard({ participant, label, contactChange, historyCursor, nativeControl }: { participant: ReturnType<typeof resolveParticipant>; label: string; contactChange?: ContactChange; historyCursor?: string | null; nativeControl?: { inboxId: string; onRefresh: () => Promise<unknown>; notify: (message: string) => void } }) {
   const mine = participant.relationship === 'localAgent';
   const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [confirmedChange, setConfirmedChange] = useState<ContactChange>();
+  const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [historyLookup, setHistoryLookup] = useState<{ key: string; change?: ContactChange; error?: string }>();
+  const inboxId = nativeControl?.inboxId;
+  const lookupKey = inboxId && historyCursor && !contactChange && !confirmedChange
+    ? JSON.stringify([inboxId, participant.id, historyCursor, historyAttempt]) : null;
+  const lookup = lookupKey && historyLookup?.key === lookupKey ? historyLookup : undefined;
+  const checking = Boolean(lookupKey && !lookup);
+  useEffect(() => {
+    if (!lookupKey || !inboxId || !historyCursor) return;
+    const controller = new AbortController();
+    void readOlderNativeContactChange(inboxId, participant.id, historyCursor, controller.signal)
+      .then(change => { if (!controller.signal.aborted) setHistoryLookup({ key: lookupKey, change }); })
+      .catch(caught => { if (!controller.signal.aborted) setHistoryLookup({ key: lookupKey, error: errorMessage(caught) }); });
+    return () => controller.abort();
+  }, [lookupKey, inboxId, participant.id, historyCursor]);
+  const latestChange = contactChange && (!confirmedChange || contactChange.updatedAt > confirmedChange.updatedAt)
+    ? contactChange : confirmedChange ?? lookup?.change;
+  const blocked = latestChange?.blocked ?? participant.accessState === 'blocked';
   async function toggleBlocked() {
-    if (!nativeControl) return;
-    const blocked = participant.accessState !== 'blocked';
+    if (!nativeControl || checking || lookup?.error) return;
     setBusy(true); setError('');
     try {
-      await api.setNativeContactBlocked(nativeControl.inboxId, participant.id, blocked);
-      nativeControl.notify(blocked ? 'Counterparty blocked' : 'Counterparty unblocked');
+      const confirmed = await api.setNativeContactBlocked(nativeControl.inboxId, participant.id, !blocked);
+      setConfirmedChange(confirmed);
+      nativeControl.notify(confirmed.blocked ? 'Counterparty blocked' : 'Counterparty unblocked');
       await nativeControl.onRefresh();
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }
@@ -1229,8 +1389,9 @@ export function ParticipantCard({ participant, label, nativeControl }: { partici
   return (
     <div className={`participant-card ${mine ? 'mine' : ''}`}>
       <span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{initials(participant.displayName)}</span>
-      <span className="participant-copy"><small>{label}</small><strong>{participant.displayName}</strong><span className="participant-address" title={participant.address || 'Address unavailable'}>{participant.address || 'Address unavailable'}</span>{participant.accessState === 'blocked' && <span className="participant-access">Blocked</span>}</span>
-      {nativeControl && <button type="button" className="participant-block" disabled={busy} onClick={() => void toggleBlocked()}>{busy ? 'Saving' : participant.accessState === 'blocked' ? 'Unblock agent' : 'Block agent'}</button>}
+      <span className="participant-copy"><small>{label}</small><strong>{participant.displayName}</strong><span className="participant-address" title={participant.address || 'Address unavailable'}>{participant.address || 'Address unavailable'}</span>{blocked && <span className="participant-access">Blocked</span>}</span>
+      {nativeControl && <button type="button" className="participant-block" disabled={busy || checking} aria-busy={busy || checking} onClick={() => lookup?.error ? setHistoryAttempt(attempt => attempt + 1) : void toggleBlocked()}>{checking ? 'Checking block status…' : lookup?.error ? 'Retry block status' : blocked ? 'Unblock agent' : 'Block agent'}</button>}
+      {lookup?.error && <span role="alert">{lookup.error}</span>}
       {error && <span role="alert">{error}</span>}
     </div>
   );
@@ -1428,34 +1589,47 @@ export function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   );
 }
 
-function SharedFilesPage({ view, notify, onOpenCase, onConnect }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void; onConnect: () => void }) {
+function SharedFilesPage({ view, notify, onOpenCase, onConnect, managedInboxes }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void; onConnect: () => void; managedInboxes: Parameters<typeof ManagedFiles>[0]['inboxes'] }) {
+  const [accessOpen, setAccessOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [direction, setDirection] = useState<'all' | 'received' | 'sent'>('all');
   const [kind, setKind] = useState('');
   const [layout, setLayout] = useState<'list' | 'grid'>('list');
   const [folder, setFolder] = useState('');
-  const caseFor = (asset: Asset) => view.caseQueue.find(item => item.id === asset.caseId);
+  const sources = new Map<string, { asset: Asset; view: HumanView }>();
+  for (const source of view.sourceViews ?? [view]) {
+    for (const asset of source.assets) {
+      if (!sources.has(asset.id) || asset.workspaceId === source.inbox.id) sources.set(asset.id, { asset, view: source });
+    }
+  }
+  const assets = [...sources.values()].map(entry => entry.asset);
+  const sourceFor = (asset: Asset) => sources.get(asset.id)?.view ?? view;
+  const caseFor = (asset: Asset) => sourceFor(asset).caseQueue.find(item => item.id === asset.caseId);
   const folderFor = (asset: Asset) => {
     const workCase = caseFor(asset);
     if (!workCase) return 'Other files';
-    const events = timelineForCase(workCase, view.messages);
-    const id = participantIds(workCase, events).find(value => value !== localAgentId(workCase, view) && value !== workCase.principal);
-    return resolveParticipant(workCase, id, view.agents, view.participantDirectory, localAgentId(workCase, view)).displayName;
+    const source = sourceFor(asset);
+    const events = timelineForCase(workCase, source.messages);
+    const local = localAgentId(workCase, source);
+    const id = participantIds(workCase, events).find(value => value !== local && value !== workCase.principal);
+    return resolveParticipant(workCase, id, source.agents, source.participantDirectory, local).displayName;
   };
-  const folders = [...new Set(view.assets.map(folderFor))].sort();
+  const folders = [...new Set(assets.map(folderFor))].sort();
   const kinds = [{ label: 'PDFs', match: 'pdf' }, { label: 'Documents', match: 'document' }, { label: 'Spreadsheets', match: 'sheet' }, { label: 'Images', match: 'image/' }, { label: 'Archives', match: 'zip' }];
-  const files = view.assets.filter(asset => {
+  const files = assets.filter(asset => {
     const workCase = caseFor(asset);
-    const localId = workCase ? localAgentId(workCase, view) : view.inbox.ownerAgentId;
+    const source = sourceFor(asset);
+    const localId = workCase ? localAgentId(workCase, source) : source.inbox.ownerAgentId;
     const owner = Boolean(localId && asset.createdByAgentId === localId);
     return (!folder || folderFor(asset) === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset)}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || Boolean(localId) && (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
   }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return <div className="files-page">
-    <div className="files-heading"><div><h1>Files</h1><p>Files shared in your agents’ conversations.</p></div>{view.assets.length > 0 && <div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div>}</div>
-    {view.assets.length > 0 && <><div className="files-toolbar"><div className="files-segment" aria-label="File direction">{([['all','All'],['received','Received'],['sent','Sent by my agents']] as const).map(([value,label]) => <button key={value} aria-pressed={direction === value} onClick={() => setDirection(value)}>{label}</button>)}</div><div className="files-types">{kinds.map(item => <button key={item.label} aria-pressed={kind === item.match} onClick={() => setKind(current => current === item.match ? '' : item.match)}>{item.label}</button>)}</div><div className="files-segment layout-toggle"><button aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button></div></div>
+    <div className="files-heading"><div><h1>Files</h1><p>Files shared in your agents’ conversations.</p></div>{assets.length > 0 && <div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div>}{managedInboxes.length > 0 && <button className="button secondary files-access-button" onClick={() => setAccessOpen(true)}>Manage access</button>}</div>
+    {accessOpen && <Modal title="Agent file access" onClose={() => setAccessOpen(false)}><ManagedFiles inboxes={managedInboxes} /></Modal>}
+    {assets.length > 0 && <><div className="files-toolbar"><div className="files-segment" aria-label="File direction">{([['all','All'],['received','Received'],['sent','Sent by my agents']] as const).map(([value,label]) => <button key={value} aria-pressed={direction === value} onClick={() => setDirection(value)}>{label}</button>)}</div><div className="files-types">{kinds.map(item => <button key={item.label} aria-pressed={kind === item.match} onClick={() => setKind(current => current === item.match ? '' : item.match)}>{item.label}</button>)}</div><div className="files-segment layout-toggle"><button aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button></div></div>
     {folder && <div className="files-breadcrumb"><button onClick={() => setFolder('')}>Files</button><ChevronRight size={16} /><span>{folder}</span></div>}</>}
-    {!folder && folders.length > 0 && <section className="files-folders"><h2>Folders</h2><div className="folder-grid">{folders.map((name, index) => <button key={name} onClick={() => setFolder(name)}><Folder size={22} fill={AGENT_COLORS[index % AGENT_COLORS.length]} color={AGENT_COLORS[index % AGENT_COLORS.length]} /><span>{name}</span><small>{view.assets.filter(asset => folderFor(asset) === name).length}</small></button>)}</div></section>}
-    <section className="recent-files">{view.assets.length > 0 && <h2>{folder ? folder : 'Recent files'}</h2>}{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={view.agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={view.inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><span className="empty-icon"><FileText size={25} /></span><strong>{view.assets.length ? 'No matching files' : 'No files yet'}</strong><span>{view.assets.length ? 'Try another search or filter.' : 'Files shared in conversations will appear here.'}</span>{!view.assets.length && !view.agents.length && <button className="button secondary" onClick={onConnect}>Connect an agent</button>}</div>}</section>
+    {!folder && folders.length > 0 && <section className="files-folders"><h2>Folders</h2><div className="folder-grid">{folders.map((name, index) => <button key={name} onClick={() => setFolder(name)}><Folder size={22} fill={AGENT_COLORS[index % AGENT_COLORS.length]} color={AGENT_COLORS[index % AGENT_COLORS.length]} /><span>{name}</span><small>{assets.filter(asset => folderFor(asset) === name).length}</small></button>)}</div></section>}
+    <section className="recent-files">{assets.length > 0 && <h2>{folder ? folder : 'Recent files'}</h2>}{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={sourceFor(asset).agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={sourceFor(asset).inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><span className="empty-icon"><FileText size={25} /></span><strong>{assets.length ? 'No matching files' : 'No files yet'}</strong><span>{assets.length ? 'Try another search or filter.' : 'Files shared in conversations will appear here.'}</span>{!assets.length && !view.agents.length && <button className="button secondary" onClick={onConnect}>Connect an agent</button>}</div>}</section>
   </div>;
 }
 
@@ -1500,7 +1674,7 @@ function IntegrationsPage({ entries, humanId, canManageInbox, onAdvancedConnect,
   return <div className="agents-page"><div className="agents-heading"><div><p className="eyebrow">YOUR WORKSPACE</p><h1>Manage agents</h1><p>Connect an agent, review its access, and see its work in one place.</p></div></div>
     <section className="agents-onboard-hero"><div><p className="eyebrow">GET STARTED</p><h2>Bring your agents together.</h2><p>Each agent gets its own Envoi address and a secure workspace. Choose a platform to start setup.</p>{canManageInbox && <ConnectionActions />}</div><div className="agents-hero-logos" aria-hidden="true">{agentCatalog.slice(0, 6).map(item => <span key={item.id}><img src={item.logo} alt="" width="42" height="42" /></span>)}</div></section>
     {canManageInbox && <details className="onboarding-advanced"><summary>Advanced · Quick Connect</summary><p>Legacy setup and frozen-agent re-onboarding.</p><button className="button secondary" onClick={onAdvancedConnect}>Set up with legacy Quick Connect</button></details>}
-    {entries.length ? <section className="agents-list-section" aria-label="Connected agents"><div className="agents-list-topline"><div><h2>Your agent team</h2><p>{entries.length} {entries.length === 1 ? 'agent' : 'agents'} in this workspace</p></div></div><div className="agents-toolbar"><label className="agents-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search agents</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search agents" /></label><label className="agents-filter"><span className="sr-only">Filter agents by status</span><ListFilter size={17} aria-hidden="true" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">All statuses</option><option value="active">Active</option><option value="setup">Needs setup</option><option value="paused">Paused</option></select></label></div><div className="agents-table-head" aria-hidden="true"><span>Agent</span><span>Work</span><span>Status & access</span><span>Actions</span></div>{visibleEntries.length ? <div className="integration-grid">{visibleEntries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <div className="agents-filter-empty"><p>No agents match these filters.</p><button className="button secondary" onClick={() => { setQuery(''); setStatusFilter('all'); }}>Clear filters</button></div>}</section> : <div className="agents-empty"><span className="agents-empty-icon"><Bot size={24} aria-hidden="true" /></span><div><h2>No agents connected yet</h2><p>Use the connection options above to begin. Your connected agents and their inboxes will appear here.</p></div></div>}
+    {entries.length ? <section className="agents-list-section" aria-label="Connected agents"><div className="agents-list-topline"><div><h2>Your agent team</h2><p>{entries.length} {entries.length === 1 ? 'agent' : 'agents'} in this workspace</p></div></div><div className="agents-toolbar"><label className="agents-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search agents</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search agents" /></label><label className="agents-filter"><span className="sr-only">Filter agents by status</span><ListFilter size={17} aria-hidden="true" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">All statuses</option><option value="active">Active</option><option value="setup">Needs setup</option><option value="paused">Paused</option></select></label></div><div className="agents-table-head" aria-hidden="true"><span>Agent</span><span>Work</span><span>Status & access</span><span>Actions</span></div>{visibleEntries.length ? <div className="integration-grid">{visibleEntries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} canManageRelationships={agentView.capabilities?.includes('manage_agent_relationships')} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <div className="agents-filter-empty"><p>No agents match these filters.</p><button className="button secondary" onClick={() => { setQuery(''); setStatusFilter('all'); }}>Clear filters</button></div>}</section> : <div className="agents-empty"><span className="agents-empty-icon"><Bot size={24} aria-hidden="true" /></span><div><h2>No agents connected yet</h2><p>Use the connection options above to begin. Your connected agents and their inboxes will appear here.</p></div></div>}
     {canManageInbox && <div className="agents-secondary"><OwnerClaims key={humanId} humanId={humanId} onSelectAgent={(agentId, address) => { const entry = entries.find(item => item.inbox.kind === 'agent' && (item.agent.id === agentId || item.agent.address === address)); if (entry) void onSelectWorkspace(entry.inbox); }} /></div>}
   </div>;
 }
@@ -1565,7 +1739,7 @@ function ApprovedContacts({ emailTransport, error, workspace, canManageInbox, on
   return <section className="approved-contacts" aria-labelledby="approved-contacts-title"><div className="section-heading"><div><p className="eyebrow">Public email boundary</p><h2 id="approved-contacts-title">Approved contacts</h2></div><div className="section-actions"><span>Agent-owned sending</span>{canManage && <button type="button" className="button tertiary compact" onClick={() => setOpen(current => !current)}>{open ? 'Cancel' : 'Approve contact'}</button>}</div></div>{open && canManage && <form className="contact-approval-form" onSubmit={submit}><Field label="Contact name" name="displayName" placeholder="Jordan Lee" required /><Field label="Email address" name="email" type="email" autoComplete="email" placeholder="jordan@example.com" required /><label className="field"><span>Email direction</span><select name="direction" defaultValue="both"><option value="both">Send and receive</option><option value="outbound">Send only</option><option value="inbound">Receive only</option></select></label><button className="button primary" disabled={busyId === 'new'}>{busyId === 'new' ? 'Approving…' : 'Approve exact email'}</button></form>}{actionError && <InlineNotice title="Contact update failed" body={actionError} tone="unknown" />}{error ? <div className="recoverable-state"><InlineNotice title="Contact state unavailable" body={error} tone="unknown" /><button type="button" className="button secondary compact" onClick={() => void onReload()}>Try again</button></div> : !emailTransport ? <div className="compact-empty muted"><CircleDashed size={18} /><span><strong>Checking public email readiness</strong><small>No external action is enabled until configuration and contact state are confirmed.</small></span></div> : emailTransport.contacts.length ? <div className="contact-list">{emailTransport.contacts.map(contact => { const state = contact.blocked ? 'blocked' : contact.approved ? 'approved' : 'pending'; return <article key={contact.id}><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{contact.displayName}</strong><code>{contact.email}</code><small>{humanize(contact.direction)} email · updated {formatAbsolute(contact.updatedAt)}</small></div><div className="contact-actions"><StatusText value={state} />{canManageInbox && <button type="button" className="button quiet compact" disabled={busyId === contact.id} onClick={() => void setBlocked(contact, !contact.blocked)}>{busyId === contact.id ? 'Saving…' : contact.blocked ? 'Unblock' : 'Block'}</button>}</div></article>; })}</div> : <div className="compact-empty"><ShieldCheck size={18} /><span><strong>No approved public contacts</strong><small>Agents cannot send arbitrary external email. Approve an exact address before enabling contact.</small></span></div>}</section>;
 }
 
-export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTransport, onRefresh, notify, color = 'var(--accent)', cases = [], onOpenInbox, onPermissions }: { agent: Agent; workspace: Workspace; humanId: string; canManageInbox: boolean; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void; color?: string; cases?: WorkCase[]; onOpenInbox?: () => void; onPermissions?: () => void }) {
+export function AgentCard({ agent, workspace, humanId, canManageInbox, canManageRelationships, emailTransport, onRefresh, notify, color = 'var(--accent)', cases = [], onOpenInbox, onPermissions }: { agent: Agent; workspace: Workspace; humanId: string; canManageInbox: boolean; canManageRelationships?: boolean; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void; color?: string; cases?: WorkCase[]; onOpenInbox?: () => void; onPermissions?: () => void }) {
   const pending = agent.onboardingStatus === 'pending_approval';
   const frozen = agent.status === 'revoked' || agent.onboardingStatus === 'revoked';
   const canApproveAgent = canManageInbox || (agent.principalHumanId || workspace.ownerHumanId) === humanId;
@@ -1650,7 +1824,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     {revokeResult && frozen && <InlineNotice title="Agent frozen" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. Re-onboarding requires a new human-approved token. The agent identity and conversation history remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
-    {canManageInbox && <details className="agent-more"><summary>Advanced</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}<button className="danger" onClick={() => { setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>{publicEmailAddress && <span>{publicEmailAddress}</span>}</div></details>}
+    {canManageInbox && <details className="agent-more"><summary>Advanced</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}<button className="danger" onClick={() => { setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>{publicEmailAddress && <span>{publicEmailAddress}</span>}</div>{canManageRelationships === true && workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && approvedAccess && <PhaseDTrustControls inboxId={workspace.id} actorAgentId={agent.id} />}</details>}
     {removalOpen && canManageInbox && <Modal title={`Remove ${agent.name}?`} onClose={() => setRemovalOpen(false)} dismissible={!removalBusy}>
       <AgentRemovalDialogContent agentName={agent.name} busy={removalBusy} error={removalError} onClose={() => setRemovalOpen(false)} onConfirm={(deleteHistory, confirmation) => void removeAgent(deleteHistory, confirmation)} />
     </Modal>}
@@ -1829,7 +2003,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
       <div className="enroll-steps" aria-label="Enrollment steps">{['Agent type', 'Email address', dotsSelected ? 'Connect' : 'Permissions'].map((name, index) => <span key={name} className={step === index ? 'current' : step > index ? 'complete' : ''}>{index + 1}<b>{name}</b></span>)}</div>
-      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={reconnectAgent ? undefined : () => setDotsSelected(true)} />{dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}{!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}</div>}
+      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={reconnectAgent ? undefined : () => setDotsSelected(true)} />{dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}{!dotsSelected && <details className="enroll-preparation" open={runtime === 'hermes'}><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}</div>}
       {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Agent email address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}</div>}
       {step === 2 && <div className="enroll-step">{dotsSelected ? <p className="enroll-note">Dots uses OAuth. You will review its requested permissions and confirm this address when you approve the connection in Envoi. It can work on demand in an active chat.</p> : <><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></>}</div>}
       <FormError message={error} />
@@ -1844,7 +2018,8 @@ export function RuntimePicker({ runtime, onChange, selectedId, onSelectDots }: {
 
 export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
   const downloads = apiUrl ? { connector: `${apiUrl}/web/downloads/envoi-connector.mjs`, release: `${apiUrl}/web/downloads/release.json` } : null;
-  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Envoi deployment.'} Verify SHA256 against <code>artifacts["envoi-connector.mjs"].sha256</code> before running:</p>{reconnect && <><p>This reconnect keeps the existing identity and address and revokes the old credentials when replacement setup completes.</p><p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Envoi connection.</p></>}<pre>{command}</pre>{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Envoi enrollment token. Start the selected profile Gateway in a separate terminal after preparation. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Envoi token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Envoi address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
+  const preparationPrompt = runtime === 'hermes' && apiUrl ? hermesPreparationPrompt(apiUrl) : null;
+  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Envoi deployment.'} Verify SHA256 against <code>artifacts["envoi-connector.mjs"].sha256</code> before running:</p>{reconnect && <><p>This reconnect keeps the existing identity and address and revokes the old credentials when replacement setup completes.</p><p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Envoi connection.</p></>}<pre>{command}</pre>{preparationPrompt && <><p>Give this token-free prompt to your Hermes agent before generating a setup token. Continue only after the selected profile reports checks: passed.</p><CopyButton value={preparationPrompt} label="Copy preparation prompt" /><details><summary>View preparation prompt</summary><label className="field"><span className="sr-only">Preparation prompt</span><textarea readOnly value={preparationPrompt} rows={9} onFocus={event => event.currentTarget.select()} /></label></details></>}{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Envoi enrollment token. If preparation reports the Gateway is unavailable, start the selected profile Gateway in a separate terminal and rerun preparation until checks pass. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Envoi token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Envoi address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
 }
 
 export function AgentPermissionPicker({ selected, onChange }: { selected: string[]; onChange: (permissions: string[]) => void }) {

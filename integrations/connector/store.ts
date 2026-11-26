@@ -8,6 +8,10 @@ import { windowsAccountSid, windowsExecutable } from './windows';
 
 const execute = promisify(execFile);
 
+export class ConnectorAlreadyRunningError extends QuickConnectError {
+  constructor() { super('This Envoi connection is already running. Stop its existing connector before setup or start'); }
+}
+
 /** Restrict the whole credential directory, including inherited Windows ACLs. */
 export async function privateDirectory(directory: string) {
   const absolute = path.resolve(directory);
@@ -126,7 +130,7 @@ export async function acquireConnectorLock(directory: string, releaseDirectory =
           continue;
         }
       }
-      throw new QuickConnectError('This Envoi connection is already running. Stop its existing connector before setup or start');
+      throw new ConnectorAlreadyRunningError();
     }
   }
   throw new QuickConnectError('Could not acquire the connector lock. Try again after the existing connector stops');

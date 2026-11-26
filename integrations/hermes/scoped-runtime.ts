@@ -98,6 +98,7 @@ export async function createScopedHermesBridge(config: { apiUrl: string; stateDi
   timeoutMs?: number; pollMs?: number; onRuntimeEvent?: ScopedRuntimeObserver;
   beforeNativeSubmit?: import('./native-binding').NativeSubmissionGuard;
   beforeScopedTurn?: import('./native-binding').ScopedPreparationGuard;
+  scopedReadOnlyWork?: (workId: string) => boolean;
   nativeRequestGate?: import('./request-gate-attestation').NativeRequestGateExpectation;
 } = {}) {
   if ((options.env ?? process.env).ENVOI_HERMES_GATE_REQUIRED === '1' && !options.nativeRequestGate)
@@ -116,6 +117,7 @@ export async function createScopedHermesBridge(config: { apiUrl: string; stateDi
   const connector = new EnvoiConnector(config.apiUrl, store, { fetch: options.fetch, pollIntervalMs: options.pollIntervalMs,
     caseSessionHandler: scopedTurnHandler({
       admit: message => store.admit(message),
+      readOnlyWork: options.scopedReadOnlyWork,
       async run(turn, host) {
         const scopedSignal=AbortSignal.any([turn.signal,stopping.signal]);
         const operation = (async()=>{await guardScopedPreparation(options.beforeScopedTurn,host.workId,scopedSignal);

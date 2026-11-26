@@ -2,9 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertHumanDecisionMessage, type HumanDecisionWorkMessage } from '../../sdk/typescript/src/connector';
-import { continuationAllocation,defaultContinuationFlowPolicy,validateReviewedContinuationPlan,validateReviewedGraphApproval,type ReviewedContinuationPlan } from './continuation-plan';
+import { continuationAllocation,defaultContinuationFlowPolicy,validateReviewedContinuationPlan,validateReviewedGraphApproval,hashReviewedContinuationPlan,type ReviewedContinuationPlan } from './continuation-plan';
 import { RequestBudgetLedger, nativeWorkToken } from './request-budget';
 import { guardNativeSubmission, type NativeSubmissionGuard } from './native-binding';
+import {authorizeRecoveryTime,type RecoveryTimeLink}from'./recovery-time';
+import {inspectStoppedProgress,assertStoppedProgressPreflight,authorizePreProgramInterval,type StoppedProgressPreflight,type StoppedProgressRecovery,type PreProgramRestore}from'./stopped-progress';
+import{inspectControlledProgress,type ControlledProgressRecovery}from'./controlled-progress';
+import { readUnforwardedPin } from './controlled-unforwarded';
+import type { RetainedOpenClawJournal } from '../openclaw/scoped-turn';
 
 type Role=RequestBudgetLedger['flows'][number]['role'];
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
@@ -14,9 +19,24 @@ export type ContinuationReceipt=Readonly<{
   version:1;ownerApproved:true;approvalReceiptSha256:string;packetSha256:string;clientSource:string;serverSource:string;runnerSha256:string;
   ciHead:string;ciPassed:true;modelCap:54|64;startUtc:string;hardStopUtc:string;
 }>;
+/** Separate authority from historical fixed intervals. No artificial distant deadline. */
+export type ContinuationWorkflowReceipt=Readonly<Omit<ContinuationReceipt,'version'|'hardStopUtc'|'modelCap'> & {
+  version:2;modelCap:64;lifetime:'until-complete-or-cancel';humanReview:'before-claim';hardStopUtc?:never;
+}>;
+export type ActiveContinuationReceipt=ContinuationReceipt|ContinuationWorkflowReceipt;
 export type ContinuationPreflight=Readonly<{
   checkedAtMs:number;allSelectedHostsStopped:true;activeLeases:0;protectedCasePaused:true;originalDispositionMatches:true;
   actualHermesCalls:24;actualOpenClawCalls:6;conservativeMessages:22;canonicalEffects:9;cases:4;newInstallations:5;assets:0;
+}>;
+/** Recovery is deliberately limited to the two accepted sends before ANY native admission.
+ * Current counts are not the immutable historical ledger seed counts. */
+export type RetainedFollowupPreflight=Omit<ContinuationPreflight,'conservativeMessages'|'canonicalEffects'> & Readonly<{
+  conservativeMessages:24;canonicalEffects:11;
+}>;
+export type RetainedFollowupRecovery=Readonly<{
+  purpose:'phase-c-retained-followups-before-native';
+  priorWindow:string;priorProgramSha256:string;originalExecutionPath:string;originalExecutionSha256:string;
+  statePath:string;stateSha256:string;approvedAmendmentSha256:string;time:RecoveryTimeLink;
 }>;
 type Work=Readonly<{workId:string;message:{id:string;caseId:string;kind?:string;outcome?:string;recipientAgentId?:string;[key:string]:unknown}}>; 
 type Binding={flowId:string;role:Role;caseId:string;workId:string;evidenceSha256:string;submitted:boolean;finished:boolean;forwardingClosed:boolean;closedJournalSha256?:string;sessionId?:string;nativeToken?:string};
@@ -28,6 +48,23 @@ export type SameRoleNativeAttribution=Readonly<{window:string;role:Role;flowId:s
 export type SameRoleNativeAttributionGuard=(binding:SameRoleNativeAttribution,signal:AbortSignal)=>Promise<SameRoleNativeAttribution>;
 /** A trusted operator checkpoint, not a native flow or an acceptance proof. */
 export type PreNativeControl=Readonly<{controlId:string;mode:'pause'|'expiry'|'revoke'|'authority-expiry';role:Role;caseId:string;workId:string;evidenceSha256:string}>;
+type ControllerOptions={releaseRoot:string;receipt:ContinuationReceipt;preflight:ContinuationPreflight;
+  expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string};
+  flowCases:Readonly<Record<string,string>>;actorIds:Readonly<Record<Role,string>>;reviewedPlan?:ReviewedContinuationPlan;sameRoleNativeAttribution?:SameRoleNativeAttributionGuard};
+type StoppedProgressOptions=Omit<ControllerOptions,'preflight'|'reviewedPlan'> & {
+  preflight:StoppedProgressPreflight;recovery:StoppedProgressRecovery;reviewedPlan:ReviewedContinuationPlan;graphApprovalRaw:string;
+};
+export type PreparedStoppedProgress=Readonly<{kind:'verified-stopped-progress';currentModels:number;window:string;priorWindow:string;ledgerSha256:string}>;
+const stoppedProgressHandles=new WeakMap<PreparedStoppedProgress,StoppedProgressOptions>();
+type PreProgramRestoreOptions=StoppedProgressOptions&{restore:PreProgramRestore};
+export type PreparedPreProgramRestore=Readonly<{kind:'verified-preprogram-restore';window:string;ledgerSha256:string;recoverySource:string}>;
+const preProgramRestoreHandles=new WeakMap<PreparedPreProgramRestore,PreProgramRestoreOptions>();
+type ControlledProgressOptions=Omit<ControllerOptions,'preflight'|'reviewedPlan'>&{preflight:StoppedProgressPreflight;recovery:ControlledProgressRecovery;reviewedPlan:ReviewedContinuationPlan;graphApprovalRaw:string};
+export type PreparedControlledProgress=Readonly<{kind:'verified-controlled-progress';window:string;priorWindow:string;ledgerSha256:string;carriedStateSha256:string}>;
+const controlledProgressHandles=new WeakMap<PreparedControlledProgress,ControlledProgressOptions>();
+type ControlledWorkflowOptions=Omit<ControlledProgressOptions,'receipt'>&{receipt:ContinuationWorkflowReceipt};
+export type PreparedControlledWorkflow=Readonly<Omit<PreparedControlledProgress,'kind'>&{kind:'verified-controlled-workflow'}>;
+const controlledWorkflowHandles=new WeakMap<PreparedControlledWorkflow,ControlledWorkflowOptions>();
 const deferred=():Deferred=>{let resolve!:()=>void,reject!:(reason:unknown)=>void;const promise=new Promise<void>((a,b)=>{resolve=a;reject=b;});void promise.catch(()=>{});return {promise,resolve,reject};};
 
 /** Trusted local execution controller. No model-facing API, startup, enrollment or send operation. */
@@ -39,20 +76,248 @@ export class ContinuationController {
   private expectedWork=new Map<string,{workId:string;evidenceSha256:string}>();
   private preNativeControl:Readonly<PreNativeControl & {baseline:number}>|undefined;
   private usedControlIds=new Set<string>();
-  private constructor(readonly ledger:RequestBudgetLedger,readonly receipt:ContinuationReceipt,
+  private retainedWorkHashes=new Set<string>();
+  private approvedOperationBounds:Readonly<{operationCap:number;normalCeiling:number;cleanupReserve:number}>=Object.freeze({operationCap:60,normalCeiling:52,cleanupReserve:8});
+  get operationBounds(){return this.approvedOperationBounds;}
+  private distinctOpenClawFollowup:{text:string;senderAgentId:string;recipientAgentId:string;caseId:string}|undefined;
+  private retainedOpenClawJournal?: RetainedOpenClawJournal;
+
+  openClawRetainedJournal(workId: string): RetainedOpenClawJournal | undefined {
+    const retained = this.retainedOpenClawJournal;
+    if (retained?.workId === workId) return retained;
+  }
+  private constructor(readonly ledger:RequestBudgetLedger,readonly receipt:ActiveContinuationReceipt,
     private flowCases:Readonly<Record<string,string>>,private actorIds:Readonly<Record<Role,string>>,private sameRoleNativeAttribution?:SameRoleNativeAttributionGuard){}
 
-  static async open(options:{releaseRoot:string;receipt:ContinuationReceipt;preflight:ContinuationPreflight;
-    expected:{clientSource:string;serverSource:string;runnerSha256:string;packetSha256:string;priorLedgerSha256:string};
-    flowCases:Readonly<Record<string,string>>;actorIds:Readonly<Record<Role,string>>;reviewedPlan?:ReviewedContinuationPlan;sameRoleNativeAttribution?:SameRoleNativeAttributionGuard}) {
-    const {receipt:r,preflight:p,expected:e}=options;const start=Date.parse(r.startUtc),stop=Date.parse(r.hardStopUtc),now=Date.now();
-    if(r.version!==1||r.ownerApproved!==true||!digest(r.approvalReceiptSha256)||!digest(r.packetSha256)
+  static async open(options:ControllerOptions) {
+    return this.openChecked(options);
+  }
+  /** Carries genuine completed controls after a retryable pre-target failure.
+   * Preparation never changes the old partial state, ledger or time authority. */
+  static async prepareControlledProgress(input:ControlledProgressOptions):Promise<PreparedControlledProgress>{
+    const{sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    if(options.receipt.version!==1)refuse('EXPLICIT_WORKFLOW_ENTRY_REQUIRED');
+    const{inspection}=await this.inspectControlledOptions(options);
+    const handle=Object.freeze({kind:'verified-controlled-progress' as const,window:hash(JSON.stringify(options.receipt)),priorWindow:inspection.priorWindow,ledgerSha256:inspection.currentLedgerSha256,carriedStateSha256:inspection.stateSha256});
+    controlledProgressHandles.set(handle,options);return handle;
+  }
+  static async prepareControlledWorkflow(input:ControlledWorkflowOptions):Promise<PreparedControlledWorkflow>{
+    const{sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    if(options.receipt.version!==2)refuse('EXPLICIT_WORKFLOW_APPROVAL_REQUIRED');
+    const{inspection}=await this.inspectControlledOptions(options);
+    const handle=Object.freeze({kind:'verified-controlled-workflow' as const,window:hash(JSON.stringify(options.receipt)),priorWindow:inspection.priorWindow,ledgerSha256:inspection.currentLedgerSha256,carriedStateSha256:inspection.stateSha256});
+    controlledWorkflowHandles.set(handle,options);return handle;
+  }
+  static async startControlledWorkflow(handle:PreparedControlledWorkflow){
+    const options=controlledWorkflowHandles.get(handle);if(!options)refuse('PREPARED_CONTROLLED_WORKFLOW_REQUIRED');controlledWorkflowHandles.delete(handle);
+    return this.startInspectedControlledProgress(options,handle);
+  }
+  private static async inspectControlledOptions(options:ControlledProgressOptions|ControlledWorkflowOptions){
+    if(options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
+    const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl')),inspection=await inspectControlledProgress({...options,ledger}),plan=validateReviewedContinuationPlan(options.reviewedPlan);
+    if(Object.keys(options.flowCases).length!==plan.flows.length||plan.flows.some(f=>options.flowCases[f.id]!==plan.flowCases[f.id])
+      ||Object.keys(options.actorIds).sort().join()!==Object.keys(plan.actorIds).sort().join()||Object.entries(plan.actorIds).some(([role,id])=>options.actorIds[role as Role]!==id)
+      ||hashReviewedContinuationPlan(plan)!==ledger.reviewedPlan?.planSha256)refuse('REVIEWED_GRAPH_CANONICAL_SCOPE_CHANGED');
+    const proof={expectedWindow:hash(JSON.stringify(options.receipt)),allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:ledger.snapshot().chargedAttempts,
+      graphApprovalRaw:options.graphApprovalRaw,clientSource:options.receipt.clientSource,serverSource:options.receipt.serverSource,packetSha256:options.receipt.packetSha256};
+    ledger.inspectReviewedPlanAmendment(plan,proof);return{ledger,inspection,proof};
+  }
+  static async startControlledProgress(handle:PreparedControlledProgress){
+    const options=controlledProgressHandles.get(handle);if(!options)refuse('PREPARED_CONTROLLED_PROGRESS_REQUIRED');controlledProgressHandles.delete(handle);
+    return this.startInspectedControlledProgress(options,handle);
+  }
+  private static async startInspectedControlledProgress(options:ControlledProgressOptions|ControlledWorkflowOptions,handle:PreparedControlledProgress|PreparedControlledWorkflow){
+    const{ledger,inspection,proof}=await this.inspectControlledOptions(options);if(inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
+    const filename=path.join(options.releaseRoot,'phase-c-controlled-progress-'+handle.priorWindow+'.used.json'),f=await fs.open(filename,'wx',0o600);
+    try{await f.writeFile(JSON.stringify({purpose:'phase-c-one-use-controlled-progress',priorWindow:handle.priorWindow,nextWindow:handle.window,stateSha256:handle.carriedStateSha256,ledgerSha256:handle.ledgerSha256}));await f.sync();}finally{await f.close();}
+    const verified=await this.inspectControlledOptions(options);if(verified.inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('CONTROLLED_LEDGER_CHANGED');
+    const accepted = verified.inspection.acceptedCheckpoint;
+    let retainedJournal: RetainedOpenClawJournal | undefined;
+    if (accepted) {
+      const { value: journal } = await readUnforwardedPin(accepted.journal);
+      if (journal.workId !== verified.inspection.workId || journal.workId !== accepted.workId ||
+          !/^openclaw:http:\/\/127\.0\.0\.1:\d{1,5}:[A-Za-z0-9_-]+$/.test(journal.model))
+        refuse('EXACT_ACCEPTED_CHECKPOINT_RETRY_REQUIRED');
+      retainedJournal = Object.freeze({ workId: accepted.workId, model: journal.model, sha256: accepted.journal.sha256 });
+    }
+    await verified.inspection.consume();await ledger.bindApprovedWindow(handle.window,{approvalReceiptHash:options.receipt.approvalReceiptSha256,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:ledger.snapshot().chargedAttempts});
+    await ledger.amendReviewedPlan(options.reviewedPlan,proof);const controller=await this.openChecked(options,false,true);
+    for(const id of inspection.blockedFlows)controller.released.add(id);for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
+    controller.approvedOperationBounds=Object.freeze({...inspection.operationBounds});
+    if(accepted){
+      controller.retainedWorkHashes.add(hash(accepted.retainedOriginalWorkId));
+      controller.distinctOpenClawFollowup=Object.freeze({...accepted.followup});
+      controller.expectedWork.set('openclaw',{workId:accepted.workId,evidenceSha256:options.recovery.canonicalWork.sha256});
+      controller.retainedOpenClawJournal = retainedJournal;
+    }
+    else if(inspection.distinctFollowup){controller.retainedWorkHashes.add(hash(inspection.workId));controller.distinctOpenClawFollowup=Object.freeze({...inspection.distinctFollowup});}
+    else controller.expectedWork.set('openclaw',{workId:inspection.workId,evidenceSha256:options.recovery.canonicalWork.sha256});return controller;
+  }
+  /** Read-only validation of an actually stopped, metadata-only current run.
+   * Retains its original receipt, deadline, graph, counts and ancestry. */
+  static async preparePreProgramRestore(input:PreProgramRestoreOptions):Promise<PreparedPreProgramRestore>{
+    const {sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    const {inspection}=await this.inspectRestoreOptions(options);
+    const handle=Object.freeze({kind:'verified-preprogram-restore' as const,window:hash(JSON.stringify(options.receipt)),
+      ledgerSha256:inspection.currentLedgerSha256,recoverySource:options.restore.implementation.source});
+    preProgramRestoreHandles.set(handle,options);return handle;
+  }
+  private static async inspectRestoreOptions(options:PreProgramRestoreOptions){
+    if(options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
+    const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl'));
+    const inspection=await inspectStoppedProgress({releaseRoot:options.releaseRoot,receipt:options.receipt,preflight:options.preflight,expected:options.expected,recovery:options.recovery,restore:options.restore,ledger});
+    if(options.restore.next){
+      if(JSON.stringify(ledger.reviewedPlan)!==JSON.stringify(options.reviewedPlan)||ledger.reviewedGraphApprovalRaw!==options.graphApprovalRaw)refuse('ORIGINAL_PREPROGRAM_GRAPH_REQUIRED');
+      const next=options.restore.next,window=hash(JSON.stringify(next.receipt));
+      const plan=validateReviewedContinuationPlan({...options.reviewedPlan,ownerApprovalHash:hash(next.graphApprovalRaw)});
+      if(Object.keys(options.flowCases).length!==plan.flows.length||plan.flows.some(f=>options.flowCases[f.id]!==plan.flowCases[f.id])
+        ||Object.keys(options.actorIds).sort().join()!==Object.keys(plan.actorIds).sort().join()
+        ||Object.entries(plan.actorIds).some(([role,id])=>options.actorIds[role as Role]!==id))refuse('REVIEWED_GRAPH_CANONICAL_SCOPE_CHANGED');
+      const proof={expectedWindow:window,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,
+        chargedAttempts:inspection.accounting.models,graphApprovalRaw:next.graphApprovalRaw,clientSource:next.receipt.clientSource,
+        serverSource:next.receipt.serverSource,packetSha256:next.receipt.packetSha256};
+      ledger.inspectReviewedPlanAmendment(plan,proof);
+      const time=await authorizePreProgramInterval({...options,ledger});
+      return{ledger,inspection,next:{receipt:next.receipt,plan,proof,time}};
+    }
+    // Reuse the complete original receipt/graph/fresh-preflight checks; no
+    // window or graph metadata is appended on this path.
+    const controller=await this.openChecked(options,false,true);
+    controller.stop('READ_ONLY_RESTORE_INSPECTION');
+    return {ledger,inspection,next:undefined};
+  }
+  /** Single restoration per original interval. A durable marker prevents a
+   * later process from replaying preparation after this handle is consumed. */
+  static async startPreProgramRestore(handle:PreparedPreProgramRestore){
+    const options=preProgramRestoreHandles.get(handle);if(!options)refuse('PREPARED_PREPROGRAM_RESTORE_REQUIRED');
+    preProgramRestoreHandles.delete(handle);
+    const checked=await this.inspectRestoreOptions(options),{inspection}=checked;
+    if(inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('PREPROGRAM_LEDGER_CHANGED');
+    const filename=path.join(options.releaseRoot,`phase-c-preprogram-restore-${handle.window}.used.json`);
+    const file=await fs.open(filename,'wx',0o600);
+    try{await file.writeFile(JSON.stringify({purpose:'phase-c-one-use-preprogram-restoration',window:handle.window,
+      originalReceipt:options.receipt,recoveryImplementation:options.restore.implementation,ledgerSha256:handle.ledgerSha256}));await file.sync();}finally{await file.close();}
+    if(checked.next){
+      // The new decision and metadata are distinct from the preserved old run.
+      // Any partial I/O remains visible and fails closed; nothing is refunded.
+      const verified=await this.inspectRestoreOptions(options);
+      if(!verified.next||verified.inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('PREPROGRAM_LEDGER_CHANGED');
+      await verified.next.time!.consume();
+      await verified.ledger.bindApprovedWindow(verified.next.proof.expectedWindow,{approvalReceiptHash:verified.next.receipt.approvalReceiptSha256,
+        allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:inspection.accounting.models});
+      await verified.ledger.amendReviewedPlan(verified.next.plan,verified.next.proof);
+      const controller=await this.openChecked({...options,receipt:verified.next.receipt,reviewedPlan:verified.next.plan},false,true);
+      for(const id of inspection.blockedFlows)controller.released.add(id);
+      for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
+      return controller;
+    }
+    // An I/O/check failure keeps the marker and remains fail closed.
+    const {inspection:again}=await this.inspectRestoreOptions(options);
+    if(again.currentLedgerSha256!==handle.ledgerSha256)refuse('PREPROGRAM_LEDGER_CHANGED');
+    const controller=await this.openChecked(options,false,true);
+    for(const id of inspection.blockedFlows)controller.released.add(id);
+    for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
+    return controller;
+  }
+  /** Read-only verification of all prior outcomes and the exact proposed graph.
+   * Creates no ledger record, one-use marker, host, timer, claim or model call. */
+  static async prepareStoppedProgress(input:StoppedProgressOptions):Promise<PreparedStoppedProgress>{
+    const {sameRoleNativeAttribution,...data}=input,options={...structuredClone(data),sameRoleNativeAttribution};
+    const {inspection}=await this.inspectProgressOptions(options);
+    const handle=Object.freeze({kind:'verified-stopped-progress' as const,currentModels:inspection.accounting.models,
+      window:hash(JSON.stringify(options.receipt)),priorWindow:inspection.priorWindow,ledgerSha256:inspection.currentLedgerSha256});
+    stoppedProgressHandles.set(handle,options);return handle;
+  }
+  private static async inspectProgressOptions(options:StoppedProgressOptions){
+    const plan=validateReviewedContinuationPlan(options.reviewedPlan);
+    if(Object.keys(options.flowCases).length!==plan.flows.length||plan.flows.some(f=>options.flowCases[f.id]!==plan.flowCases[f.id])
+      ||Object.keys(options.actorIds).some(role=>options.actorIds[role as Role]!==plan.actorIds[role as Role])
+      ||options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('REVIEWED_GRAPH_CANONICAL_SCOPE_CHANGED');
+    const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl'));
+    if(ledger.flows.some(old=>options.reviewedPlan.flows.find(f=>f.id===old.id)?.requests!==old.requests))refuse('STOPPED_PROGRESS_QUOTAS_MUST_BE_PRESERVED');
+    const inspection=await inspectStoppedProgress({releaseRoot:options.releaseRoot,receipt:options.receipt,preflight:options.preflight,expected:options.expected,recovery:options.recovery,ledger}),window=hash(JSON.stringify(options.receipt));
+    const graphProof={expectedWindow:window,allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,
+      chargedAttempts:inspection.accounting.models,graphApprovalRaw:options.graphApprovalRaw,
+      clientSource:options.receipt.clientSource,serverSource:options.receipt.serverSource,packetSha256:options.receipt.packetSha256};
+    ledger.inspectReviewedPlanAmendment(options.reviewedPlan,graphProof);
+    const time=await authorizeRecoveryTime({link:options.recovery.time,original:inspection.originalReceipt,receipt:options.receipt,
+      priorWindow:inspection.priorWindow,priorPacketSha256:inspection.priorPacketSha256,stateSha256:inspection.priorStateSha256,
+      programSha256:inspection.priorProgramSha256,amendmentSha256:options.receipt.approvalReceiptSha256,releaseRoot:options.releaseRoot,
+      currentAccounting:inspection.accounting});
+    return {ledger,inspection,graphProof,time};
+  }
+  /** Explicit one-use start after fresh verification. Appends only reviewed
+   * window/graph metadata; the original seed, attempts and journals stay intact. */
+  static async startStoppedProgress(handle:PreparedStoppedProgress){
+    const options=stoppedProgressHandles.get(handle);if(!options)refuse('PREPARED_STOPPED_PROGRESS_REQUIRED');
+    stoppedProgressHandles.delete(handle);
+    const {ledger,inspection,graphProof,time}=await this.inspectProgressOptions(options);
+    if(inspection.currentLedgerSha256!==handle.ledgerSha256)refuse('STOPPED_PROGRESS_LEDGER_CHANGED');
+    // Every source/provenance/outcome/graph/count/time guard above precedes the
+    // first mutation. Any subsequent I/O failure remains fail-closed and kept.
+    await time?.consume();
+    await ledger.bindApprovedWindow(handle.window,{approvalReceiptHash:options.receipt.approvalReceiptSha256,
+      allHostsStopped:true,canonicalLeasesZero:true,previousNativeTerminal:true,chargedAttempts:inspection.accounting.models});
+    await ledger.amendReviewedPlan(options.reviewedPlan,graphProof);
+    const controller=await this.openChecked(options,false,true);
+    for(const id of inspection.blockedFlows)controller.released.add(id);
+    for(const work of inspection.blockedWorkHashes)controller.retainedWorkHashes.add(work);
+    return controller;
+  }
+  /** A trusted, separately approved operator must verify the original receipts, canonical
+   * copies, drained sole writer and current action ledger before calling this entry point.
+   * This method also refuses all native history and reads the pinned retained state itself. */
+  static async recoverRetainedFollowups(options:Omit<ControllerOptions,'preflight'> & {
+    preflight:RetainedFollowupPreflight;recovery:RetainedFollowupRecovery;
+  }) {
+    const r=options.recovery;
+    if(r.purpose!=='phase-c-retained-followups-before-native'||!digest(r.priorWindow)||!digest(r.stateSha256)
+      ||!digest(r.priorProgramSha256)||!digest(r.originalExecutionSha256)||!path.isAbsolute(r.originalExecutionPath)
+      ||!digest(r.approvedAmendmentSha256)||r.approvedAmendmentSha256!==options.receipt.approvalReceiptSha256
+      ||!path.isAbsolute(r.statePath)||!options.reviewedPlan) refuse('EXACT_RETAINED_FOLLOWUP_RECOVERY_REQUIRED');
+    const executionStat=await fs.lstat(r.originalExecutionPath);
+    if(!executionStat.isFile()||executionStat.isSymbolicLink()||executionStat.size>1000000)refuse('BOUNDED_ORIGINAL_EXECUTION_REQUIRED');
+    const executionRaw=await fs.readFile(r.originalExecutionPath);
+    if(hash(executionRaw)!==r.originalExecutionSha256)refuse('ORIGINAL_RECOVERY_EXECUTION_CHANGED');
+    const original=JSON.parse(executionRaw.toString('utf8'));
+    if(original.window!==r.priorWindow||hash(JSON.stringify(original.receipt))!==r.priorWindow
+      ||original.receipt?.ownerApproved!==true||original.receipt?.modelCap!==64
+      ||!digest(original.packetSha256)||original.receipt?.packetSha256!==original.packetSha256
+      ||!Number.isFinite(Date.parse(original.receipt?.startUtc))||Date.parse(options.receipt.startUtc)<Date.parse(original.receipt.startUtc))refuse('ORIGINAL_RECOVERY_INTERVAL_REQUIRED');
+    const time=await authorizeRecoveryTime({link:r.time,original:original.receipt,receipt:options.receipt,priorWindow:r.priorWindow,priorPacketSha256:original.packetSha256,stateSha256:r.stateSha256,programSha256:r.priorProgramSha256,amendmentSha256:r.approvedAmendmentSha256,releaseRoot:options.releaseRoot});
+    const stat=await fs.lstat(r.statePath);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>1000000)refuse('BOUNDED_RETAINED_STATE_REQUIRED');
+    const raw=await fs.readFile(r.statePath);
+    if(hash(raw)!==r.stateSha256)refuse('RETAINED_RECOVERY_STATE_CHANGED');
+    const state=JSON.parse(raw.toString('utf8'));
+    if(state.window!==r.priorWindow||state.phase!=='prepared'||state.planSha256!==r.priorProgramSha256
+      ||['started','results','effects','controlProofs','taskReceipts'].some(k=>!state[k]||typeof state[k]!=='object'||Array.isArray(state[k])||Object.keys(state[k]).length))refuse('ZERO_NATIVE_RETAINED_STATE_REQUIRED');
+    if(!state.followups||Object.keys(state.followups).sort().join()!=='amber,private'
+      ||['private','amber'].some(name=>{const f=state.followups[name];return f?.state!=='accepted'||!/^msg_[A-Za-z0-9_-]+$/.test(f.messageId)
+        ||f.caseId!==options.flowCases[name==='private'?'private-followup':'amber-followup']||!digest(f.ownerReceiptSha256);})
+      ||state.followups.private.messageId===state.followups.amber.messageId)refuse('BOTH_ACCEPTED_FOLLOWUPS_REQUIRED');
+    const ledger=await RequestBudgetLedger.open(path.join(options.releaseRoot,'phase-c-cumulative-requests.jsonl'));
+    if(ledger.hasNativeHistorySinceWindow(r.priorWindow)||ledger.snapshot().chargedAttempts!==30||ledger.snapshot().pending||ledger.snapshot().unresolvedDispatches)refuse('ZERO_NATIVE_LEDGER_REQUIRED');
+    const result=await this.openChecked(options,true);
+    if(hash(await fs.readFile(r.statePath))!==r.stateSha256)refuse('RETAINED_RECOVERY_STATE_CHANGED');
+    if(hash(await fs.readFile(r.originalExecutionPath))!==r.originalExecutionSha256)refuse('ORIGINAL_RECOVERY_EXECUTION_CHANGED');
+    if(result.ledger.hasNativeHistorySinceWindow(r.priorWindow)||result.ledger.snapshot().chargedAttempts!==30)refuse('ZERO_NATIVE_LEDGER_REQUIRED');
+    await time?.consume();
+    return result;
+  }
+  private static async openChecked(options:Omit<ControllerOptions,'preflight'|'receipt'> & {receipt:ActiveContinuationReceipt;
+    preflight:ContinuationPreflight|RetainedFollowupPreflight|StoppedProgressPreflight;
+  },recovering=false,progress=false) {
+    const {receipt:r,preflight:p,expected:e}=options;const start=Date.parse(r.startUtc),now=Date.now();
+    const timeValid=r.version===2?progress&&r.lifetime==='until-complete-or-cancel'&&r.humanReview==='before-claim'&&!Object.hasOwn(r,'hardStopUtc')&&r.modelCap===64
+      :r.version===1&&Number.isFinite(Date.parse(r.hardStopUtc))&&Date.parse(r.hardStopUtc)>now&&Date.parse(r.hardStopUtc)-start<=90*60*1000;
+    if(!timeValid||r.ownerApproved!==true||!digest(r.approvalReceiptSha256)||!digest(r.packetSha256)
       ||r.clientSource!==e.clientSource||r.serverSource!==e.serverSource||r.runnerSha256!==e.runnerSha256||r.packetSha256!==e.packetSha256
       ||!r.ciPassed||r.ciHead!==r.clientSource||![54,64].includes(r.modelCap)
-      ||!Number.isFinite(start)||!Number.isFinite(stop)||start>now||stop<=now||stop-start>90*60*1000) refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
+      ||!Number.isFinite(start)||start>now) refuse('FRESH_EXACT_CONTINUATION_APPROVAL_REQUIRED');
     if(!Number.isFinite(p.checkedAtMs)||p.checkedAtMs>now||now-p.checkedAtMs>300000||!p.allSelectedHostsStopped||p.activeLeases!==0
-      ||!p.protectedCasePaused||!p.originalDispositionMatches||p.actualHermesCalls!==24||p.actualOpenClawCalls!==6
-      ||p.conservativeMessages!==22||p.canonicalEffects!==9||p.cases!==4||p.newInstallations!==5||p.assets!==0) refuse('FRESH_PRESERVED_PREFLIGHT_REQUIRED');
+      ||!p.protectedCasePaused||!p.originalDispositionMatches||!progress&&(p.actualHermesCalls!==24||p.actualOpenClawCalls!==6
+      ||p.conservativeMessages!==(recovering?24:22)||p.canonicalEffects!==(recovering?11:9)||p.cases!==4||p.newInstallations!==5||p.assets!==0)) refuse('FRESH_PRESERVED_PREFLIGHT_REQUIRED');
     const reviewed=options.reviewedPlan?validateReviewedContinuationPlan(options.reviewedPlan):undefined;
     if(options.sameRoleNativeAttribution!==undefined&&typeof options.sameRoleNativeAttribution!=='function')refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
     if(reviewed&&(Object.keys(options.flowCases).length!==reviewed.flows.length||reviewed.flows.some(f=>options.flowCases[f.id]!==reviewed.flowCases[f.id])
@@ -73,11 +338,14 @@ export class ContinuationController {
     }
     if(ledger.window!==window||ledger.modelCap!==r.modelCap||ledger.snapshot().pending||JSON.stringify(ledger.flows)!==JSON.stringify(flows)
       ||JSON.stringify(ledger.reviewedPlan)!==JSON.stringify(reviewed)) refuse('CANONICAL_CONTINUATION_RECONCILIATION_REQUIRED');
+    if(progress)assertStoppedProgressPreflight(p,ledger);
     if(reviewed){const approval=validateReviewedGraphApproval(ledger.reviewedGraphApprovalRaw,{planSha256:reviewed.planSha256,window,clientSource:r.clientSource,serverSource:r.serverSource,packetSha256:r.packetSha256});
       if(approval.approvalHash!==reviewed.ownerApprovalHash)refuse('GRAPH_SOURCE_APPROVAL_HASH_MISMATCH');}
     return new ContinuationController(ledger,Object.freeze({...r}),Object.freeze({...options.flowCases}),Object.freeze({...options.actorIds}),options.sameRoleNativeAttribution);
   }
-  active(){return !this.control.signal.aborted&&Date.now()<Date.parse(this.receipt.hardStopUtc);}
+  active(){return !this.control.signal.aborted&&(this.receipt.version===2||Date.now()<Date.parse(this.receipt.hardStopUtc));}
+  /** Technical operation bounds stay finite even when human/workflow waiting is untimed. */
+  operationDeadline(maximumMs:number){if(!Number.isSafeInteger(maximumMs)||maximumMs<1||maximumMs>120000)refuse('BOUNDED_OPERATION_REQUIRED');return this.receipt.version===2?Date.now()+maximumMs:Math.min(Date.now()+maximumMs,Date.parse(this.receipt.hardStopUtc));}
   modelActive(){return this.active()&&!!this.group&&this.group.ready.size===this.group.ids.length&&this.group.ids.some(id=>{const b=this.bindings.get(id);return b?.submitted&&!b.finished&&!b.forwardingClosed;});}
   allowMeterWork(role:Role,token:string){return this.modelActive()&&[...this.bindings.values()].some(b=>b.role===role&&b.nativeToken===token&&b.submitted&&!b.finished&&!b.forwardingClosed&&this.group?.ids.includes(b.flowId));}
   private live(){if(!this.active())refuse('CONTINUATION_WINDOW_CLOSED');}
@@ -90,7 +358,7 @@ export class ContinuationController {
     this.live();if(this.preNativeControl)refuse('PRE_NATIVE_CONTROL_ACTIVE');if(this.ledger.snapshot().pending||this.group&&!this.group.ids.every(id=>this.bindings.get(id)?.finished))refuse('PRIOR_FLOW_NOT_RECONCILED');
     const flows=ids.map(id=>this.ledger.flows.find(f=>f.id===id));
     const sameRole=new Set(flows.map(f=>f?.role)).size!==ids.length;
-    if(!ids.length||new Set(ids).size!==ids.length||flows.some(f=>!f)||ids.some(id=>this.released.has(id))
+    if(!ids.length||new Set(ids).size!==ids.length||flows.some(f=>!f||f.retired)||ids.some(id=>this.released.has(id))
       ||sameRole&&(!this.ledger.reviewedPlan?.allowSameRoleCohorts||ids.length!==2||new Set(ids.map(id=>this.flowCases[id])).size!==2)
       ||this.ledger.reviewedPlan&&(ids.length>2||new Set(flows.map(f=>f?.role==='openclaw')).size>1))refuse('REVIEWED_DISTINCT_FLOW_GROUP_REQUIRED');
     if(flows.some(f=>this.needsNativeAttribution(ids,f!.role))&&!this.sameRoleNativeAttribution)refuse('SAME_ROLE_NATIVE_ATTRIBUTION_REQUIRED');
@@ -98,6 +366,7 @@ export class ContinuationController {
   }
   /** Trusted canonical GET/effect observer pins the exact work before any claim/native admission. */
   expectWork(flowId:string,workId:string,canonicalEvidenceSha256:string){
+    if(this.retainedWorkHashes.has(hash(workId)))refuse('PRIOR_NATIVE_WORK_MUST_NOT_REPEAT');
     this.live();const bound=this.bindings.get(flowId);if(!this.group?.ids.includes(flowId)||bound&&(bound.submitted||bound.workId!==workId)||!/^msg_[A-Za-z0-9_-]+$/.test(workId)||!digest(canonicalEvidenceSha256)
       ||[...this.expectedWork.entries()].some(([id,v])=>id!==flowId&&v.workId===workId))refuse('EXACT_CANONICAL_RECEIPT_REQUIRED');
     const previous=this.expectedWork.get(flowId);if(previous&&previous.workId!==workId)refuse('CANONICAL_WORK_BINDING_CHANGED');
@@ -110,6 +379,7 @@ export class ContinuationController {
     if(!flow||flow.role!==role||!this.group?.ids.includes(flowId)||!expected||work.workId!==expected.workId||work.workId!==work.message.id
       ||!/^msg_[A-Za-z0-9_-]+$/.test(work.workId)||work.message.caseId!==this.flowCases[flowId]
       ||work.message.recipientAgentId!==this.actorIds[role])refuse('CANONICAL_WORK_GRAPH_MISMATCH');
+    if(flowId==='openclaw'&&this.distinctOpenClawFollowup&&Object.entries(this.distinctOpenClawFollowup).filter(([key])=>['text','senderAgentId','recipientAgentId','caseId'].includes(key)).some(([key,value])=>work.message[key]!==value))refuse('EXACT_DISTINCT_FOLLOWUP_MESSAGE_REQUIRED');
     const policy=this.flowPolicy(flowId);
     if(policy.decisionOutcome!==null){
       if(work.message.kind!=='humanDecision')refuse('CANONICAL_HUMAN_DECISION_REQUIRED');

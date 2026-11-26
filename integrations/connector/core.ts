@@ -5,21 +5,23 @@ import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { lifecyclePolicy } from '../../sdk/typescript/src/lifecycle';
 import { EnvoiError, responsePayload } from '../../sdk/typescript/src/index';
-import { enrollConnector, EnvoiConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
-import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
+import { enrollConnector, EnvoiConnector, ConnectorContractError, ConnectorPersistenceError, type ConnectorSession } from '../../sdk/typescript/src/connector';
+import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime, type QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { ConnectorSetupError, type AdapterOptions, type ConnectorAdapter, type RuntimeBridge } from './adapter';
-import { privateDirectory, privateJson, acquireConnectorLock } from './store';
+import { privateDirectory, privateJson, acquireConnectorLock, ConnectorAlreadyRunningError } from './store';
 import { checkServiceManager, inspectConnectorService } from './service';
-import { startControl, queryControl, controlIdentityMatches } from './control';
+import { startControl, queryControl, queryOwnedControl, controlIdentityMatches } from './control';
 import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-error';
 import { migrateConnectionDirectory } from './migrate';
 import { waitForRuntimeTools } from './runtime-readiness';
 import { parseHostedWakeConfig, runHostedWake } from './hosted-wake-runner';
 import { resolveHostedWakeConfig } from './hosted-wake-config';
 import { createHostTaskSender, HostTaskError } from './host-task';
-import { readRuntimeDiagnostic, writeRuntimeDiagnostic, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
+import { isReceiveOperation, readRuntimeDiagnostic, runtimeFailureDetails, writeRuntimeDiagnostic, type FailureOperation, type RuntimeDiagnostic, type RuntimePhase } from './runtime-diagnostics';
 import { inspectHermesHost, type HermesHostObservation } from '../hermes/scoped-host';
+
+const hermesProofParkedGuidance = 'Automatic Hermes identity checks are paused after repeated misses. Check model tool use and approvals; waiting for Gateway discovery to resume. Saved enrollment is unchanged.';
 
 export interface InstalledConnection {
   version: 1;
@@ -42,6 +44,14 @@ export interface SetupOptions extends AdapterOptions {
   toolRecoveryRetryMs?: number;
 }
 export type AdapterResolver = (runtime: ConnectorRuntime) => ConnectorAdapter<any>;
+export interface SetupResult {
+  stateDir: string;
+  runtime: ConnectorRuntime;
+  address: string;
+  agentId: string;
+  checks: 'passed' | 'deferred_while_paused';
+  alreadyRunning?: boolean;
+}
 
 export function connectionDirectory(apiUrl: string, address: string, runtime: ConnectorRuntime, options: AdapterOptions = {}) {
   const env = options.env ?? process.env;
@@ -157,10 +167,81 @@ export async function prepareConnection(runtime: ConnectorRuntime, apiUrl: strin
   return { runtime, checks: 'passed', ...adapter.describe(config), note: 'Preparation did not enroll an agent or prove unattended receiving' };
 }
 
-export async function setupConnection(input: unknown, resolveAdapter: AdapterResolver, options: SetupOptions = {}) {
+/** Observe a completed live setup without competing with its credential/relay owner. */
+async function retryRunningSetup(handoff: QuickConnectHandoff, directory: string, resolveAdapter: AdapterResolver,
+  options: SetupOptions): Promise<SetupResult | undefined> {
+  if (handoff.runtime !== 'hermes' || options.installService) return;
+  const saved = await readConnection(directory);
+  const session = await savedSession(directory);
+  if (!session) return;
+  if (saved.apiUrl !== handoff.apiUrl || saved.address !== handoff.address || saved.runtime !== handoff.runtime
+    || session.address !== handoff.address) throw new ConnectorSetupError('STATE_MISMATCH', 'This directory belongs to another connection. Use a separate agent-specific directory');
+  const reconnectId = handoff.operation === 'reconnect' ? createHash('sha256').update(handoff.enrollmentToken).digest('hex') : undefined;
+  if (reconnectId && saved.lastReconnectId !== reconnectId
+    && (session as ConnectorSession & { setupRedemptionId?: string }).setupRedemptionId !== reconnectId) return;
+  const description = resolveAdapter(saved.runtime).describe(saved.configuration);
+  if (options.agentId || options.profile && options.profile !== description.profile
+    || options.configPath && path.resolve(options.configPath) !== description.configPath
+    || options.gatewayUrl && options.gatewayUrl.replace(/\/$/, '') !== description.gatewayUrl)
+    throw new ConnectorSetupError('STATE_MISMATCH', 'The selected runtime differs from the running connection. Preserve it and review the requested profile before setup');
+  const store = new FileBridgeStore(directory);
+  const guard = new EnvoiConnector(saved.apiUrl, store);
+  await guard.assertActive();
+  let live: Record<string, unknown>;
+  try { live = await queryOwnedControl(directory, 'status', saved); }
+  catch (error) { if (error instanceof ConnectorSetupError && error.code === 'CONTROL_INVALID') throw error; return; }
+  // Older owners without exact identity bindings cannot prove this fast path safe.
+  if (live.agentId !== session.agentId || live.inboxId !== session.inboxId) return;
+  if (Object.entries(description).some(([key, value]) => live[key] !== value))
+    throw new ConnectorSetupError('STATE_MISMATCH', 'The running runtime selection differs from saved setup. Preserve the connection and inspect its status');
+  if (live.phase !== 'ready' || !['running', 'paused'].includes(String(live.status)))
+    throw new ConnectorSetupError('TOOLS_NOT_READY', 'The existing connector is still recovering. Keep it running and check status; do not repeat enrollment');
+  const fetcher = noRedirectFetch(options.fetch);
+  const request = async (current: ConnectorSession) => {
+    await guard.assertActive();
+    let response: Response;
+    try { response = await fetcher(`${saved.apiUrl}/api/agent/status`, { credentials: 'omit', redirect: 'error',
+      headers: { authorization: `Bearer ${current.agentApiToken}` }, signal: AbortSignal.timeout(10_000) }); }
+    catch { throw new EnvoiError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
+    const status = await responsePayload<{ state: string; agent: { id: string; address?: string }; inboxId: string }>(response, 'Envoi status failed');
+    if (!['active', 'paused'].includes(status.state) || status.agent?.id !== session.agentId || status.inboxId !== session.inboxId
+      || status.agent.address !== undefined && status.agent.address !== session.address)
+      throw new ConnectorSetupError('STATE_MISMATCH', 'Envoi status does not match the running connection');
+    return status;
+  };
+  let status: Awaited<ReturnType<typeof request>>;
+  try { status = await request(session); }
+  catch (error) {
+    if (!(error instanceof EnvoiError) || error.code !== 'ACCESS_TOKEN_EXPIRED') throw error;
+    // Only the owner rotates credentials. Observe its successor once, without writes.
+    const replacement = await savedSession(directory);
+    if (!replacement || replacement.agentId !== session.agentId || replacement.inboxId !== session.inboxId
+      || replacement.agentApiToken === session.agentApiToken) throw error;
+    status = await request(replacement);
+  }
+  const current = await queryOwnedControl(directory, 'status', saved);
+  await guard.assertActive();
+  if (current.pid !== live.pid || current.startedAt !== live.startedAt || current.agentId !== session.agentId
+    || current.inboxId !== session.inboxId || current.phase !== 'ready'
+    || !['running', 'paused'].includes(String(current.status)) || Object.entries(description).some(([key, value]) => current[key] !== value)
+    || (status.state === 'active' && (current.status !== 'running' || current.runtimeChecks !== 'passed')))
+    throw new ConnectorSetupError('TOOLS_NOT_READY', 'The existing connector changed during the status check. Keep its state and retry status');
+  options.onProgress?.('Verified the existing connector without rerunning setup');
+  return { stateDir: directory, runtime: saved.runtime, address: session.address, agentId: session.agentId,
+    checks: status.state === 'paused' ? 'deferred_while_paused' : 'passed', alreadyRunning: true };
+}
+
+export async function setupConnection(input: unknown, resolveAdapter: AdapterResolver, options: SetupOptions = {}): Promise<SetupResult> {
   const handoff = validateQuickConnectHandoff(input, { allowExpired: true });
   const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(options.stateDir ?? connectionDirectory(handoff.apiUrl, handoff.address, handoff.runtime, options), options.secureDirectory));
-  const unlock = await acquireConnectorLock(directory);
+  let unlock: () => Promise<void>;
+  try { unlock = await acquireConnectorLock(directory); }
+  catch (error) {
+    if (!(error instanceof ConnectorAlreadyRunningError)) throw error;
+    const result = await retryRunningSetup(handoff, directory, resolveAdapter, options);
+    if (result) return result;
+    throw error;
+  }
   const fetcher = noRedirectFetch(options.fetch);
   let bridge: RuntimeBridge | undefined;
   let saved: InstalledConnection | undefined;
@@ -210,14 +291,14 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     options.onProgress?.('Verifying runtime tools and Envoi access');
     bridge = await adapter.createBridge(config, context);
     await bridge.connector.start();
-    await bridge.connector.checkStatus();
+    await bridge.connector.checkStatus(options.signal);
     const paused = (await bridge.connector.lifecycle()).paused;
-    if (!paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+    if (!paused) { await bridge.verify?.(options.signal); await report(saved, bridge.connector, 'ready', fetcher); }
     const checks = paused ? 'deferred_while_paused' as const : 'passed' as const;
     await privateJson(path.join(directory, 'setup-check.json'), { runtime: saved.runtime, checkedAt: new Date().toISOString(), checks });
     return { stateDir: directory, runtime: saved.runtime, address: session.address, agentId: session.agentId, checks };
   } catch (error) {
-    if (saved && (bridge || enrolledConnector)) await report(saved, bridge?.connector ?? enrolledConnector!, 'error', fetcher,
+    if (!options.signal?.aborted && saved && (bridge || enrolledConnector)) await report(saved, bridge?.connector ?? enrolledConnector!, 'error', fetcher,
       error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEST_FAILED').catch(() => {});
     throw error;
   } finally { try { await bridge?.close(); } finally { await unlock(); } }
@@ -303,7 +384,7 @@ export async function adoptActivatedConnection(apiUrl: string, runtime: Connecto
     const startup = new EnvoiConnector(origin, store, { fetch: fetcher });
     // A saved revocation/reconnect requirement stops before any service or runtime call.
     await startup.start();
-    await startup.checkStatus();
+    await startup.checkStatus(options.signal);
     if (options.installService) await checkServiceManager();
     const adapter = resolveAdapter(runtime);
     const context = { ...options, apiUrl: origin, stateDir: directory, fetch: fetcher };
@@ -321,14 +402,16 @@ export async function adoptActivatedConnection(apiUrl: string, runtime: Connecto
     await privateJson(path.join(directory, 'connection.json'), saved);
     bridge = await adapter.createBridge(configuration, context);
     await bridge.connector.start();
-    await bridge.connector.checkStatus();
+    await bridge.connector.checkStatus(options.signal);
     let paused = (await bridge.connector.lifecycle()).paused;
     if (!paused) {
       if (runtime === 'hermes') await waitForRuntimeTools(bridge, options.signal ?? new AbortController().signal, {
         timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
-        onWaiting() { options.onProgress?.('Waiting for Hermes Gateway MCP reconciliation; keep this connector running.'); }
+        onWaiting(code) { options.onProgress?.(code === 'TOOLS_PROOF_PARKED'
+          ? hermesProofParkedGuidance
+          : 'Waiting for Hermes Gateway tools and identity verification; keep this connector running.'); }
       });
-      else await bridge.verify?.();
+      else await bridge.verify?.(options.signal);
       // The owner may pause while recovery waits. Never report ready in that case.
       paused = (await bridge.connector.lifecycle()).paused;
       if (!paused) await report(saved, bridge.connector, 'ready', fetcher);
@@ -439,27 +522,33 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
   let diagnostics: Record<string, unknown> = { status: 'starting', phase: 'starting', runtimeChecks: 'pending' };
   const startedAt = new Date().toISOString();
   let failed = false;
+  let operation: FailureOperation = 'starting';
+  let terminalFailure: { operation: FailureOperation; error: unknown } | undefined;
   const record = async (phase: RuntimePhase, runtimeChecks: RuntimeDiagnostic['runtimeChecks'] = 'pending',
-    errorCode?: string, retryAt?: string) => {
+    errorCode?: string, retryAt?: string, failure?: RuntimeDiagnostic['failure']) => {
     const previousCode = typeof diagnostics.errorCode === 'string' ? diagnostics.errorCode : undefined;
     const candidate = errorCode ?? (phase === 'service_check' || phase === 'runtime_check' || phase === 'tool_verification' ? previousCode : undefined);
     const safeCode = candidate && /^[A-Z][A-Z0-9_]{0,119}$/.test(candidate) ? candidate : undefined;
     const snapshot: RuntimeDiagnostic = { version: 1, phase, startedAt, updatedAt: new Date().toISOString(), runtimeChecks,
-      ...(safeCode ? { errorCode: safeCode } : {}), ...(retryAt ? { retryAt } : {}) };
+      ...(safeCode ? { errorCode: safeCode } : {}), ...(retryAt ? { retryAt } : {}), ...(failure ? { failure } : {}) };
+    operation = phase;
     diagnostics = { ...diagnostics, phase, runtimeChecks, errorCode: safeCode, retryAt };
     // Observation must never prevent the owner process from starting or recovering.
     await writeRuntimeDiagnostic(directory, snapshot).catch(() => {});
+    if (failure) await writeRuntimeDiagnostic(directory, snapshot, true).catch(() => {});
   };
   try {
     await record('starting');
     const wake = await resolveHostedWakeConfig(directory, options.env ?? process.env);
     saved = await readConnection(directory);
-    if (!await savedSession(directory)) throw new ConnectorSetupError('STATE_INVALID', 'Saved credentials are missing; reconnect through Envoi before starting');
+    const initialSession = await savedSession(directory);
+    if (!initialSession) throw new ConnectorSetupError('STATE_INVALID', 'Saved credentials are missing; reconnect through Envoi before starting');
     const startup = new EnvoiConnector(saved.apiUrl, new FileBridgeStore(directory), { fetch: fetcher });
     await startup.start();
     const adapter = resolveAdapter(saved.runtime);
     const context = { ...options, signal: stop.signal, apiUrl: saved.apiUrl, stateDir: directory, fetch: fetcher };
-    if (options.control !== false) control = await startControl(directory, { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl }, cancel,
+    if (options.control !== false) control = await startControl(directory, { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl,
+      agentId: initialSession.agentId, inboxId: initialSession.inboxId }, cancel,
       () => ({ ...diagnostics, ...(bridge ? { wake: bridge.connector.wakeDiagnostics() } : {}) }),
       createHostTaskSender(directory, saved, () => {
         if (!bridge || diagnostics.runtimeChecks !== 'passed' || stop.signal.aborted) throw new HostTaskError('CONNECTOR_NOT_READY');
@@ -481,18 +570,20 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         if (wake) bridge.connector.scopedWakeWorkDriver();
         bridge.connector.onState(lifecycle => { diagnostics = { ...diagnostics, status: lifecycle.state === 'DEGRADED' ? 'waiting' : lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance }; });
         await bridge.connector.start();
-        await bridge.connector.checkStatus();
+        await bridge.connector.checkStatus(stop.signal);
         if (!(await bridge.connector.lifecycle()).paused) {
           await record('tool_verification');
           if (saved.runtime === 'hermes') await waitForRuntimeTools(bridge, stop.signal, {
-            timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
+            timeoutMs: options.toolRecoveryTimeoutMs ?? null, retryMs: options.toolRecoveryRetryMs,
             onWaiting(code) {
-              diagnostics = { status: 'waiting', runtimeChecks: 'pending', errorCode: code,
-                guidance: 'Waiting for the selected Gateway to rediscover Envoi tools. Saved enrollment is unchanged.' };
+              diagnostics = { ...diagnostics, status: 'waiting', runtimeChecks: 'pending', errorCode: code,
+                guidance: code === 'TOOLS_PROOF_PARKED'
+                  ? hermesProofParkedGuidance
+                  : 'Waiting for Hermes tool availability or a successful identity check. Saved enrollment is unchanged.' };
               options.onWaiting?.(code);
             }
           });
-          else await bridge.verify?.();
+          else await bridge.verify?.(stop.signal);
           if (!(await bridge.connector.lifecycle()).paused) await report(saved, bridge.connector, 'ready', fetcher);
         }
         const lifecycle = await bridge.connector.lifecycle();
@@ -517,15 +608,30 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
     }
     if (stop.signal.aborted || !bridge) return;
     if (wake) {
+      operation = 'hosted_wake';
       const session = await new FileBridgeStore(directory).load();
       if (!session) throw new ConnectorSetupError('STATE_INVALID', 'Hosted wake needs saved connector identity');
       await runHostedWake({ connector: bridge.connector, session, stateDir: directory, config: wake, signal: stop.signal,
         onListening: options.onReady });
-    } else { options.onReady?.(); await bridge.connector.run(stop.signal); }
+    } else {
+      operation = 'receive_loop';
+      options.onReady?.();
+      await bridge.connector.run(stop.signal, (where, error) => { terminalFailure = { operation: where, error }; });
+    }
   } catch (error) {
     if (!stop.signal.aborted) {
       failed = true;
-      await record('failed', 'pending', error instanceof ConnectorSetupError || error instanceof EnvoiError ? error.code : 'CONNECTOR_START_FAILED');
+      const observed = terminalFailure?.error ?? error;
+      const http = observed instanceof EnvoiError || observed instanceof ConnectorPersistenceError || observed instanceof ConnectorContractError
+        ? observed : undefined;
+      const code = observed instanceof ConnectorContractError ? 'WORK_CONTRACT_ERROR'
+        : observed instanceof ConnectorPersistenceError ? 'STATE_PERSISTENCE_FAILED'
+        : observed instanceof ConnectorSetupError || observed instanceof EnvoiError ? observed.code : undefined;
+      const runtimeChecks = diagnostics.runtimeChecks === 'passed' || diagnostics.runtimeChecks === 'deferred_while_paused'
+        ? diagnostics.runtimeChecks : 'pending';
+      const failedOperation = terminalFailure?.operation ?? operation;
+      await record('failed', runtimeChecks, code ?? (isReceiveOperation(failedOperation) ? 'CONNECTOR_RECEIVE_FAILED' : 'CONNECTOR_START_FAILED'),
+        undefined, runtimeFailureDetails(failedOperation, http?.status, http?.requestId));
     }
     if (saved && bridge && !stop.signal.aborted) await report(saved, bridge.connector, 'error', fetcher, 'CONNECTOR_START_FAILED').catch(() => {});
     if (!stop.signal.aborted) throw error;
@@ -555,6 +661,7 @@ export async function connectionStatus(stateDir: string) {
   const checks = await readFile(path.join(directory, 'setup-check.json'), 'utf8').then(text => JSON.parse(text) as { checkedAt?: string }).catch(() => null);
   const enrollmentError = await readEnrollmentDiagnostic(directory);
   const lastRuntime = await readRuntimeDiagnostic(directory);
+  const lastFailure = await readRuntimeDiagnostic(directory, true);
   const configuration = saved.configuration as Record<string, unknown>;
   const scopedHermes = saved.runtime === 'hermes' && configuration.scopedTools === true;
   const gatewayHost = scopedHermes && typeof configuration.home === 'string' && typeof configuration.daemonOrigin === 'string'
@@ -575,15 +682,18 @@ export async function connectionStatus(stateDir: string) {
     : session.lifecycle?.state === 'NEEDS_RECONNECT' ? 'Ask the owner to reconnect this existing agent through Envoi.'
     : controlChannel === 'invalid' || controlChannel === 'identity_mismatch' ? 'Inspect the private connector control record and preserve this installation; its live identity is unverified.'
     : status === 'unverified' ? 'The host manager reports a running connector without a responding control channel; inspect that process and retry status.'
-    : session.lifecycle?.paused ? status === 'stopped'
-      ? 'Start the existing connector so it can observe the owner resuming this agent.'
-      : 'Wait for the owner to resume this existing agent.'
     : errorCode === 'SCOPED_CONFIG_INVALID' ? 'Preserve the connection and ask the owner to review the selected scoped Gateway.'
     : ['HERMES_EXECUTION_UNCERTAIN', 'HERMES_CREATION_UNCERTAIN', 'SCOPED_MODEL_CHANGED'].includes(errorCode ?? '')
       ? 'Preserve the turn journal and use the supported settlement recovery procedure.'
+    : phase === 'failed' && lastRuntime?.failure && isReceiveOperation(lastRuntime.failure.operation)
+      ? 'Check the saved operation and error in lastFailure before restarting the existing connector.'
+    : session.lifecycle?.paused ? status === 'stopped'
+      ? 'Start the existing connector so it can observe the owner resuming this agent.'
+      : 'Wait for the owner to resume this existing agent.'
     : 'enabled' in startupService && startupService.enabled === false ? 'Ask the owner to enable the existing startup service.'
     : 'managerState' in startupService && startupService.managerState === 'failed' ? 'Inspect the startup service failure; preserve enrollment and credentials.'
     : errorCode === 'GATEWAY_UNREACHABLE' ? 'Restore the selected Gateway; the connector will retry its saved connection.'
+    : errorCode === 'TOOLS_PROOF_PARKED' ? hermesProofParkedGuidance
     : phase === 'failed' ? 'Inspect the saved runtime error code and repair the selected runtime before restarting.'
     : 'recoveryPolicy' in startupService && startupService.recoveryPolicy === 'outdated' ? 'Ask the owner to reinstall the existing connector startup service with this build; preserve its saved profile and enrollment.'
     : status === 'stopped' && startupService.registration === 'not_installed' ? 'Start the existing connector or ask the owner to install its startup service.'
@@ -591,9 +701,11 @@ export async function connectionStatus(stateDir: string) {
     : status === 'waiting' ? 'Wait for the saved retry, then verify a real agent exchange.'
     : undefined;
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
-    credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle, guidance: session?.lifecycle?.guidance, ...(enrollmentError ? { enrollmentError } : {}),
+    credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle,
+    guidance: session?.lifecycle?.guidance ?? (errorCode === 'TOOLS_PROOF_PARKED' ? hermesProofParkedGuidance : undefined), ...(enrollmentError ? { enrollmentError } : {}),
     stateDir: directory, status, controlChannel, startupService, ...(selectedGateway ? { selectedGateway } : {}),
     ...(nextAction ? { nextAction } : {}), checkedAt: live?.checkedAt ?? checks?.checkedAt,
+    ...(lastFailure ? { lastFailure } : {}),
     runtimeDiagnostic: live ? { phase: live.phase, runtimeChecks: live.runtimeChecks,
       ...(live.errorCode ? { errorCode: live.errorCode } : {}), ...(live.retryAt ? { retryAt: live.retryAt } : {}),
       ...(live.wake ? { wake: live.wake } : {}) } : lastRuntime,
@@ -623,7 +735,7 @@ export async function doctorConnection(stateDir: string, resolveAdapter: Adapter
     const config = await adapter.discover(context, saved.configuration);
     await (adapter.startupCheck ?? adapter.preflight)(config, context);
     const store = new FileBridgeStore(directory);
-    await new EnvoiConnector(saved.apiUrl, store, { fetch: fetcher }).checkStatus();
+    await new EnvoiConnector(saved.apiUrl, store, { fetch: fetcher }).checkStatus(options.signal);
     return { ...await connectionStatus(directory), runtimeChecks: 'preflight_only',
       note: 'No connector is running. Preflight cannot prove MCP tool discovery, inbox wake, or agent processing', ...adapter.describe(config) };
   } finally { await unlock(); }

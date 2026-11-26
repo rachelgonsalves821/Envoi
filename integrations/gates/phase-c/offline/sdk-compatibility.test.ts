@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -16,7 +16,8 @@ const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
 it('incident 1: actual SDK reselection commits the file consumed by v4; old connection assertion fails', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'envoi-offline-selection-')); roots.push(root);
+  const root = await mkdtemp(path.join(await realpath(tmpdir()), 'envoi-offline-selection-'));
+  roots.push(root);
   const home = path.join(root, 'profile'), cwd = path.join(home, 'workspace'), directory = path.join(root, 'enrollment');
   await mkdir(cwd, { recursive: true }); await mkdir(directory);
   const configPath = path.join(home, 'config.yaml'); await writeFile(configPath, 'model:\n  default: synthetic\n');

@@ -139,6 +139,21 @@ describe('approved a4 wake consumption', () => {
     expect(h.requests.filter(r => r.url.includes('/events'))).toHaveLength(2);
     expect((await h.connector.lifecycle()).state).toBe('RUNNING');
   });
+  it('keeps receiving through safety claims when an intermediary returns a plain wake-stream 404', async () => {
+    let unavailable = true;
+    const h = await harness({ connect: () => unavailable
+      ? new Response('Wake endpoint temporarily unavailable', { status: 404 }) : undefined! });
+    expect((await h.connector.lifecycle()).state).toBe('RUNNING');
+    expect(h.connector.wakeDiagnostics()).toMatchObject({ transport: 'disconnected', lastErrorCode: 'WAKE_ENDPOINT_UNAVAILABLE' });
+    expect(h.claims).toHaveBeenCalledTimes(1);
+    await h.tick(15000);
+    expect(h.claims).toHaveBeenCalledTimes(2);
+    unavailable = false;
+    await h.tick(15000);
+    h.send('stream-from-latest');
+    await h.tick();
+    expect(h.connector.wakeDiagnostics()).toMatchObject({ transport: 'connected' });
+  });
   it('wakes for human instructions and own agent resume, accepting future work reasons', async () => {
     const h = await harness();
     const event = (type: string, sequence: number, extra: object) => h.raw({ id: String(sequence).padStart(20, '0'), event: type,

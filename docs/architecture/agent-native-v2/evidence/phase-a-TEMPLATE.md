@@ -1,6 +1,6 @@
 # Phase A hosted gate evidence: TEMPLATE
 
-Copy this file to `phase-a-<40-character-sha>.md` for the run. Lane A fills in the server-side evidence, Lane B the connector and fault-proxy observations from `integrations/gates/PHASE-A-EVIDENCE-WORKSHEET.md`, and the human countersigns. It covers v3 §29 (all 23 steps) on **one** exact integration SHA. Any failed row means a fix, a new SHA and a rerun of all 23 steps (L5).
+**Historical template, reconciled 2026-11-10:** [GA is already accepted](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6226711305). This blank form does not reopen it. For a separately authorized new run, copy to `phase-a-<40-character-sha>.md`. Lane A records server evidence, Lane B records connector/fault observations, and the human countersigns. Under [governing L5](../claude-codex-build-plan.md#5-loop-rules), a failed row triggers a focused fix and evidence-impact review, not an automatic full restart. Preserve unaffected accepted results. New observations identify their actual exact profile; carried evidence keeps original provenance. A full hosted repeat needs full-scope invalidation or explicit human scope. Current remaining work is [Phase C CURRENT-CLOSEOUT.md](../../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md).
 
 **Never record** tokens, cookies, claim codes, message text, provider account details or raw HTTP. Publish only the output of `scripts/ga-evidence.mjs`, which keeps allow-listed ids, types, times and counts.
 

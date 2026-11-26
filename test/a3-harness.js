@@ -223,6 +223,16 @@ export async function readData(server, ...parts) {
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 
+// Reads one stored document from whichever backend the server was launched on: the FileStore
+// data dir, or (when the launch env carried DATABASE_URL) the same PostgreSQL documents table.
+export async function readStored(server, databaseUrl, ...parts) {
+  if (!databaseUrl) return readData(server, ...parts);
+  const { PostgresStore } = await import('../src/postgres-storage.js');
+  const store = new PostgresStore(databaseUrl);
+  try { return await store.getJson(path.join(...parts)); }
+  finally { await store.close(); }
+}
+
 // Write via temp file + rename so the running server never reads a torn file.
 export async function writeData(server, parts, value) {
   const target = dataFile(server, ...parts);

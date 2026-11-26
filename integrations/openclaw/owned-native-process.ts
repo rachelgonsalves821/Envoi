@@ -1,7 +1,8 @@
-import fs from 'node:fs/promises';import {spawn,type ChildProcess} from 'node:child_process';import {createHash,randomBytes} from 'node:crypto';
+import fs from 'node:fs/promises';import path from 'node:path';import {spawn,type ChildProcess} from 'node:child_process';import {createHash,randomBytes} from 'node:crypto';
 import type {ClosedNativeBinding,ClosedNativeOwnerPorts} from './closed-native-owner';
 import type {ClosedNativeBootstrapOptions} from './closed-native-bootstrap';
 import {NativePhysicalIntents} from './native-physical-intents';
+import {isNativeStartupStage,nativeStartupDiagnostic,ownedNativeStartupError,type NativeStartupStage} from './native-startup-diagnostics';
 declare const ownedNativeBrand:unique symbol;
 export type OwnedClosedNativeAuthority=Readonly<{[ownedNativeBrand]:true}>;
 export interface OwnedClosedNativePins {window:string;workId:string;caseId:string;caseSessionId:string;toolChannelSha256:string;processIdentity:string;
@@ -26,8 +27,8 @@ export interface OwnedClosedNativeOptions{nodeExecutable:string;childEntry:strin
  bootstrap:Omit<ClosedNativeBootstrapOptions,'authorize'|'ports'>;pins:Readonly<OwnedClosedNativePins>;authorize():Promise<void>;
  meterBinding:Readonly<{nativeToken:string;deadlineUnixMs:number}>;
  ports:Pick<ClosedNativeOwnerPorts,'assertLive'|'authorizePhysical'|'recordObservation'|'recordPhysicalOutcome'>;signal:AbortSignal;}
-export interface OwnedClosedNativeDependencies{readBytes(file:string):Promise<Uint8Array>;spawnChild(node:string,entry:string,env:NodeJS.ProcessEnv,envFile?:string):Child;nonce():string;}
-const real:OwnedClosedNativeDependencies={readBytes:fs.readFile,spawnChild:(node,entry,env,envFile)=>spawn(node,[...(envFile?['--env-file='+envFile]:[]),entry],{env,windowsHide:true,stdio:['ignore','ignore','ignore','ipc']}),nonce:()=>randomBytes(32).toString('hex')};
+export interface OwnedClosedNativeDependencies{readBytes(file:string):Promise<Uint8Array>;spawnChild(node:string,entry:string,env:NodeJS.ProcessEnv,envFile:string|undefined,cwd:string):Child;nonce():string;}
+const real:OwnedClosedNativeDependencies={readBytes:fs.readFile,spawnChild:(node,entry,env,envFile,cwd)=>spawn(node,[...(envFile?['--env-file='+envFile]:[]),entry],{env,cwd,windowsHide:true,stdio:['ignore','ignore','ignore','ipc']}),nonce:()=>randomBytes(32).toString('hex')};
 /** Only this allocator can mint authority; it owns and verifies the exact child IPC channel. */
 export async function startOwnedClosedNativeProcess(options:OwnedClosedNativeOptions,deps:OwnedClosedNativeDependencies=real){
  await options.authorize();options.signal.throwIfAborted();options.ports.assertLive(options.bootstrap.binding);
@@ -36,17 +37,24 @@ export async function startOwnedClosedNativeProcess(options:OwnedClosedNativeOpt
  for(const key of['window','workId','caseId','caseSessionId','toolChannelSha256','processIdentity']as const)if(p[key]!==b[key])refuse('OWNED_NATIVE_AUTHORITY_BINDING_MISMATCH');
  if(!/^[a-f0-9]{40}$/.test(p.clientSource)||![p.nativeSourceSha256,p.capabilitySha256,p.ownerSelectionSha256,p.targetSha256].every(v=>/^[a-f0-9]{64}$/.test(v)))refuse('PERSONAL_NATIVE_RECEIPTS_REQUIRED');
  if(p.nativeSourceSha256!==closedNativeManifestDigest(b.nativeSources)||Object.entries(options.bootstrap.sourceSha256).some(([k,v])=>b.nativeSources[k]!==v))refuse('REVIEWED_NATIVE_SOURCE_ADOPTION_REQUIRED');
- const child=deps.spawnChild(options.nodeExecutable,options.childEntry,options.environment,options.nativeEnvironmentFile),nonce=deps.nonce(),authority=Object.freeze({})as OwnedClosedNativeAuthority;
+ const cwd=options.bootstrap.paths?.workspace;
+ if(typeof cwd!=='string'||!path.isAbsolute(cwd)||hash(Buffer.from(path.resolve(cwd)))!==b.workspaceSha256)refuse('REVIEWED_NATIVE_WORKSPACE_REQUIRED');
+ // Native startup helpers must not inherit the operator repository as cwd.
+ const startupStarted=performance.now();
+ const child=deps.spawnChild(options.nodeExecutable,options.childEntry,options.environment,options.nativeEnvironmentFile,path.resolve(cwd)),nonce=deps.nonce(),authority=Object.freeze({})as OwnedClosedNativeAuthority;
  let readyResolve!:(v:unknown)=>void,readyReject!:(e:unknown)=>void,exitResolve!:()=>void,closeResolve!:()=>void;
  const ready=new Promise(r=>{readyResolve=r;});const failed=new Promise<never>((_,reject)=>{readyReject=reject;}),exited=new Promise<void>(r=>{exitResolve=r;}),closed=new Promise<void>(r=>{closeResolve=r;});
  const state:State={pins:Object.freeze({...p}),child,live:false,ready:undefined,deadline:b.hardStopUnixMs};let stopping=false,closedAck=false;const seen=new Set<number>(),intents=new Map<string,{bodySha256:string;stage:'intent'|'headers';httpStatus?:number}>();
+ let startupStage:NativeStartupStage='unknown';
  const broker=new NativePhysicalIntents(authority,p,b.proxyOrigin,options.signal,()=>options.ports.assertLive(b),options.meterBinding);let harnessAcknowledged:Readonly<Record<string,unknown>>|undefined;
  const send=(message:unknown)=>{if(!child.connected)refuse('OWNED_NATIVE_CHILD_DISCONNECTED');child.send?.(message as any);};
  const stop=()=>{state.live=false;if(!stopping){stopping=true;if(child.connected)send({kind:'stop',nonce});else child.kill('SIGTERM');}};
  const abort=()=>{stop();readyReject(options.signal.reason??new Error('OWNED_NATIVE_START_ABORTED'));};options.signal.addEventListener('abort',abort,{once:true});
  const error=(e:unknown)=>{state.live=false;readyReject(e);if(child.pid===undefined)exitResolve();};child.once('error',error);child.once('exit',()=>{state.live=false;exitResolve();readyReject(new Error('OWNED_NATIVE_CHILD_EXITED'));});
  child.on('message',(message:any)=>{if(message?.nonce!==nonce)return;
-  if(message.kind==='ready'){if(state.ready||stopping)return;const r=message.observation;if(!r||r.kind!=='actual_native_gateway_bootstrap_observation'||r.runtimeObservation!=='pending_first_harness'
+  if(message.kind==='startup_stage'){
+   if(!state.ready&&!stopping&&Object.keys(message).length===3&&isNativeStartupStage(message.stage))startupStage=message.stage;
+  }else if(message.kind==='ready'){if(state.ready||stopping)return;const r=message.observation;if(!r||r.kind!=='actual_native_gateway_bootstrap_observation'||r.runtimeObservation!=='pending_first_harness'
     ||['window','workId','caseId','caseSessionId','toolChannelSha256','processIdentity'].some(key=>r[key]!==b[key as keyof ClosedNativeBinding])){error(new Error('ACTUAL_NATIVE_CHILD_READY_REQUIRED'));stop();return;}
    state.ready=Object.freeze({...r});state.live=true;authorities.set(authority,state);readyResolve(state.ready);
   }else if(message.kind==='observation'||message.kind==='physical'||message.kind==='physical_outcome'){void(async()=>{try{if(message.kind!=='physical_outcome'){options.signal.throwIfAborted();options.ports.assertLive(b);if(!state.live||stopping)refuse('OWNED_NATIVE_AUTHORITY_REQUIRED');}
@@ -60,9 +68,14 @@ export async function startOwnedClosedNativeProcess(options:OwnedClosedNativeOpt
       ||r.stage==='body_drained'&&(intent.stage!=='headers'||r.httpStatus!==intent.httpStatus))refuse('NATIVE_PHYSICAL_INTENT_REQUIRED');await options.ports.recordPhysicalOutcome(r);broker.recordPhysicalOutcome(r);if(r.stage==='headers'){intent.stage='headers';intent.httpStatus=r.httpStatus;}else intents.delete(r.intentId);}
     else{if(['registrySha256','configurationSha256','pluginRegistrySha256'].some(k=>typeof r[k]!=='string'||!/^[a-f0-9]{64}$/.test(r[k])))refuse('ACTUAL_NATIVE_HARNESS_OBSERVATION_REQUIRED');await options.ports.recordObservation(r);harnessAcknowledged=r;}send({kind:message.kind+'_result',id:message.id,nonce});
    }catch{if(child.connected)send({kind:message.kind+'_result',id:message.id,nonce,error:'NATIVE_PHYSICAL_DISPATCH_REFUSED'});stop();}})();
-  }else if(message.kind==='closed'){state.live=false;closedAck=true;closeResolve();}else if(message.kind==='failed'){error(new Error('OWNED_NATIVE_CHILD_FAILED'));stop();}
+  }else if(message.kind==='closed'){state.live=false;closedAck=true;closeResolve();}else if(message.kind==='failed'){error(ownedNativeStartupError(message.diagnostic));stop();}
  });
- const timer=setTimeout(()=>{error(new Error('OWNED_NATIVE_BOOTSTRAP_TIMEOUT'));stop();},Math.max(1,Math.min(90000,b.hardStopUnixMs-Date.now())));
+ const timer=setTimeout(()=>{
+  const timeout=new Error('OWNED_NATIVE_BOOTSTRAP_TIMEOUT');
+  const diagnostic=nativeStartupDiagnostic(timeout,startupStage);
+  timeout.message+=` (last stage: ${diagnostic.stage})`;
+  error(Object.assign(timeout,{code:diagnostic.reason,nativeStartupDiagnostic:diagnostic,startupElapsedMs:Math.round(performance.now()-startupStarted)}));stop();
+ },Math.max(1,Math.min(90000,b.hardStopUnixMs-Date.now())));
  const deadlineTimer=setTimeout(stop,Math.max(1,b.hardStopUnixMs-Date.now()));
  const waitForExit=async()=>{let timeout:ReturnType<typeof setTimeout>|undefined;try{await Promise.race([exited,new Promise<never>((_,reject)=>{timeout=setTimeout(()=>reject(new Error('OWNED_NATIVE_EXIT_UNVERIFIED')),35000);})]);}finally{clearTimeout(timeout);}};
  try{send({kind:'start',nonce,bootstrap:options.bootstrap});await Promise.race([ready,failed]);clearTimeout(timer);

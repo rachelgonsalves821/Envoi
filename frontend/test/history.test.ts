@@ -1,10 +1,30 @@
-import { describe, expect, it } from 'vitest';
-import { mergeHistory, olderCursors } from '../src/history';
+import { describe, expect, it, vi } from 'vitest';
+import { api } from '../src/api';
+import { mergeHistory, olderCursors, readOlderNativeContactChange } from '../src/history';
 import type { HumanView } from '../src/types';
 function view(ids: string[], cursor = 'next'): HumanView {
   return { inbox: { id: 'one' }, cases: ids.map(id => ({ id })), caseQueue: ids.map(id => ({ id })), messages: [], assets: [], recentEvents: [], deliveryReceipts: [], invitations: [], contacts: [], history: { cases: { total: 200, hasMore: !!cursor, nextCursor: cursor || null } } } as unknown as HumanView;
 }
 describe('workspace history', () => {
+  it.each([true, false])('recovers a persisted block state of %s from an older event page', async blocked => {
+    const date = '2026-09-28T10:00:00Z';
+    const first = { ...view([]), history: { recentEvents: { total: 150, hasMore: true, nextCursor: 'older' } },
+      recentEvents: [{ id: 'other', type: 'contact.blocked', agentId: 'other', createdAt: '2026-09-29T10:00:00Z' }] };
+    const last = { ...view([]), history: { recentEvents: { total: 150, hasMore: false, nextCursor: null } },
+      recentEvents: [
+        { id: 'latest', type: blocked ? 'contact.blocked' : 'contact.unblocked', agentId: 'target', createdAt: date, sequence: 2 },
+        { id: 'stale', type: blocked ? 'contact.unblocked' : 'contact.blocked', agentId: 'target', createdAt: date, sequence: 1 }
+      ] };
+    const load = vi.spyOn(api, 'humanView').mockResolvedValueOnce(first).mockResolvedValueOnce(last);
+    const { signal } = new AbortController();
+    try {
+      await expect(readOlderNativeContactChange('one', 'target', 'first', signal)).resolves.toMatchObject({ blocked });
+      expect(load.mock.calls).toEqual([['one', { recentEvents: 'first' }, signal], ['one', { recentEvents: 'older' }, signal]]);
+    } finally {
+      load.mockRestore();
+    }
+  });
+
   it('updates authorization from the latest response while loading older history', () => {
     const current = view(['new']); current.canManageInbox = true;
     const older = view(['old']); older.canManageInbox = false;

@@ -148,6 +148,17 @@ export function localAgentId(workCase: WorkCase, view: HumanView): string | unde
   return id && participantIds(workCase, timelineForCase(workCase, source.messages || [])).includes(id) ? id : undefined;
 }
 
+export function latestNativeContactChange(events: AuditEvent[], agentId: string) {
+  // The participant directory reports availability. Contact events carry the inbox's block state.
+  let latest: AuditEvent | undefined;
+  for (const event of events) {
+    if (event.agentId !== agentId || (event.type !== 'contact.blocked' && event.type !== 'contact.unblocked')) continue;
+    if (!latest || event.createdAt > latest.createdAt
+      || (event.createdAt === latest.createdAt && Number(event.sequence ?? 0) > Number(latest.sequence ?? 0))) latest = event;
+  }
+  return latest && { blocked: latest.type === 'contact.blocked', updatedAt: latest.createdAt, sequence: Number(latest.sequence ?? 0) };
+}
+
 export function resolveParticipant(workCase: WorkCase, participantId: string | undefined, agents: Agent[] = [], participantDirectory?: Record<string, ParticipantIdentity> | ParticipantIdentity[], localId?: string): ResolvedParticipant {
   const id = participantId || 'unknown-external-agent';
   const sourceDirectory = participantDirectory || workCase.participantDirectory;

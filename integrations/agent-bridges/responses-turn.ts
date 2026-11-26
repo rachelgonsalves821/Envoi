@@ -31,6 +31,7 @@ async function boundedResponse(response: Response, signal: AbortSignal) {
 export function responsesScopedTurn(options: {
   model: string;
   identity?: string;
+  retainedJournal?: Readonly<{ workId: string; sha256: string }>;
   label: string;
   maxCallsPerResponse?: number;
   store: ScopedRunStore;
@@ -42,7 +43,12 @@ export function responsesScopedTurn(options: {
     const workId = host.workId;
     return options.store.exclusive(workId, async () => {
     turn.signal.throwIfAborted();
-    let record = await options.store.load(workId);
+    const retained = options.retainedJournal;
+    if (retained && retained.workId !== workId)
+      throw new EnvoiError('Retained scoped journal belongs to another work item', undefined, 'SCOPED_RETAINED_JOURNAL_MISMATCH');
+    let record = await options.store.load(workId, retained?.sha256);
+    if (retained && (!record || record.completed))
+      throw new EnvoiError('Retained scoped journal cannot continue', undefined, 'SCOPED_RETAINED_JOURNAL_MISMATCH');
     if (record?.admission) throw new EnvoiError('Resume with the dedicated admission host', undefined, 'SCOPED_ADMISSION_REQUIRED');
     let recovered = record !== null;
     if (record && record.model !== identity) throw new EnvoiError('Resume with the original scoped model', undefined, 'SCOPED_MODEL_CHANGED');

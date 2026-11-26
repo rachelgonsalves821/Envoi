@@ -6,8 +6,8 @@ import {
   isAllowedHostname,
   releaseIsStale,
   selectEnvironment,
+  planSettingsRestart,
   serviceUnavailableResponse,
-  settingsChanged,
   withNoStoreHeaders
 } from './router.js';
 
@@ -37,13 +37,16 @@ export class SinaloaContainer extends Container {
   }
 
   // Dashboard edits make a new Worker version with the same release SHA, and a running
-  // container keeps the settings it started with. Restart once when they differ.
+  // container keeps the settings it started with. Restart when they differ, retrying a
+  // bounded number of times if the container comes back with the previous settings.
   async restartForSettings() {
     const current = await environmentFingerprint(this.envVars);
     const started = await this.ctx.storage.get('startedSettingsFingerprint');
-    if (!settingsChanged(started, current, await this.ctx.storage.get('restartedForSettings'))) return false;
-    await this.ctx.storage.put('restartedForSettings', current);
-    console.log('Restarting Envoi container for changed settings');
+    const previous = await this.ctx.storage.get('settingsRestart') ?? await this.ctx.storage.get('restartedForSettings');
+    const next = planSettingsRestart(started, current, previous, Date.now());
+    if (!next) return false;
+    await this.ctx.storage.put('settingsRestart', next);
+    console.log('Restarting Envoi container for changed settings', { attempt: next.attempts });
     await this.stop();
     return true;
   }

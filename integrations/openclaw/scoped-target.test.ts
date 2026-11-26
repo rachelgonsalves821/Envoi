@@ -93,3 +93,15 @@ it('closing while the personal receipt is unavailable prevents any later target 
  const registry=new OpenClawTargetRegistry(resolver,{clientSource:'d'.repeat(40),nativeSourceSha256:'e'.repeat(64),window:'f'.repeat(64),readPersonalSelection:async()=>receipt});
  const selecting=registry.resolve('msg_a',signal),checked=expect(selecting).rejects.toMatchObject({code:'OPENCLAW_TARGET_CLOSED'});await Promise.resolve();registry.close('msg_a');await checked;release(null);await Promise.resolve();expect(resolver).not.toHaveBeenCalled();
 });
+it('does not create a target tombstone when an unselected pre-native control is forgotten',async()=>{
+ const registry=reviewedRegistry(async()=>target());registry.closeIfSelected('msg_a');registry.closeIfSelected('msg_a');
+ const selected=await registry.resolve('msg_a',signal);expect(selected.binding.workId).toBe('msg_a');
+ registry.closeIfSelected('msg_a');await expect(registry.resolve('msg_a',signal)).rejects.toMatchObject({code:'OPENCLAW_TARGET_CLOSED'});
+ const upstream=vi.fn();await expect(registry.dispatch('msg_a',selected.gatewayUrl+'/v1/responses',request(selected),upstream)).rejects.toMatchObject({code:'OPENCLAW_TARGET_CLOSED'});expect(upstream).not.toHaveBeenCalled();
+});
+it('still permanently fences a real pending selection when pre-native cleanup closes it',async()=>{
+ let release!:(r:any)=>void;const receipt=new Promise<any>(r=>{release=r;}),resolver=vi.fn(async()=>target());
+ const registry=new OpenClawTargetRegistry(resolver,{clientSource:'d'.repeat(40),nativeSourceSha256:'e'.repeat(64),window:'f'.repeat(64),readPersonalSelection:async()=>receipt});
+ const selecting=registry.resolve('msg_a',signal),checked=expect(selecting).rejects.toMatchObject({code:'OPENCLAW_TARGET_CLOSED'});await Promise.resolve();registry.closeIfSelected('msg_a');await checked;
+ release(fakeReceipt(target()));await Promise.resolve();await expect(registry.resolve('msg_a',signal)).rejects.toMatchObject({code:'OPENCLAW_TARGET_CLOSED'});expect(resolver).not.toHaveBeenCalled();
+});

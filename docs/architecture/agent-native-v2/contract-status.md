@@ -1,5 +1,7 @@
 # Canonical contract and gate status
 
+**Historical decision index; current-work pointer reconciled 2026-11-10.** The entries below retain their October decision dates and do not claim to enumerate all later amendments, integrations or live flags. Use [Phase C CURRENT-CLOSEOUT.md](../../../integrations/gates/phase-c/CURRENT-CLOSEOUT.md) for preserved acceptance and the single current remaining checklist. Reconcile later contract status from the actual human approval and frozen fixture records, not an old pending label. No contract/fixture bytes or approval are changed by this documentation update.
+
 Reconciled 2026-10-23 against integration `d05498d8dc13c6f07dc151da7a41a1619ff62436`. This page only indexes decisions that are already recorded on build board #34 (every number below is a comment id on <https://github.com/rachelgonsalves821/Envoi/issues/34>). It approves nothing, changes no schema or fixture byte, and does not reopen accepted work. The contract text in [`handoffs.md`](handoffs.md) and the registry in `test/contract-fixtures/index.json` agree with this table. If they ever disagree, the board's human comment wins, and the disagreement is a defect to fix here.
 
 ## Contracts
@@ -45,4 +47,4 @@ Original results and countersigns are preserved. A later rerun does not replace 
 | B-local rerun on the Stage A candidate | `e8a958f` | 6304532715 | 6304550858 |
 | B/C closeout | | | 6330847176 (preserved, not repeated) |
 
-Remote-auth and provider-connector flags stay OFF; Stage A's candidate, batch and receiver are unchanged. The named-host gates, flag-on acceptance, provider registration and the WorkOS Production cutover remain human-owned and unstarted.
+**October 23 environment snapshot only:** remote-auth/provider-connector flags were OFF and the listed Stage A candidate/batch/receiver were unchanged at that checkpoint. Later approved deployments, WorkOS cutover and Dots work have their own receipts. Do not treat this paragraph as current live configuration, a new prerequisite, or an instruction to toggle a flag. Additional-host acceptance and any new provider/host operations retain their separate human approval boundaries.

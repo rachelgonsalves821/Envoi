@@ -1,5 +1,7 @@
 # Phase A hosted session preparation
 
+**Historical preparation, not a current appointment or backlog (reconciled 2026-11-10).** [GA was countersigned and closed](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6226711305). The dates, UNPROVEN fields and time estimates below describe that older preparation. Do not reopen accepted work or book another session from this file. Current work is [Phase C CURRENT-CLOSEOUT.md](phase-c/CURRENT-CLOSEOUT.md); any justified new regression follows [governing L5](../../docs/architecture/agent-native-v2/claude-codex-build-plan.md#5-loop-rules).
+
 Updated 2026-10-13 for REQUEST lane-b 6149888145. **Preparation only: all hosted behaviors remain UNPROVEN.** The October 12 slot and the `9e178da` preflight are historical, not current release or model evidence. No new appointment is booked.
 
 ## Fresh preflight pin
@@ -61,4 +63,4 @@ Suggested allocation: 15 minutes fresh preflight/model/identity; 30 minutes mess
 
 Part 1's real-assets.test.ts:131 race is separate from hosted acceptance: a recipient transition can precede the sender's delivery projection, leaving queued vs delivered snapshots. #85 waits for both projections before the unchanged equality assertion. A local snapshot race, a passing unit test or proxy counter is never hosted PASS evidence.
 
-Use PHASE-A-HOSTED-RUNBOOK.md, PHASE-A-EVIDENCE-WORKSHEET.md and Lane A's `docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md`. All rows remain UNPROVEN until the real session. On any failed observation, fix/integrate/deploy a new exact SHA and rerun **all 23**; do not combine releases. No deploy, real-host run or frozen Builds is claimed by this preparation update.
+The original session used PHASE-A-HOSTED-RUNBOOK.md, PHASE-A-EVIDENCE-WORKSHEET.md and Lane A's `docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md`. The blank preparation fields do not overturn its later countersign. For a separately justified regression, reproduce the failure, assess affected evidence under L5 and preserve unaffected results. Do not automatically redeploy or repeat 23 observations. Record actual release/provenance for new and carried evidence; a new full gate needs the appropriate scope and human authority. No new deploy, real-host run or frozen Builds is claimed here.

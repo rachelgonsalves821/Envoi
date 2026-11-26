@@ -22,10 +22,14 @@ export interface AdapterOptions {
   onRuntimeEvent?: ScopedRuntimeObserver;
   beforeNativeSubmit?: import('../hermes/native-binding').NativeSubmissionGuard;
   beforeScopedTurn?: import('../hermes/native-binding').ScopedPreparationGuard;
+  /** Trusted per-work restriction only; never selected by conversation text. */
+  scopedReadOnlyWork?: (workId: string) => boolean;
   nativeRequestGate?: import('../hermes/request-gate-attestation').NativeRequestGateExpectation;
   /** Opt-in trusted local target selection; conveys no native egress capability. */
   openClawTargetResolver?: import('../openclaw/scoped-target').OpenClawTargetResolver;
   openClawTargetSelection?: import('../openclaw/scoped-target').OpenClawTargetSelectionAuthority;
+  /** Used only for the exact admitted retry after trusted target selection. */
+  openClawRetainedJournal?: (workId: string) => import('../openclaw/scoped-turn').RetainedOpenClawJournal | undefined;
 }
 export interface AdapterContext extends AdapterOptions {
   apiUrl: string;
@@ -37,6 +41,8 @@ export interface RuntimeBridge {
   close(): Promise<void>;
   /** Actual tool invocation, not discovery; runs before setup is reported ready. */
   verify?(signal?: AbortSignal): Promise<void>;
+  /** Metadata-only permission for a first proof or a backed-off retry with discovered tools. */
+  readyToVerify?(): boolean;
 }
 export interface ConnectorAdapter<C = unknown> {
   runtime: ConnectorRuntime;

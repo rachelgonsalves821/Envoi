@@ -61,6 +61,30 @@ async function fixture(runtime: 'hermes' | 'openclaw' = 'hermes', paused = false
 }
 
 describe('approved activated credentials runtime handoff', () => {
+  it.each([1, 2])('cancels activation status stage %s without losing its saved credentials', async stage => {
+    const f = await fixture();
+    let entered!: () => void, release!: () => void, statuses = 0;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const fetcher: typeof fetch = async (input, init) => {
+      if (!String(input).endsWith('/api/agent/status') || ++statuses !== stage) return f.options.fetch(input, init);
+      return new Promise<Response>((resolve, reject) => {
+        release = () => resolve(Response.json({ state: 'active', agent: { id: f.activation.agent.id }, inboxId: f.activation.inboxId }));
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+        entered();
+      });
+    };
+    const owner = new AbortController();
+    const pending = adoptActivatedConnection('https://envoi.example', 'hermes', f.activation, f.resolver,
+      { ...f.options, fetch: fetcher, signal: owner.signal }).catch(error => error);
+    await started; owner.abort();
+    try {
+      const outcome = await Promise.race([pending, new Promise(resolve => setTimeout(() => resolve('still pending'), 250))]);
+      expect(outcome).toMatchObject({ code: 'REQUEST_CANCELLED' });
+      expect(await f.store.load()).toMatchObject({ agentId: f.activation.agent.id, agentRefreshToken: f.activation.agentRefreshToken });
+      expect(f.verify).not.toHaveBeenCalled();
+      expect(f.close).toHaveBeenCalledTimes(stage === 2 ? 1 : 0);
+    } finally { release(); await pending; }
+  });
   for (const runtime of ['hermes', 'openclaw'] as const) {
     it(`adopts ${runtime} using the canonical activation and status, never legacy enrollment`, async () => {
       const f = await fixture(runtime);

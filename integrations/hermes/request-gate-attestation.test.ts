@@ -22,4 +22,13 @@ describe('same loaded gateway request-gate proof',()=>{
     expect(()=>verifyNativeGateAttestation(proof(),expected,'replacement-instance','1'.repeat(32))).toThrow();
     expect(()=>verifyNativeGateAttestation(proof(),expected,'instance','2'.repeat(32))).toThrow();
   });
+  it('requires an explicitly selected version2 lifetime and signed same-instance proof',()=>{
+    const fields=[2,'instance','1'.repeat(32),expected.policySha256,expected.moduleSha256,expected.factoriesSha256,expected.profileHash,expected.window,expected.role,'until-complete-or-cancel',true];
+    const persistent={...expected,lifetime:'until-complete-or-cancel' as const},p={...proof(fields),version:2};
+    expect(verifyNativeGateAttestation(p,persistent,'instance','1'.repeat(32))).toMatchObject({ready:true,lifetime:'until-complete-or-cancel'});
+    expect(()=>verifyNativeGateAttestation(p,expected,'instance','1'.repeat(32))).toThrow();
+    expect(()=>verifyNativeGateAttestation(proof(),persistent,'instance','1'.repeat(32))).toThrow();
+    expect(()=>verifyNativeGateAttestation({...proof([...fields.slice(0,9),Date.now()+60000,true]),version:2},persistent,'instance','1'.repeat(32))).toThrow();
+    expect(()=>verifyNativeGateAttestation(p,persistent,'replacement','1'.repeat(32))).toThrow();
+  });
 });

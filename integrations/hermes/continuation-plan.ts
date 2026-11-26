@@ -27,7 +27,7 @@ export function continuationRequirements() {
 
 export type ContinuationRole='je1'|'je2'|'testowner'|'openclaw';
 export type ContinuationFlowPolicy=Readonly<{noAction:boolean;decisionOutcome:'approved'|'declined'|null;allowHumanEnd:boolean;expectedCaseState?:'inProgress'|'completed'}>;
-export type ReviewedContinuationFlow=Readonly<{id:string;role:ContinuationRole;requests:number;workHash:string|null;policy:ContinuationFlowPolicy}>;
+export type ReviewedContinuationFlow=Readonly<{id:string;role:ContinuationRole;requests:number;workHash:string|null;policy:ContinuationFlowPolicy;retired?:true}>;
 export type ReviewedContinuationPlan=Readonly<{purpose:'phase-c-reviewed-graph';version:1;ownerApprovalHash:string;planSha256:string;
   allowSameRoleCohorts:boolean;flows:readonly ReviewedContinuationFlow[];flowCases:Readonly<Record<string,string>>;actorIds:Readonly<Record<ContinuationRole,string>>}>;
 export type ReviewedGraphApprovalSubject=Readonly<{planSha256:string;window:string;clientSource:string;serverSource:string;packetSha256:string}>;
@@ -65,7 +65,8 @@ export function validateReviewedContinuationPlan(value:unknown):ReviewedContinua
     ||p.purpose!=='phase-c-reviewed-graph'||p.version!==1||!digest(p.ownerApprovalHash)||!digest(p.planSha256)
     ||typeof p.allowSameRoleCohorts!=='boolean'||!Array.isArray(p.flows)||!p.flows.length||p.flows.length>24)refuse();
   for(const f of p.flows){
-    if(!f||typeof f!=='object'||Array.isArray(f)||!closed(f,['id','role','requests','workHash','policy'])
+    if(!f||typeof f!=='object'||Array.isArray(f)||!closed(f,['id','role','requests','workHash','policy',...(Object.hasOwn(f,'retired')?['retired']:[])])
+      ||Object.hasOwn(f,'retired')&&f.retired!==true
       ||typeof f.id!=='string'||!/^[a-z0-9-]{1,80}$/.test(f.id)||!['je1','je2','testowner','openclaw'].includes(f.role)
       ||!Number.isSafeInteger(f.requests)||f.requests<1||f.workHash!==null&&!digest(f.workHash)
       ||!f.policy||typeof f.policy!=='object'||Array.isArray(f.policy)||!closed(f.policy,['noAction','decisionOutcome','allowHumanEnd',...(Object.hasOwn(f.policy,'expectedCaseState')?['expectedCaseState']:[])])
