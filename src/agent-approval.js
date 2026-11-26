@@ -76,7 +76,7 @@ export function createAgentSlots({ store, uncappedHumanIds = new Set() }) {
   async function assertActiveAgentSlot(humanId, options = {}) {
     if (isUncappedHuman(humanId)) return;
     if (await usedSlots(humanId, options) >= activeAgentsPerHuman) {
-      throw Object.assign(new Error('Beta limit of two active agents per human reached'), { statusCode: 409, code: 'ACTIVE_AGENT_LIMIT' });
+      throw Object.assign(new Error('Limit of two active agents per human reached'), { statusCode: 409, code: 'ACTIVE_AGENT_LIMIT' });
     }
   }
 

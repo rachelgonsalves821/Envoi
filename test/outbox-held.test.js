@@ -9,7 +9,7 @@ const past = '2026-01-01T00:00:00.000Z';
 const future = '2999-01-01T00:00:00.000Z';
 
 async function createStore() {
-  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-outbox-held-')));
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'envoi-outbox-held-')));
   await store.init();
   return store;
 }

@@ -57,6 +57,17 @@ export async function readBoundedBody(body, maxBytes = MAX_SCAN_BYTES) {
   return bytes;
 }
 
+// The application still sends x-sinaloa-sha256; a later release switches it to x-envoi-sha256 once
+// every scanner accepts both. Either name is accepted. When both arrive they must carry the same
+// value, so one request cannot present two different checksum claims.
+export const CHECKSUM_HEADERS = Object.freeze(['x-envoi-sha256', 'x-sinaloa-sha256']);
+
+export function claimedSha256(headers) {
+  const values = CHECKSUM_HEADERS.map(name => headers.get(name)).filter(value => value !== null);
+  if (values.length === 0) return null;
+  return values.every(value => value === values[0]) ? values[0] : null;
+}
+
 export async function matchesSha256Base64(bytes, claimed) {
   if (typeof claimed !== 'string' || !/^[A-Za-z0-9+/]{43}=$/.test(claimed)) return false;
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));

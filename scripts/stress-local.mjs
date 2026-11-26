@@ -122,7 +122,7 @@ async function eventually(check) {
   throw new Error('Case state did not converge within 10 seconds');
 }
 
-const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-stress-local-'));
+const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-stress-local-'));
 let server;
 try {
   server = await startServer(dataDir);
@@ -247,7 +247,7 @@ try {
   await server?.stop();
   const tempRoot = path.resolve(tmpdir());
   const target = path.resolve(dataDir);
-  if (!target.startsWith(`${tempRoot}${path.sep}`) || !path.basename(target).startsWith('sinaloa-stress-local-')) {
+  if (!target.startsWith(`${tempRoot}${path.sep}`) || !path.basename(target).startsWith('envoi-stress-local-')) {
     throw new Error('Refusing to remove an unexpected stress fixture path');
   }
   await rm(target, { recursive: true, force: true });

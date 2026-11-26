@@ -54,11 +54,11 @@ jobs:
             sleep $((attempt * 15))
           done
           test -n "$pulled"
-          docker build -f Dockerfile.cloudflare -t sinaloa-ci .
+          docker build -f Dockerfile.cloudflare -t envoi-ci .
       - name: Verify missing production configuration fails closed
         run: |
           set +e
-          output=$(timeout 20s docker run --rm sinaloa-ci 2>&1)
+          output=$(timeout 20s docker run --rm envoi-ci 2>&1)
           result=$?
           set -e
           printf '%s\n' "$output"

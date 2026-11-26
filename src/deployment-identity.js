@@ -1,6 +1,6 @@
-// A database belongs to exactly one deployment (staging, beta, ...). Two deployments on one
+// A database belongs to exactly one deployment (staging, production, ...). Two deployments on one
 // database share one outbox, so either delivery worker can claim the other's work and settle
-// it under its own rules: on 2026-10-15 beta's older worker dead-lettered a staging delivery to
+// it under its own rules: on 2026-10-15 the production deployment's older worker dead-lettered a staging delivery to
 // a paused agent. The first server to start stamps the database with its deployment name;
 // every later start, readiness probe and outbox claim checks the stamp. Names only: the
 // identity holds nothing secret, so errors and /ready may show it.
@@ -47,7 +47,7 @@ export function uncappedAgentHumanIds(env, environment) {
 export function configuredDeploymentIdentity(env = process.env) {
   const environment = env.ENVOI_DEPLOYMENT_ENVIRONMENT || DEVELOPMENT_ENVIRONMENT;
   const reassignFrom = env.ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM || null;
-  if (!isDeploymentName(environment)) throw new Error('ENVOI_DEPLOYMENT_ENVIRONMENT must be a lowercase deployment name such as staging or beta');
+  if (!isDeploymentName(environment)) throw new Error('ENVOI_DEPLOYMENT_ENVIRONMENT must be a lowercase deployment name such as staging or production');
   if (reassignFrom !== null && (!isDeploymentName(reassignFrom) || reassignFrom === environment)) {
     throw new Error('ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM must name a different deployment');
   }

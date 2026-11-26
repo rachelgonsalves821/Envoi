@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { clamdChunk, clamdCommand, matchesSha256Base64, parseClamdReply, readBoundedBody } from './clamd-protocol.js';
+import { claimedSha256, clamdChunk, clamdCommand, matchesSha256Base64, parseClamdReply, readBoundedBody } from './clamd-protocol.js';
 
 test('ClamAV command and INSTREAM frames use the nul protocol and big-endian lengths', () => {
   assert.equal(new TextDecoder().decode(clamdCommand('PING')), 'zPING\0');
@@ -30,4 +30,14 @@ test('scanner checksum matches the application base64 SHA-256 contract', async (
   assert.equal(await matchesSha256Base64(sample, 'LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ='), true);
   assert.equal(await matchesSha256Base64(sample, '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'), false);
   assert.equal(await matchesSha256Base64(sample, null), false);
+});
+
+test('checksum claim reads either header name and refuses two different values', () => {
+  const claim = headers => claimedSha256(new Headers(headers));
+  assert.equal(claim({ 'x-envoi-sha256': 'a' }), 'a');
+  assert.equal(claim({ 'x-sinaloa-sha256': 'a' }), 'a');
+  assert.equal(claim({ 'x-envoi-sha256': 'a', 'x-sinaloa-sha256': 'a' }), 'a');
+  assert.equal(claim({ 'x-envoi-sha256': 'a', 'x-sinaloa-sha256': 'b' }), null);
+  assert.equal(claim({ 'x-envoi-sha256': '', 'x-sinaloa-sha256': 'a' }), null);
+  assert.equal(claim({}), null);
 });

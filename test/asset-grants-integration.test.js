@@ -82,7 +82,7 @@ async function eventually(check) {
 }
 
 for (const [label, extraEnv] of [['legacy gates', {}], ['Phase D authorization', { ENVOI_INSTALLATIONS_V2: 'true', ENVOI_RELATIONSHIPS_V2: 'true' }]]) test(`case asset grants remain private until explicit, clean, current counterparty authorization (${label})`, async t => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-case-grants-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-case-grants-'));
   const scan = await scanner();
   let server = await launch(dataDir, scan.url, extraEnv);
   t.after(async () => { await server.stop(); await scan.stop(); await rm(dataDir, { recursive: true, force: true }); });
