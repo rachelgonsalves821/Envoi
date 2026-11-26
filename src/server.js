@@ -297,6 +297,11 @@ const consumeRateLimit = (req, res, pathname, identityKey = rateIdentity(req), p
   res.setHeader('retry-after', String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
   return false;
 };
+// Gives back one request a bucket was charged for: the strict unauthenticated-attempt charge on agent /mcp once its credential resolves.
+const refundRateLimit = (req, pathname, identityKey, policy = ratePolicy(req, pathname)) => {
+  const bucket = rateBuckets.get(`${identityKey}:${req.method}:${policy.limit}`);
+  if (bucket?.count > 0) bucket.count -= 1;
+};
 const consumeExternalEmailLimit = (agentId, recipientEmail) => {
   const now = Date.now();
   const windowMs = 60 * 60_000;
@@ -4515,8 +4520,13 @@ async function route(req, res) {
   // The REST call an agent /mcp tool call makes for itself skips this: its outer request was already bounded by the agent's
   // real address, and charging the loopback address here would put every MCP agent in one shared bucket.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
-  const ipPolicy = url.pathname === '/mcp' && req.method === 'POST' ? mcpProtocolPolicy : ratePolicy(req, url.pathname);
+  // An agent /mcp envelope is bounded per address at the read rate; until its credential resolves it is also charged at the
+  // strict rate, refunded on success, so rotating or repeating invalid credentials stays limited as on every other route.
+  const agentMcpEnvelope = url.pathname === '/mcp' && req.method === 'POST' && !String(bearerToken(req) || '').startsWith(caseSessionTokenPrefix);
+  const mcpAttemptKey = `${ipKey}:mcp-attempt`;
+  const ipPolicy = agentMcpEnvelope ? mcpProtocolPolicy : ratePolicy(req, url.pathname);
   if (!isInternalMcpDispatch(req) && !consumeRateLimit(req, res, url.pathname, ipKey, ipPolicy)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
+  if (agentMcpEnvelope && !consumeRateLimit(req, res, url.pathname, mcpAttemptKey)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
   if (url.pathname !== '/mcp' && !consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
   if (await browserGatewayHttp(req, res, url)) return;
   const csrfExempt = url.pathname === '/api/email-webhooks/resend'
@@ -4586,6 +4596,7 @@ async function route(req, res) {
       if (!remoteAuthEnabled(onboardingFlags)) res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
       return fail(res, 401, 'Active v1 agent credential required');
     }
+    if (agentMcpEnvelope) refundRateLimit(req, url.pathname, mcpAttemptKey);
     // The envelope gets its own per-credential bucket at the read rate; the agent's read and write budgets are charged once, by
     // the REST call each tool makes (callRest below), exactly as a direct REST call would be.
     if (!consumeRateLimit(req, res, url.pathname, `mcp:${rateIdentity(req)}`, req.method === 'POST' ? mcpProtocolPolicy : ratePolicy(req, url.pathname))) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });

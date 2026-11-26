@@ -99,3 +99,16 @@ test('the loopback rate-limit exemption cannot be claimed from outside', async t
   assert.ok(statuses.slice(0, 180).every(status => status !== 429), 'the first 180 are judged on their credentials');
   assert.equal(statuses[180], 429, 'the 181st write from one address is limited despite the forged marker');
 });
+
+test('invalid credentials at /mcp stay at the strict per-address rate while valid agents get the read rate', async t => {
+  const baseUrl = await startServer(t);
+  const envelope = token => fetch(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '198.51.100.77', authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream', 'content-type': 'application/json', 'mcp-protocol-version': '2025-11-25' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })
+  }).then(async response => { await response.body?.cancel(); return response.status; });
+  const statuses = [];
+  for (let index = 0; index < 181; index += 1) statuses.push(await envelope(`rotating-invalid-${index}`));
+  assert.ok(statuses.slice(0, 180).every(status => status === 401), 'the first 180 attempts are refused on their credentials');
+  assert.equal(statuses[180], 429, 'the 181st invalid attempt from one address is rate limited');
+});
