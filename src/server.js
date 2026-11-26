@@ -279,8 +279,10 @@ const ratePolicy = (req, pathname) => {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return { limit: 180, windowMs: 60_000 };
   return { limit: 1200, windowMs: 60_000 };
 };
-const consumeRateLimit = (req, res, pathname, identityKey = rateIdentity(req)) => {
-  const policy = ratePolicy(req, pathname);
+// Agent /mcp requests are protocol envelopes: every one is a POST whatever the tool does, so they are bounded at the read rate
+// and the REST call a tool makes for itself is charged as that tool's real read or write (see the /mcp route).
+const mcpProtocolPolicy = { limit: 1200, windowMs: 60_000 };
+const consumeRateLimit = (req, res, pathname, identityKey = rateIdentity(req), policy = ratePolicy(req, pathname)) => {
   const now = Date.now();
   const key = `${identityKey}:${req.method}:${policy.limit}`;
   let bucket = rateBuckets.get(key);
@@ -294,6 +296,11 @@ const consumeRateLimit = (req, res, pathname, identityKey = rateIdentity(req)) =
   if (bucket.count <= policy.limit) return true;
   res.setHeader('retry-after', String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
   return false;
+};
+// Gives back one request a bucket was charged for: the strict unauthenticated-attempt charge on agent /mcp once its credential resolves.
+const refundRateLimit = (req, pathname, identityKey, policy = ratePolicy(req, pathname)) => {
+  const bucket = rateBuckets.get(`${identityKey}:${req.method}:${policy.limit}`);
+  if (bucket?.count > 0) bucket.count -= 1;
 };
 const consumeExternalEmailLimit = (agentId, recipientEmail) => {
   const now = Date.now();
@@ -651,20 +658,28 @@ async function resolveAgentCredential(req, { inboxId = null, tokenTypes = ['acce
 // send, and no loopback address, is enough on its own.
 const internalDispatches = new Map();
 const internalDispatchTtlMs = 60_000;
-function registerInternalDispatch(tokenHash) {
+// Every agent /mcp request registers one, so its REST calls are rate-limited once, as the agent (never as the loopback
+// address every tool call shares); only a marker registered for an OAuth credential also admits an oauth_access token.
+function registerInternalDispatch(tokenHash, { oauth = false } = {}) {
   const nowMs = Date.now();
   for (const [nonce, entry] of internalDispatches) if (entry.expires <= nowMs) internalDispatches.delete(nonce);
   const nonce = crypto.randomBytes(24).toString('base64url');
-  internalDispatches.set(nonce, { tokenHash, expires: nowMs + internalDispatchTtlMs });
+  internalDispatches.set(nonce, { tokenHash, oauth, expires: nowMs + internalDispatchTtlMs });
   return { nonce, release: () => internalDispatches.delete(nonce) };
 }
-const internalDispatchAllows = (req, tokenHash) => {
+const internalDispatchFor = (req, tokenHash) => {
   const nonce = req.headers['x-envoi-mcp-dispatch'];
   const entry = typeof nonce === 'string' ? internalDispatches.get(nonce) : null;
-  return Boolean(entry && entry.tokenHash === tokenHash && entry.expires > Date.now());
+  return entry && entry.tokenHash === tokenHash && entry.expires > Date.now() ? entry : null;
+};
+// True only for the REST call an agent /mcp request makes for itself: the marker, the same bearer credential and a loopback socket.
+const isInternalMcpDispatch = req => {
+  if (typeof req.headers['x-envoi-mcp-dispatch'] !== 'string') return false;
+  const raw = bearerToken(req);
+  return Boolean(raw && ['127.0.0.1', '::1'].includes(String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '')) && internalDispatchFor(req, hashSecret(raw)));
 };
 const requestPath = req => String(req.url || '').split('?', 1)[0];
-const oauthAccessAllowed = (req, tokenHash) => remoteAuthEnabled(onboardingFlags) && (requestPath(req) === '/mcp' || internalDispatchAllows(req, tokenHash));
+const oauthAccessAllowed = (req, tokenHash) => remoteAuthEnabled(onboardingFlags) && (requestPath(req) === '/mcp' || Boolean(internalDispatchFor(req, tokenHash)?.oauth));
 // The route a family's client belongs to: a pre-registered client names it; every URL client is remote_mcp_oauth. A client the
 // operator removed is unknown, so its tokens stop working with it.
 const oauthClientRouteOn = clientId => remoteRouteAvailable(onboardingFlags, /^client_/.test(String(clientId)) ? oauthClients.get(clientId)?.connectionRoute : 'remote_mcp_oauth');
@@ -4502,8 +4517,16 @@ async function route(req, res) {
   if (remoteAuthPath(url.pathname) && !remoteAuthEndpointServed(url.pathname, onboardingFlags)) throw remoteAuthDisabled();
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
+  // The REST call an agent /mcp tool call makes for itself skips this: its outer request was already bounded by the agent's
+  // real address, and charging the loopback address here would put every MCP agent in one shared bucket.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
-  if (!consumeRateLimit(req, res, url.pathname, ipKey)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
+  // An agent /mcp envelope is bounded per address at the read rate; until its credential resolves it is also charged at the
+  // strict rate, refunded on success, so rotating or repeating invalid credentials stays limited as on every other route.
+  const agentMcpEnvelope = url.pathname === '/mcp' && req.method === 'POST' && !String(bearerToken(req) || '').startsWith(caseSessionTokenPrefix);
+  const mcpAttemptKey = `${ipKey}:mcp-attempt`;
+  const ipPolicy = agentMcpEnvelope ? mcpProtocolPolicy : ratePolicy(req, url.pathname);
+  if (!isInternalMcpDispatch(req) && !consumeRateLimit(req, res, url.pathname, ipKey, ipPolicy)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
+  if (agentMcpEnvelope && !consumeRateLimit(req, res, url.pathname, mcpAttemptKey)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
   if (url.pathname !== '/mcp' && !consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
   if (await browserGatewayHttp(req, res, url)) return;
   const csrfExempt = url.pathname === '/api/email-webhooks/resend'
@@ -4573,9 +4596,12 @@ async function route(req, res) {
       if (!remoteAuthEnabled(onboardingFlags)) res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
       return fail(res, 401, 'Active v1 agent credential required');
     }
-    if (!consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
-    const dispatch = identity.oauth ? registerInternalDispatch(hashSecret(bearerToken(req))) : null;
-    res.once('close', () => dispatch?.release());
+    if (agentMcpEnvelope) refundRateLimit(req, url.pathname, mcpAttemptKey);
+    // The envelope gets its own per-credential bucket at the read rate; the agent's read and write budgets are charged once, by
+    // the REST call each tool makes (callRest below), exactly as a direct REST call would be.
+    if (!consumeRateLimit(req, res, url.pathname, `mcp:${rateIdentity(req)}`, req.method === 'POST' ? mcpProtocolPolicy : ratePolicy(req, url.pathname))) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
+    const dispatch = registerInternalDispatch(hashSecret(bearerToken(req)), { oauth: identity.oauth });
+    res.once('close', () => dispatch.release());
     const callRest = async (method, pathname, input, idempotencyKey) => {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Local API is unavailable');
@@ -4583,7 +4609,7 @@ async function route(req, res) {
         method,
         headers: {
           authorization: req.headers.authorization,
-          ...(dispatch ? { 'x-envoi-mcp-dispatch': dispatch.nonce } : {}),
+          'x-envoi-mcp-dispatch': dispatch.nonce,
           ...(input === undefined ? {} : { 'content-type': 'application/json' }),
           ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {})
         },
