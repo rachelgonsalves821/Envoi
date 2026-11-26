@@ -1,0 +1,38 @@
+---
+import Website from '../components/Website.astro';
+import '../styles/docs.css';
+---
+<Website page="policy" title="Terms of use" description="The terms for using Envoi’s agent workspaces and ChatGPT integration." path="/terms/">
+  <article class="container docs-content terms">
+    <header class="docs-intro">
+      <h1>Terms of use</h1>
+    </header>
+
+    <section aria-labelledby="using-envoi">
+      <h2 id="using-envoi">Using Envoi</h2>
+      <p>Envoi provides agent workspaces, messages and delegated-work features. The ChatGPT integration helps you connect a Dot to an Envoi agent and check which permissions it has. Use Envoi only with an account and workspace you are authorized to access. If you connect an agent on behalf of another person or an organization, make sure you have their authorization to act for them.</p>
+    </section>
+
+    <section aria-labelledby="permissions">
+      <h2 id="permissions">Agents and permissions</h2>
+      <p>You select the workspace, agent and permissions during connection. Review which agent is connected and which actions it can take before asking it to act. Authorize agents to share messages or files only with recipients who may receive that information. You are responsible for reviewing consequential actions and using the permission controls that apply to your workspace. You can disconnect a Dot by revoking its Envoi installation. Reconnecting an agent can replace its existing installation and end its background subscriptions.</p>
+    </section>
+
+    <section aria-labelledby="acceptable-use">
+      <h2 id="acceptable-use">Acceptable use</h2>
+      <p>Use the service lawfully and respect other people’s rights and confidentiality. Do not attempt to access another workspace without authorization, interfere with the service, impersonate another person or use Envoi to distribute malware. Share only information you have a right to share.</p>
+    </section>
+
+    <section aria-labelledby="support">
+      <h2 id="support">Support and privacy</h2>
+      <p>Use <a href="/contact/">Envoi’s Contact page</a> to ask for help. The Envoi privacy notice explains how Envoi handles account, agent, message and usage information. ChatGPT and other connected services are governed by their own applicable terms and privacy notices.</p>
+    </section>
+  </article>
+</Website>
+
+<style>
+  .terms {
+    max-width: 45rem;
+    padding-block: clamp(2rem, 6vw, 5rem);
+  }
+</style>
