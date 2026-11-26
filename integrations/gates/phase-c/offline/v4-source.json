@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "clientSource": "5b4d7c2941be4052564f12d02c4d5f304af76ffc",
+  "serverSource": "d98b4d9d6941ab267a2f0f120db891ddababad6e",
+  "packetSha256": "a7c64dc7f7b0730cf2b8efa89ec496f5768727faf5b8823d8d1d7cb7306076f5",
+  "librarySha256": "a9784135e825265cf94d675aef2dcf5b3e97cb0e721e589649e8e05a940966ec",
+  "segments": {
+    "selection": {
+      "file": "session-launcher.mjs",
+      "fileSha256": "c153762f67489b7b35ea21b4b630b4e3f1b799370a5e63551cc295c4574d5b0f",
+      "start": "const sameConfiguration=",
+      "end": "\nfunction assertBaseline",
+      "line": 22,
+      "source": "const sameConfiguration=(a,b)=>!!a&&!!b&&typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)&&Object.keys(a).sort().join()===Object.keys(b).sort().join()&&Object.keys(a).every(k=>a[k]===b[k]);\nexport async function effectiveHermesSelection(stateDir,cached){let value;try{value=await json(path.join(stateDir,'hermes-scoped.json'),8192);}catch(e){if(e.code==='ENOENT')assert.fail('PERSONAL_NEW_ADDRESS_NOT_SAVED');throw e;}\n assert(value?.version===2&&Object.keys(value).sort().join()==='configuration,previousConfiguration,version'&&sameConfiguration(value.previousConfiguration,cached)&&sameConfiguration({...value.previousConfiguration,apiUrl:value.configuration?.apiUrl,daemonOrigin:value.configuration?.daemonOrigin},value.configuration)&&value.configuration.apiUrl===value.configuration.daemonOrigin,'PERSONAL_NEW_ADDRESS_NOT_SAVED');return value.configuration;}",
+      "sha256": "d8bfd03f33d16fd52ba4b16e7793d31d44653931ba1882dda8a2552371f582ad"
+    },
+    "conductor": {
+      "file": "native-flow-conductor.mjs",
+      "fileSha256": "bd2c0f95c09df85eaccb5bfdc08e72a4eb338f49417521299b7f69fa70cf86b5",
+      "start": " async announceHumanDecision",
+      "end": "\n async waitHumanDecision",
+      "line": 107,
+      "source": " async announceHumanDecision({nextFlow,outcome}){const caseId=this.plan.flowCases[nextFlow];await this.ownerInstructions.post({id:`decision-${nextFlow}`,kind:'human-decision',caseId,outcome,\n    text:`In the staging website, personally ${outcome==='declined'?'Decline':'Approve once'} the pending request for ${caseId}. `+\n     `${outcome==='declined'?'Leave every other pending request untouched until you are asked. ':''}Do not send another task.`});}\n // The server claims a role's oldest delivered/acknowledged work first (deliveredAt||createdAt, then id) across all cases;\n // order same-role single flows by that key from the role's own inbox copies.\n async claimOrder(role,effects){this.live();const rows=[];for(const e of effects){const s=await this.snapshot(role,e.caseId,`claim-order-${role}`),copies=s.record.messages.filter(m=>m.id===e.id&&m.recipientAgentId===this.actors[role].agentId);\n  assert.equal(copies.length,1,'ONE_EXACT_QUEUED_COPY_REQUIRED');assert(['delivered','acknowledged'].includes(copies[0].status),'QUEUED_WORK_REQUIRED');rows.push({e,key:String(copies[0].deliveredAt||copies[0].createdAt),id:String(copies[0].id)});}\n  return rows.sort((a,b)=>a.key.localeCompare(b.key)||a.id.localeCompare(b.id)).map(r=>r.e);}\n async pauseFor(ms){assert(Number.isSafeInteger(ms)&&ms>0);const until=Date.now()+ms;assert(until<Date.parse(this.controller.receipt.hardStopUtc),'WAIT_CANNOT_FIT_FIXED_WINDOW');while(Date.now()<until){this.live();await delay(Math.min(250,until-Date.now()),undefined,{signal:this.controller.control.signal});}}",
+      "sha256": "aeae57da30f9c00cb7d1a7f27e59da22feb89197a2e1cb4f2bffe9add5074510"
+    },
+    "decisionSequence": {
+      "file": "program-52.mjs",
+      "fileSha256": "7d29a8656a22e16471ffd924b098d90b44113884aceebb661e506a02679dcd51",
+      "start": " const greenProposal=",
+      "end": "\n const approved=",
+      "line": 59,
+      "source": " const greenProposal=await c.effect('oc-canary-no-action',{recipientRole:'testowner',type:'proposal'}),fileProposal=await c.effect('oc-shared-read-propose',{recipientRole:'testowner',type:'proposal'});\n // Both proposals are queued for Testowner and the server serves the older first, so run their flows in that order.\n let actualFixture;for(const proposal of await c.claimOrder('testowner',[greenProposal,fileProposal])){\n  if(proposal.id===greenProposal.id){await one(await incoming('accept-authority',{parentEffect:greenProposal}));\n   // Original request_human turn has ALREADY ended/settled. Owner decline must precede real expiry; a NEW actual decision scope is probed.\n   actualFixture=await fixture.current();assert(actualFixture?.operator&&actualFixture?.hooks,'ACTUAL_BOUND_C08_FIXTURE_REQUIRED');\n   await actualFixture.operator.observeNativeHumanAndOriginalEnd();await c.announceHumanDecision({nextFlow:'declined-resume',outcome:'declined'});}\n  else await one(await incoming('asset-decline',{parentEffect:fileProposal}));}\n // Both proposals are processed, so the personal decline is Testowner's oldest queued work. Approval is requested only after declined-resume.\n const declined=await c.waitHumanDecision({authorityFlow:'accept-authority',nextFlow:'declined-resume',outcome:'declined'});\n await actualFixture.hooks.runAndCaptureControl({controlId:c.plan.controls.testowner.authorityExpiry,mode:'authority-expiry',role:'testowner',caseId:declined.caseId,workId:declined.workId,evidenceSha256:declined.evidenceSha256});\n // The control ends with the SDK's retryable HANDLER_FAILED on the decision's first claim: server retryAt = 5000ms*2^(1-1)\n // (staging default; the hosted guard pins the Worker bindings, which set no override). Claim only after it.\n await c.pauseFor(7000);\n await one(await incoming('declined-resume',{workId:declined.workId,kind:'humanDecision',outcome:'declined'}));",
+      "sha256": "bde0f9654f642ce506db1098cdb36db233904abc5258d36c8b898618cb7564ba"
+    },
+    "scopePredicate": {
+      "file": "receiver-composition.mjs",
+      "fileSha256": "9416287d8e007688c532cfdb30c74b96a11d665fba6de891d607058d1ac8c4d8",
+      "start": "export const bindsNativeScope=",
+      "end": "\nasync function writeOnce",
+      "line": 12,
+      "source": "export const bindsNativeScope=(plan,facts)=>Object.hasOwn(plan.flowCases,facts.flowId);",
+      "sha256": "40a0b696510058afd339fed152953fa182ae6635d6a8080b16d93640efccbf1f"
+    },
+    "scopeCallback": {
+      "file": "receiver-composition.mjs",
+      "fileSha256": "9416287d8e007688c532cfdb30c74b96a11d665fba6de891d607058d1ac8c4d8",
+      "start": "async facts=>{if(probes)",
+      "end": "},\n   beforeTrustedScopedControl",
+      "line": 60,
+      "source": "async facts=>{if(probes)await probes.observeScopedFacts(facts);if(role==='openclaw'&&bindsNativeScope(ctx.plan,facts))await ctx.targets.captureScopedFacts(facts);if(role==='testowner'){await prepareFixture(facts);if(fixtureHooks)await fixtureHooks.beforeFirstScopedSnapshot(facts);}}",
+      "sha256": "2d8e54c055fdc5b0db4e223d23d6a4c62ff18a907e8f54ecaa7cab7a2d5683a4"
+    },
+    "bounds": {
+      "file": "receiver-composition.mjs",
+      "fileSha256": "9416287d8e007688c532cfdb30c74b96a11d665fba6de891d607058d1ac8c4d8",
+      "start": "const now=Date.now(),windowStop=",
+      "end": "\n   // Window",
+      "line": 35,
+      "source": "const now=Date.now(),windowStop=Date.parse(controller.receipt.hardStopUtc),expiry=now+360000,controlStop=now+720000;\n   assert(controlStop<windowStop,'C08_FRESH_FIXTURE_CANNOT_FIT_FIXED_WINDOW');",
+      "sha256": "e4780a239b412b0cfd028e064a474f7b329fe004eaa763c48577fbc32dba5198"
+    },
+    "finalization": {
+      "file": "finalization.mjs",
+      "fileSha256": "c60dcf6ba3141a3a95fef168ee097febafc9e0255ad22bc601c2ff691114758c",
+      "start": " const nativeSession=",
+      "end": "\n const binding=",
+      "line": 22,
+      "source": " const nativeSession=JSON.parse(nativeEnd.sessionEndRawBytes).session;assert.equal(nativeEnd.session?.workId,decisionWorkId);assert.equal(nativeSession.id,nativeEnd.session.id);assert.equal(nativeSession.status,'ended');",
+      "sha256": "29dcd8f5ddaadff08f931abeb1c0f06823b5114c73b5a86bb91c7c2d7674f9fb"
+    },
+    "completion": {
+      "file": "native-completion-evidence.mjs",
+      "fileSha256": "14e3147395af20665d903cb48f92190c06c505bd34f0babe1e0da01e4405db38",
+      "start": "export function terminalResponses",
+      "end": "\nexport class NativeCompletionEvidence",
+      "line": 7,
+      "source": "export function terminalResponses(bytes){\n const text=Buffer.from(bytes).toString('utf8');let value;try{value=JSON.parse(text);}catch{const events=text.split(/\\r?\\n/).filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trim()).filter(line=>line&&line!=='[DONE]').map(line=>JSON.parse(line));\n  assert(!events.some(e=>['response.failed','response.incomplete'].includes(e.type)),'NATIVE_RESPONSE_FAILED');value=events.filter(e=>e.type==='response.completed').at(-1)?.response;}\n assert(value&&value.status==='completed'&&Array.isArray(value.output),'ACTUAL_TERMINAL_RESPONSE_REQUIRED');\n assert(!value.output.some(item=>item.type==='function_call'),'NATIVE_TOOL_CONTINUATION_PENDING');return value;\n}\nexport function verifyNoActionCanonicalChange(before,after,workId,settlement){\n assert.deepEqual([...before.ids].sort(),[...after.ids].sort(),'NO_ACTION_NEW_OR_REMOVED_MESSAGE');\n const b=before.record.messages.find(m=>m.id===workId),a=after.record.messages.find(m=>m.id===workId);assert(b&&a);\n assert.equal(a.status,'processed');assert.equal(a.processedAt,settlement.receipt.createdAt);assert.equal(a.updatedAt,a.processedAt);\n assert(Date.parse(a.processedAt)>=Date.parse(b.updatedAt||b.deliveredAt||b.createdAt));\n if(b.acknowledgedAt!==undefined)assert.equal(a.acknowledgedAt,b.acknowledgedAt);\n if(a.acknowledgedAt!==undefined)assert(Date.parse(a.acknowledgedAt)<=Date.parse(a.processedAt));\n const strip=m=>Object.fromEntries(Object.entries(m).filter(([k])=>!['status','processedAt','updatedAt','acknowledgedAt'].includes(k)));\n assert.equal(digest(strip(b)),digest(strip(a)),'NO_ACTION_MESSAGE_BODY_CHANGED');\n assert.equal(JSON.stringify(before.record.messages.filter(m=>m.id!==workId)),JSON.stringify(after.record.messages.filter(m=>m.id!==workId)),'NO_ACTION_FOREIGN_MESSAGE_CHANGED');\n if(b.kind==='humanDecision')assert.equal(digest(before.record.case),digest(after.record.case),'NO_ACTION_CASE_CHANGED');\n else{const normalized=structuredClone(after.record.case),oldEvent=before.record.case.events.find(e=>e.id===`evt_${workId}`),event=normalized.events.find(e=>e.id===`evt_${workId}`);\n  assert(oldEvent&&event&&event.payload.messageId===workId,'EXACT_RECEIVING_DELIVERY_EVENT_REQUIRED');\n  assert.equal(event.payload.deliveryState,'processed');assert.equal(normalized.updatedAt,settlement.receipt.createdAt);\n  event.payload.deliveryState=oldEvent.payload.deliveryState;normalized.updatedAt=before.record.case.updatedAt;\n  assert.equal(digest(normalized),digest(before.record.case),'NO_ACTION_CASE_CHANGED_OUTSIDE_DELIVERY_LIFECYCLE');}\n}\n",
+      "sha256": "f4c51cbd1eab7557a325695615b16e4533a8db031a111c55601202dbd5f00a23"
+    },
+    "failureCleanup": {
+      "file": "session-launcher.mjs",
+      "fileSha256": "c153762f67489b7b35ea21b4b630b4e3f1b799370a5e63551cc295c4574d5b0f",
+      "start": "  ctx.runProgram=async()=>",
+      "end": ";return ctx;",
+      "line": 100,
+      "source": "  ctx.runProgram=async()=>{assert(!ctx.programRequested,'ACTUAL_PROGRAM_ALREADY_STARTED');ctx.programRequested=true;try{await ctx.waitForOwnerGatewayReviews();ctx.programStarted=true;return await runProgram(ctx);}catch(error){controller.stop('ACTUAL_PROGRAM_FAILED');try{await ctx.cleanup();}catch(cleanup){throw new AggregateError([error,cleanup],'Program and cleanup failed');}throw error;}}",
+      "sha256": "f50b91fe9ec48856ed24469a38c7e6074ed44c9f6368a2d426d30f5cac65f96e"
+    }
+  }
+}
