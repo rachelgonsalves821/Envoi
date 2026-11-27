@@ -5,6 +5,7 @@ import { checkDeploymentConfiguration } from './check-deployment.mjs';
 import { CONTAINER_LEGACY_FALLBACKS } from '../worker/runtime-config.js';
 import { orphanedLegacyNames } from '../src/envoi-environment.js';
 import { onboardingFlagNames } from '../src/onboarding-flags.js';
+import { waitForBetaDeployment } from './verify-beta-rollout.mjs';
 
 export const RELEASE_ACCOUNT_ID = '54a5d6c680bd813fa60f8e088b098b8d';
 export const APP_SECRET_NAMES = Object.freeze([
@@ -89,7 +90,8 @@ export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedF
   };
 }
 
-export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {
+export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env,
+  verifyBeta = waitForBetaDeployment } = {}) {
   const [target, sha, ...flags] = args;
   const profiles = flags.filter(flag => flag.startsWith('--profile='));
   if (flags.length > 2 || new Set(flags).size !== flags.length || profiles.length > 1
@@ -120,6 +122,10 @@ export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', 
   const result = spawnSync(process.execPath, [wrangler, ...plan.args], { cwd, env: workerEnv, stdio: 'inherit' });
   if (result.error) throw new Error('Unable to start Wrangler');
   if (result.status !== 0) throw new Error(`Wrangler ${plan.deploy ? 'deployment' : 'dry-run'} failed`);
+  if (plan.deploy && target === 'beta') {
+    await verifyBeta(sha, plan.profile ? { smoke: async () => {} } : undefined);
+    console.log(`Beta Worker and Container verified on ${sha}`);
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

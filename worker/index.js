@@ -92,15 +92,19 @@ export default {
       });
     }
 
+    const requestId = crypto.randomUUID();
     try {
       const container = getContainer(env.SINALOA_CONTAINER, CONTAINER_NAME);
-      const response = await container.fetch(createForwardedRequest(request));
-      return withNoStoreHeaders(response, url.pathname);
+      const response = await container.fetch(createForwardedRequest(request, requestId));
+      return withNoStoreHeaders(response, url.pathname, requestId);
     } catch (error) {
       console.error('Envoi container request failed', {
+        requestId,
+        method: request.method,
+        pathname: url.pathname,
         name: error instanceof Error ? error.name : 'Error'
       });
-      return serviceUnavailableResponse();
+      return serviceUnavailableResponse(requestId);
     }
   },
 

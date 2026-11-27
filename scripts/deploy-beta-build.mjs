@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDeploymentConfiguration } from './check-deployment.mjs';
 import { RELEASE_ACCOUNT_ID, promotionPlan, requireBetaSecretNames, secretInventory } from './promote-release.mjs';
+import { waitForBetaDeployment } from './verify-beta-rollout.mjs';
 
 export function readBetaBuildSource({ cwd, execute = execFileSync }) {
   const git = (...argv) => execute('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -23,7 +24,7 @@ export function betaBuildDeployArgs(sha) {
 
 export async function deployBetaBuild({ cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env,
   inventory = (...argv) => secretInventory({ cwd, env }, ...argv), run = spawnSync,
-  source = () => readBetaBuildSource({ cwd }) } = {}) {
+  source = () => readBetaBuildSource({ cwd }), verify = waitForBetaDeployment } = {}) {
   await checkDeploymentConfiguration();
   const identity = source();
   const plan = promotionPlan({ ...identity, target: 'beta', sha: identity.headSha, deploy: true });
@@ -35,7 +36,8 @@ export async function deployBetaBuild({ cwd = fileURLToPath(new URL('../', impor
     cwd, env: { ...env, CLOUDFLARE_ACCOUNT_ID: RELEASE_ACCOUNT_ID }, stdio: 'inherit'
   });
   if (result.error || result.status !== 0) throw new Error('Beta build deployment failed');
-  console.log(`Beta Worker deployed from ${sha}`);
+  await verify(sha);
+  console.log(`Beta Worker and Container verified on ${sha}`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
