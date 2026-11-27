@@ -165,6 +165,7 @@ export interface WorkCase {
   inboxPreference?: InboxPreference;
   id: string;
   schemaVersion?: string;
+  subject?: string;
   objective?: string;
   collaborationMode?: CollaborationMode;
   state?: CaseState;
