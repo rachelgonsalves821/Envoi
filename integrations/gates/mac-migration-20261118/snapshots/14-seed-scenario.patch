@@ -1,0 +1,735 @@
+diff --git a/REQUEST-lane-b-files-page.md b/REQUEST-lane-b-files-page.md
+new file mode 100644
+--- /dev/null
++++ b/REQUEST-lane-b-files-page.md
+@@ -0,0 +1,35 @@
++REQUEST lane-b: Files page is empty for a human whose agents live in child inboxes (DRAFT, not posted)
++
++**Lane A path touched:** none. All changes are in Lane B paths (`frontend/**`, generated `web/**`).
++**Observed at:** `origin/main` 1c4176b and `origin/integration/agent-native` 454ab22; the render line is the same on both (`frontend/src/App.tsx:933` on main, `:941` on integration).
++**Server is correct.** For the repro below, `GET /api/inboxes/<agent inbox>/human-view` returns the asset (`state: clean`, `grant` present, `caseId` set), and the case's Details rail lists it. Nothing in `src/**` needs to change.
++
++## Symptom
++A human opens the sidebar Files page on the "All inboxes" view and sees "No files here", although another agent has shared a clean file with their agent in a case. The same file appears under that case's Details → Files.
++
++## Repro (local, disposable)
++1. In a worktree on main or integration: `node scripts/demo-scenario.mjs` (from the demo branch `demo/seed-scenario`, uncommitted; the same shape also reproduces with any two owners whose agent was enrolled so it has its own child inbox).
++2. Sign in as the first owner (Alex, +14165559001), stay on "All inboxes", click Files → empty.
++3. Expand Agents → Alex's Assistant, click its inbox icon, click Files → `Kickoff-brief.pdf` appears (folder "Priya's Scheduler", status Safe).
++
++## Cause
++- The Files page is rendered as `<SharedFilesPage view={view} … />`. `view` is the selected workspace's own view. For a human whose workspace tree is root workspace + agent child inbox, `view` is the (empty) root workspace.
++- The inbox list uses `queueView`, which aggregates `caseQueue`, `messages`, `assets` and `participantDirectory` across `aggregateViews`. The Files page does not use it.
++- A one-word swap to `queueView` is not enough: `SharedFilesPage` builds every row with `inboxId={view.inbox.id}` and downloads through `api.downloadAsset(inboxId, asset.id)`. In the aggregate, assets can belong to a child inbox while `view.inbox.id` is the root's, so downloads would go to the wrong inbox and fail (grants are stored under the recipient agent's inbox).
++
++## Requested change (Lane B owns the exact code)
++1. Render the Files page from the aggregate: pass `queueView` (or equivalent) instead of `view`.
++2. Keep each asset's source inbox. For example, build `assetInbox: Map<assetId, inboxId>` from `aggregateViews` (`item.inbox.id` for each `item.assets`) and pass that inbox to `FileItem`/`downloadAsset` instead of `view.inbox.id`.
++3. Check the other fields the page derives from `view` still resolve against the aggregate: `view.agents` (the "Sent by my agents" / "Received" split uses `view.agents.some(agent => agent.id === asset.createdByAgentId)`), `view.caseQueue`, `view.messages` and `view.participantDirectory` (folder names).
++4. De-duplicate by asset id if the same asset can appear in more than one aggregated view.
++
++## Tests
++- A frontend test (`frontend/test/`) with a root workspace view that has no assets and one child view that has one granted asset: the Files page lists it, "Received" includes it, and the download call uses the child inbox id.
++- Keep the existing case-rail test (Details → Files) unchanged.
++- Rebuild `web/**` with `npm run build`; do not hand-merge generated files.
++
++## Not in scope
++- Human uploads (the New button stays disabled).
++- Any server, contract or fixture change.
++
++Rollback: revert the Lane B PR.
+diff --git a/scripts/demo-scenario.mjs b/scripts/demo-scenario.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/demo-scenario.mjs
+@@ -0,0 +1,690 @@
++#!/usr/bin/env node
++// Seeds a local, disposable Envoi with a scripted story for screen recording.
++//   personal   (default): scheduling (completed), bargaining (waiting on Alex), file sharing (in progress)
++//   enterprise: expert discovery (completed), expert outreach with a shared postmortem and a booked
++//               session (completed), and a governed data-access request (waiting on Maya)
++//   crossorg:   a CFO's finance agent and an outside recruiting agency agree a hiring plan (waiting on Elena),
++//               a consultant's agent gathers steering-committee updates from three client teams (completed),
++//               and an investment bank's request where Envoi blocks the CFO's agent from sharing files and
++//               records the denied attempt on Monad
++// Usage: node scripts/demo-scenario.mjs [--scenario personal|enterprise|crossorg] [--monad local|testnet] [--no-watch]
++//        (Ctrl+C stops the server). --monad applies to crossorg: "local" (default) runs a stand-in chain for
++//        rehearsal only; "testnet" uses ENVOI_MONAD_ISSUER_PRIVATE_KEY/ADDRESS from your environment.
++//        node scripts/demo-scenario.mjs --code   prints each sign-in's current authenticator code
++import { spawn } from 'node:child_process';
++import crypto from 'node:crypto';
++import http from 'node:http';
++import { once } from 'node:events';
++import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++import readline from 'node:readline';
++import { Transaction, Wallet } from 'ethers';
++import { generateSync } from 'otplib';
++import { BrowserSession } from '../test/browser-session.js';
++
++const PORT = Number(process.env.DEMO_PORT || 8787);
++const DATA_DIR = path.resolve(process.env.DEMO_DATA_DIR || path.join(tmpdir(), 'envoi-demo-data'));
++const WATCH = !process.argv.includes('--no-watch');
++const scenarioFlag = process.argv.indexOf('--scenario');
++const SCENARIO = scenarioFlag === -1 ? 'personal' : process.argv[scenarioFlag + 1];
++const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
++const log = (...items) => console.log(...items);
++
++const monadFlag = process.argv.indexOf('--monad');
++const MONAD = monadFlag === -1 ? 'local' : process.argv[monadFlag + 1];
++
++if (!['personal', 'enterprise', 'crossorg'].includes(SCENARIO)) throw new Error('--scenario must be personal, enterprise or crossorg');
++if (!['local', 'testnet'].includes(MONAD)) throw new Error('--monad must be local or testnet');
++if (SCENARIO === 'crossorg' && MONAD === 'testnet' && !(process.env.ENVOI_MONAD_ISSUER_PRIVATE_KEY && process.env.ENVOI_MONAD_ISSUER_ADDRESS)) {
++  throw new Error('--monad testnet needs ENVOI_MONAD_ISSUER_PRIVATE_KEY and ENVOI_MONAD_ISSUER_ADDRESS (a funded testnet issuer) in your environment');
++}
++if (!path.basename(DATA_DIR).startsWith('envoi-demo-data')) throw new Error('DEMO_DATA_DIR must be named envoi-demo-data*');
++const LOGIN_FILE = path.join(DATA_DIR, 'demo-login.json');
++if (process.argv.includes('--code')) {
++  for (const login of [JSON.parse(await readFile(LOGIN_FILE, 'utf8'))].flat()) {
++    console.log(`Authenticator code for ${login.name}: ${generateSync({ secret: login.totpSecret })}`);
++  }
++  process.exit(0);
++}
++await rm(DATA_DIR, { recursive: true, force: true });
++await mkdir(DATA_DIR, { recursive: true });
++
++// A stand-in malware scanner so shared files can be marked clean locally.
++const scanner = http.createServer((req, res) => {
++  req.resume();
++  req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ status: 'clean', engine: 'demo-scanner' })); });
++});
++scanner.listen(0, '127.0.0.1');
++await once(scanner, 'listening');
++
++// A stand-in Monad testnet RPC for rehearsals: it accepts and "finalizes" every transaction instantly.
++// Its hashes are never on chain, so footage recorded with it must not be published as Monad evidence.
++let fakeChain = null;
++async function startFakeChain() {
++  const transactions = new Map();
++  const blockHash = `0x${'b'.repeat(64)}`;
++  const chain = http.createServer(async (req, res) => {
++    let raw = '';
++    for await (const chunk of req) raw += chunk;
++    const { id, method, params } = JSON.parse(raw);
++    let result;
++    if (method === 'eth_chainId') result = '0x279f';
++    else if (method === 'eth_gasPrice') result = '0x3b9aca00';
++    else if (method === 'eth_getTransactionCount') result = `0x${transactions.size.toString(16)}`;
++    else if (method === 'eth_sendRawTransaction') { const tx = Transaction.from(params[0]); transactions.set(tx.hash, tx); result = tx.hash; }
++    else if (method === 'eth_getTransactionByHash') { const tx = transactions.get(params[0]); result = tx ? { from: tx.from, to: tx.to, input: tx.data, value: '0x0', blockHash } : null; }
++    else if (method === 'eth_getTransactionReceipt') result = transactions.has(params[0]) ? { blockNumber: '0x1', blockHash, status: '0x1' } : null;
++    else if (method === 'eth_getBlockByNumber') result = { number: '0x1', hash: blockHash, timestamp: `0x${Math.floor(Date.now() / 1000).toString(16)}` };
++    res.setHeader('content-type', 'application/json');
++    res.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
++  });
++  chain.listen(0, '127.0.0.1');
++  await once(chain, 'listening');
++  return chain;
++}
++
++// Monad's paid-organization list is read at startup, so crossorg restarts the server once the CFO's
++// organization exists. Everything lives in DATA_DIR, so sessions and agent tokens survive the restart.
++async function monadEnv(paidOrganizationId) {
++  if (MONAD === 'testnet') return { ENVOI_MONAD_PERMISSIONS: 'true', ENVOI_MONAD_PAID_ORGANIZATION_IDS: paidOrganizationId };
++  fakeChain ||= await startFakeChain();
++  const issuer = Wallet.createRandom();
++  return {
++    ENVOI_MONAD_PERMISSIONS: 'true', ENVOI_MONAD_PAID_ORGANIZATION_IDS: paidOrganizationId,
++    ENVOI_MONAD_RPC_URL: `http://127.0.0.1:${fakeChain.address().port}`,
++    ENVOI_MONAD_ISSUER_PRIVATE_KEY: issuer.privateKey, ENVOI_MONAD_ISSUER_ADDRESS: issuer.address
++  };
++}
++
++let server = null;
++async function startServer(extraEnv = {}) {
++  const child = spawn(process.execPath, ['src/server.js'], {
++    cwd: process.cwd(),
++    env: {
++      ...process.env,
++      DATABASE_URL: '',
++      ENVOI_HOST: '127.0.0.1',
++      ENVOI_PORT: String(PORT),
++      ENVOI_AUTH_MODE: 'development',
++      ENVOI_HUMAN_AUTH_PROVIDER: 'local',
++      ENVOI_OBJECT_STORAGE_PROVIDER: 'local',
++      ENVOI_MALWARE_SCANNER_URL: `http://127.0.0.1:${scanner.address().port}/scan`,
++      ENVOI_ENABLE_EXTERNAL_EMAIL: 'false',
++      ENVOI_ENABLE_CALENDAR_WRITES: 'false',
++      ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS: 'false',
++      ENVOI_DATA_DIR: DATA_DIR,
++      ...extraEnv
++    },
++    stdio: ['ignore', 'pipe', 'pipe']
++  });
++  let serverError = '';
++  child.stderr.on('data', chunk => { serverError += chunk.toString(); });
++  const url = await new Promise((resolve, reject) => {
++    const timer = setTimeout(() => reject(new Error(`Server start timed out: ${serverError.slice(-600)}`)), 15_000);
++    child.once('exit', code => { clearTimeout(timer); reject(new Error(`Server exited ${code}: ${serverError.slice(-600)}`)); });
++    child.stdout.on('data', chunk => {
++      const match = chunk.toString().match(/http:\/\/127\.0\.0\.1:(\d+)/);
++      if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); }
++    });
++  });
++  child.removeAllListeners('exit');
++  server = child;
++  return url;
++}
++
++async function restartServer(extraEnv) {
++  const exited = once(server, 'exit');
++  server.kill('SIGTERM');
++  await exited;
++  return startServer(extraEnv);
++}
++
++const baseUrl = await startServer();
++
++let stopping = false;
++async function shutdown(code = 0) {
++  if (stopping) return;
++  stopping = true;
++  server.kill('SIGTERM');
++  scanner.close();
++  fakeChain?.close();
++  await pause(300);
++  process.exit(code);
++}
++process.on('SIGINT', () => shutdown(0));
++process.on('SIGTERM', () => shutdown(0));
++
++async function api(route, { token, session, body, key } = {}) {
++  const method = body === undefined ? 'GET' : 'POST';
++  const response = await fetch(`${baseUrl}${route}`, {
++    method,
++    headers: {
++      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
++      ...(token ? { authorization: `Bearer ${token}` } : {}),
++      ...(session ? session.headers(baseUrl, method) : {}),
++      ...(key ? { 'idempotency-key': key } : {})
++    },
++    body: body === undefined ? undefined : JSON.stringify(body),
++    signal: AbortSignal.timeout(30_000)
++  });
++  session?.capture(response);
++  const text = await response.text();
++  return { status: response.status, payload: text ? JSON.parse(text) : null };
++}
++
++function expect(result, statuses, label) {
++  if (!statuses.includes(result.status)) throw new Error(`${label} failed (${result.status}): ${JSON.stringify(result.payload)}`);
++  return result.payload;
++}
++
++// `runtime` is one of the connector runtimes the server records (openclaw, hermes, grok); omit it for
++// agents that connect another way, such as a Dot over the remote MCP plugin. The UI does not show it, so
++// names carry the type. Only use types the in-app catalog onboards (frontend/src/onboarding/agent-catalog.ts).
++const FULL_PERMISSIONS = ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'];
++async function enrollAgent(person, { agentName, slug, runtime, permissions = FULL_PERMISSIONS }) {
++  const enrollment = expect(await api(`/api/inboxes/${person.workspace.id}/agent-enrollment-tokens`, {
++    session: person.session, body: { permissions, ...(runtime ? { runtime } : {}) }
++  }), [201], 'enrollment token');
++  const agent = expect(await api('/api/agent-enroll', { body: { enrollmentToken: enrollment.enrollmentToken, name: agentName, slug } }), [201], 'agent enroll');
++  return { ...person, ...agent };
++}
++
++async function onboard({ phone, name, workspace, ...agentProfile }) {
++  const session = new BrowserSession();
++  const started = expect(await api('/api/auth/phone/start', { session, body: { phoneNumber: phone, displayName: name } }), [201], 'phone start');
++  const verified = expect(await api('/api/auth/phone/verify', { session, body: { challengeId: started.challengeId, code: started.developmentCode } }), [200], 'phone verify');
++  const totp = expect(await api('/api/auth/totp/setup', { session, body: {} }), [201], 'totp setup');
++  expect(await api('/api/auth/totp/verify', { session, body: { code: generateSync({ secret: totp.secret }) } }), [200], 'totp verify');
++  const root = expect(await api('/api/inboxes', { session, body: { name: workspace } }), [201], 'workspace');
++  return enrollAgent({ session, phone, name, totpSecret: totp.secret, human: verified.human, workspace: root }, agentProfile);
++}
++
++const readCase = (who, caseId) => api(`/api/inboxes/${who.inbox.id}/cases/${caseId}`, { token: who.agentApiToken });
++
++async function converged(who, caseId, messageId) {
++  for (let attempt = 0; attempt < 200; attempt += 1) {
++    const result = await readCase(who, caseId);
++    if (result.status === 200 && result.payload.events.some(event => event.id === `evt_${messageId}`)) return result.payload;
++    await pause(50);
++  }
++  throw new Error(`Message ${messageId} never reached ${who.agent.address}`);
++}
++
++// Sends one protocol message and waits until the other side's case contains it.
++async function say(from, to, caseId, key, { type, intent, text, payload = {}, authority }) {
++  const sent = expect(await api(`/api/inboxes/${from.inbox.id}/messages`, {
++    token: from.agentApiToken, key,
++    body: { senderAgentId: from.agent.id, recipientEmail: to.agent.address, caseId, type, intent, text, payload, ...(authority ? { authority } : {}) }
++  }), [200, 202], `send ${key}`);
++  await converged(to, caseId, sent.id);
++  await pause(350);
++  return sent;
++}
++
++const approve = async (who, caseId, result, key) => expect(await api(`/api/inboxes/${who.inbox.id}/cases/${caseId}/actions`, {
++  session: who.session, key, body: { actionKey: 'approveOnce', externalRefs: { requestedAction: 'case.complete', result }, reasonCode: 'reviewed' }
++}), [201], `approve ${key}`);
++
++// An accepted proposal, approved by `approver`, then completed by `closer` with the approved result.
++async function closeWithApproval({ approver, closer, counterparty, caseId, result, key }) {
++  const approval = await approve(approver, caseId, result, `${key}-human-approve`);
++  await say(closer, counterparty, caseId, `${key}-complete`, {
++    type: 'completion', intent: 'receipt', text: result,
++    payload: { completion: { result, authorityBasis: approval.action.id } }
++  });
++}
++
++// Claims queued work for an agent, marking each native item processed; returns the item matching `until`.
++async function drain(who, until = null) {
++  for (let attempt = 0; attempt < 60; attempt += 1) {
++    const claimed = expect(await api('/api/agent/work/claim', { token: who.agentApiToken, body: { acceptHumanInstructions: true } }), [200], 'claim');
++    const work = claimed.work;
++    if (!work) { if (!until) return null; await pause(100); continue; }
++    if (until && work.workId === until) return work;
++    expect(await api(`/api/agent/work/${work.workId}/complete`, { token: who.agentApiToken, key: `demo-complete-${work.workId}`, body: { leaseToken: work.leaseToken } }), [200, 201], 'complete work');
++  }
++  return null;
++}
++
++// A person gives their own agent a private instruction on a case, and the agent acknowledges it.
++async function instruct(who, caseId, key, text, reply) {
++  const instruction = expect(await api(`/api/inboxes/${who.inbox.id}/cases/${caseId}/instructions`, {
++    session: who.session, key, body: { text }
++  }), [201], 'human instruction');
++  const work = await drain(who, instruction.id);
++  if (!work) return log('  (instruction reply skipped: instruction work item not claimable)');
++  expect(await api(`/api/agent/instructions/${work.workId}/reply`, {
++    token: who.agentApiToken, key: `${key}-reply`, body: { text: reply, leaseToken: work.leaseToken }
++  }), [200, 201], 'instruction reply');
++}
++
++// Uploads a small document as `owner`'s agent, lets the scanner clear it, and shares it on the case.
++async function shareFile(owner, recipient, caseId, key, filename, summary) {
++  const pdf = Buffer.from(
++    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n'
++    + '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
++    + `${summary}\n`);
++  const upload = expect(await api(`/api/inboxes/${owner.inbox.id}/asset-uploads`, {
++    token: owner.agentApiToken, key: `${key}-upload`,
++    body: { filename, mimeType: 'application/pdf', size: pdf.length, checksumSha256: crypto.createHash('sha256').update(pdf).digest('base64'), caseId }
++  }), [201], 'asset upload');
++  const put = await fetch(upload.upload.url, { method: 'PUT', headers: upload.upload.headers, body: pdf });
++  if (put.status !== 204) throw new Error(`Asset PUT failed (${put.status})`);
++  expect(await api(`/api/inboxes/${owner.inbox.id}/assets/${upload.object.id}/complete`, { token: owner.agentApiToken, body: {} }), [200], 'asset scan');
++  expect(await api(`/api/inboxes/${owner.inbox.id}/assets/${upload.object.id}/grants`, {
++    token: owner.agentApiToken, key: `${key}-grant`, body: { caseId, recipientAgentId: recipient.agent.id }
++  }), [200, 201], 'asset grant');
++}
++
++// ================================================================ personal scenario
++async function personalScenario() {
++  const alex = await onboard({ phone: '+14165559001', name: 'Alex Rivera', workspace: "Alex's workspace", agentName: "Alex's Assistant", slug: 'alex-assistant' });
++  const priya = await onboard({ phone: '+14165559002', name: 'Priya Nair', workspace: "Priya's workspace", agentName: "Priya's Scheduler", slug: 'priya-scheduler' });
++  const marco = await onboard({ phone: '+14165559003', name: 'Marco Silva', workspace: "Marco's workspace", agentName: "Marco's Sales Agent", slug: 'marco-sales' });
++  log('Owners and agents created:', [alex, priya, marco].map(item => item.agent.address).join(', '));
++
++  const scheduleCase = 'case_demo_kickoff_schedule';
++  log('Case 1: scheduling a kickoff meeting');
++  await say(alex, priya, scheduleCase, 'sched-1', {
++    type: 'request', intent: 'request',
++    text: "Hi — Alex wants a 30-minute kickoff for the Q4 onboarding project this week. Mornings work best for him. What can Priya offer?",
++    payload: { request: { question: 'Find a 30-minute kickoff slot this week', durationMinutes: 30, preference: 'mornings' } }
++  });
++  await say(priya, alex, scheduleCase, 'sched-2', {
++    type: 'message', intent: 'clarify',
++    text: 'Quick check before I offer times: who needs to attend, and which timezone should I use?',
++    payload: { clarification: { questions: ['Attendees', 'Timezone'] } }
++  });
++  await say(alex, priya, scheduleCase, 'sched-3', {
++    type: 'status', intent: 'status',
++    text: 'Three attendees (Alex, Priya, the dev lead), Eastern Time.',
++    payload: { progress: 'Answered attendees and timezone' }
++  });
++  const slots = await say(priya, alex, scheduleCase, 'sched-4', {
++    type: 'proposal', intent: 'offer',
++    text: 'Priya has two openings that fit: Thursday 2:00 PM ET or Friday 9:00 AM ET.',
++    payload: { proposal: { kind: 'meeting', durationMinutes: 30, timezone: 'America/New_York', slots: ['Thu Oct 22, 2:00 PM ET', 'Fri Oct 23, 9:00 AM ET'] } }
++  });
++  await say(alex, priya, scheduleCase, 'sched-5', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: "Alex is travelling until 10 on Friday. Could we do Friday 10:30 AM ET instead?",
++    payload: { counterproposal: { proposalMessageId: slots.id, kind: 'meeting', durationMinutes: 30, timezone: 'America/New_York', slot: 'Fri Oct 23, 10:30 AM ET' } }
++  });
++  await say(priya, alex, scheduleCase, 'sched-6', {
++    type: 'decision', intent: 'accept',
++    text: 'Friday 10:30 AM ET works on Priya\'s calendar. Asking Priya to confirm the booking.',
++    payload: { decision: { kind: 'accept', proposalMessageId: slots.id } },
++    authority: { claimedByAgent: true, humanApproval: 'approved' }
++  });
++  await closeWithApproval({ approver: priya, closer: priya, counterparty: alex, caseId: scheduleCase, result: 'Kickoff booked: Fri Oct 23, 10:30–11:00 AM ET', key: 'sched' });
++
++  const deskCase = 'case_demo_standing_desk';
++  log('Case 2: bargaining for a standing desk');
++  await say(alex, marco, deskCase, 'desk-1', {
++    type: 'request', intent: 'request',
++    text: "Alex is interested in the oak standing desk you listed at $320. Is it still available, and is the price flexible?",
++    payload: { request: { question: 'Availability and price flexibility for the oak standing desk', listedPriceUsd: 320 } }
++  });
++  await instruct(alex, deskCase, 'desk-instruction-1',
++    "My ceiling is $270 including delivery. Don't commit to anything without asking me first.",
++    "Understood — I'll stay at or under $270 with delivery and I'll check with you before accepting anything.");
++  const listing = await say(marco, alex, deskCase, 'desk-2', {
++    type: 'proposal', intent: 'offer',
++    text: 'Still available. I can do $300 if you pick it up Saturday.',
++    payload: { proposal: { item: 'Oak standing desk', priceUsd: 300, pickup: 'Saturday, Brooklyn', delivery: false } }
++  });
++  await say(alex, marco, deskCase, 'desk-3', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: 'Alex can offer $240 for pickup on Saturday.',
++    payload: { counterproposal: { proposalMessageId: listing.id, item: 'Oak standing desk', priceUsd: 240, pickup: 'Saturday, Brooklyn', delivery: false } }
++  });
++  await say(marco, alex, deskCase, 'desk-4', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: "I can't go that low. $285 and I'll include the monitor arm.",
++    payload: { counterproposal: { proposalMessageId: listing.id, item: 'Oak standing desk + monitor arm', priceUsd: 285, pickup: 'Saturday, Brooklyn', delivery: false } }
++  });
++  await say(alex, marco, deskCase, 'desk-5', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: "$265 with free delivery would work for Alex, and he'll skip the monitor arm.",
++    payload: { counterproposal: { proposalMessageId: listing.id, item: 'Oak standing desk', priceUsd: 265, pickup: null, delivery: true } }
++  });
++  await say(marco, alex, deskCase, 'desk-6', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: "Deal at $265 delivered if payment is on delivery.",
++    payload: { counterproposal: { proposalMessageId: listing.id, item: 'Oak standing desk', priceUsd: 265, delivery: true, payment: 'on delivery' } }
++  });
++  await say(alex, marco, deskCase, 'desk-7', {
++    type: 'decision', intent: 'accept',
++    text: "$265 delivered is under Alex's $270 ceiling. I'm accepting, pending his confirmation.",
++    payload: { decision: { kind: 'accept', proposalMessageId: listing.id } },
++    authority: { claimedByAgent: true }
++  });
++  log('  Desk case is now waiting for Alex (Needs you).');
++
++  // Alex's agent opens this case: the conversation header takes "your agent" from whoever started the case.
++  const filesCase = 'case_demo_kickoff_files';
++  log('Case 3: sharing the kickoff brief');
++  await say(alex, priya, filesCase, 'files-1', {
++    type: 'request', intent: 'request',
++    text: "Could Priya's agent send the kickoff brief and agenda before Friday's meeting? Alex wants to review it first.",
++    payload: { request: { question: 'Share the kickoff brief and agenda', documents: ['Kickoff-brief.pdf'] } }
++  });
++  await shareFile(priya, alex, filesCase, 'files', 'Kickoff-brief.pdf', 'Q4 onboarding kickoff brief: goals, owners, timeline.');
++  await say(priya, alex, filesCase, 'files-2', {
++    type: 'status', intent: 'status',
++    text: "Here it is: Kickoff-brief.pdf is scanned clean and shared with Alex's agent.",
++    payload: { progress: 'Shared Kickoff-brief.pdf (scanned clean)' }
++  });
++  await say(alex, priya, filesCase, 'files-3', {
++    type: 'status', intent: 'status',
++    text: "Received and downloaded. I'll summarise the agenda for Alex before Friday.",
++    payload: { progress: 'Brief received' }
++  });
++
++  return {
++    people: [alex, priya, marco], protagonist: alex,
++    pending: { who: alex, counterparty: marco, caseId: deskCase, key: 'desk', label: 'the desk purchase', result: 'Standing desk purchased for $265, delivered, payment on delivery' }
++  };
++}
++
++// ================================================================ enterprise scenario
++// Northwind Logistics is a fictional company. Every person has their own workspace; Maya runs two
++// agents of different types (the beta allows two per person), and each coworker's agent is a different type.
++async function enterpriseScenario() {
++  const maya = await onboard({ phone: '+14165559101', name: 'Maya Patel', workspace: 'Payments Engineering', agentName: 'Maya · Dots', slug: 'maya-dots' });
++  const mayaOps = await enrollAgent(maya, { agentName: 'Maya · OpenClaw', slug: 'maya-openclaw', runtime: 'openclaw' });
++  const lena = await onboard({ phone: '+14165559102', name: 'Lena Fischer', workspace: 'Developer Experience', agentName: 'Ask Platform · Hermes', slug: 'ask-platform', runtime: 'hermes' });
++  const daniel = await onboard({ phone: '+14165559103', name: 'Daniel Okafor', workspace: 'Site Reliability', agentName: 'Daniel · Grok', slug: 'daniel-grok', runtime: 'grok' });
++  const grace = await onboard({ phone: '+14165559104', name: 'Grace Liu', workspace: 'Data Platform', agentName: 'Data Desk · OpenClaw', slug: 'data-access', runtime: 'openclaw' });
++  log('Employees and agents created:', [maya, mayaOps, lena, daniel, grace].map(item => item.agent.address).join(', '));
++
++  // ---- Case 1: find who has already solved this problem (completed)
++  const findCase = 'case_northwind_find_expert';
++  log('Case 1: finding someone who has solved duplicate event delivery');
++  await say(maya, lena, findCase, 'find-1', {
++    type: 'request', intent: 'request',
++    text: "Payments is seeing duplicate charge events when the order service retries. Has anyone at Northwind already solved duplicate event delivery? Maya would rather learn from them than start from scratch.",
++    payload: { request: { question: 'Who has solved duplicate event delivery under retries?', team: 'Payments Engineering', impact: 'duplicate charge events during retries' } }
++  });
++  await say(lena, maya, findCase, 'find-2', {
++    type: 'message', intent: 'clarify',
++    text: 'Happy to search. Which messaging system and runtime, and roughly how often does it happen?',
++    payload: { clarification: { questions: ['Messaging system', 'Runtime', 'Rate'] } }
++  });
++  await say(maya, lena, findCase, 'find-3', {
++    type: 'status', intent: 'status',
++    text: 'Kafka, Node.js consumers, about 3% of events at peak, mostly after consumer rebalances.',
++    payload: { progress: 'Kafka · Node.js · ~3% at peak · after rebalances' }
++  });
++  await say(lena, maya, findCase, 'find-4', {
++    type: 'status', intent: 'status',
++    text: "Two matches in incident history and design docs. Best fit: Daniel Okafor (SRE, Fulfillment) fixed duplicate shipment events in Q2 with consumer-side idempotency keys and a transactional outbox (incident INC-2291). Also: Billing's 2025 dedupe library, now deprecated. Daniel's agent is daniel-grok.",
++    payload: { progress: 'Matches found', matches: [{ person: 'Daniel Okafor', team: 'SRE, Fulfillment', evidence: 'INC-2291', fit: 'strong' }, { team: 'Billing', evidence: 'dedupe library (deprecated)', fit: 'weak' }] }
++  });
++  await say(maya, lena, findCase, 'find-5', {
++    type: 'completion', intent: 'receipt',
++    text: "Referred to Daniel Okafor (SRE) for INC-2291. Contacting his agent now.",
++    payload: { completion: { result: 'Referred to Daniel Okafor (SRE, Fulfillment) — INC-2291' } }
++  });
++
++  // ---- Case 2: reach the expert, get the postmortem, book time (completed)
++  const outreachCase = 'case_northwind_inc2291_outreach';
++  log('Case 2: reaching Daniel for the INC-2291 fix');
++  await say(maya, daniel, outreachCase, 'reach-1', {
++    type: 'request', intent: 'request',
++    text: "Hi Daniel's agent — Ask Platform pointed us to Daniel for INC-2291. Payments has the same duplicate-event problem on Kafka. Could Daniel share the postmortem and spare 30 minutes this week to walk Maya's team through the fix?",
++    payload: { request: { question: 'Share INC-2291 postmortem and a 30-minute walkthrough', referredBy: 'Ask Platform', durationMinutes: 30 } }
++  });
++  await shareFile(daniel, maya, outreachCase, 'reach-file', 'INC-2291-postmortem.pdf', 'INC-2291 postmortem: duplicate shipment events, consumer idempotency keys, transactional outbox.');
++  await say(daniel, maya, outreachCase, 'reach-2', {
++    type: 'status', intent: 'status',
++    text: 'Daniel is glad to help. INC-2291-postmortem.pdf is shared on this case. The short version: idempotency keys checked at the consumer, plus a transactional outbox so retries never re-publish.',
++    payload: { progress: 'Shared INC-2291-postmortem.pdf (scanned clean)' }
++  });
++  const slots = await say(daniel, maya, outreachCase, 'reach-3', {
++    type: 'proposal', intent: 'offer',
++    text: 'Daniel can do Wednesday 3:00 PM ET or Thursday 11:00 AM ET.',
++    payload: { proposal: { kind: 'meeting', durationMinutes: 30, timezone: 'America/New_York', slots: ['Wed Nov 4, 3:00 PM ET', 'Thu Nov 5, 11:00 AM ET'] } }
++  });
++  await say(maya, daniel, outreachCase, 'reach-4', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: "Maya's team has sprint review until 11:15 on Thursday. Could Daniel do Thursday 11:30 AM ET so the whole team can join?",
++    payload: { counterproposal: { proposalMessageId: slots.id, kind: 'meeting', durationMinutes: 30, timezone: 'America/New_York', slot: 'Thu Nov 5, 11:30 AM ET' } }
++  });
++  await say(daniel, maya, outreachCase, 'reach-5', {
++    type: 'decision', intent: 'accept',
++    text: 'Thursday 11:30 AM ET works. Confirming with Daniel before booking.',
++    payload: { decision: { kind: 'accept', proposalMessageId: slots.id } },
++    authority: { claimedByAgent: true }
++  });
++  await closeWithApproval({ approver: daniel, closer: daniel, counterparty: maya, caseId: outreachCase, result: 'INC-2291 walkthrough booked: Thu Nov 5, 11:30 AM–12:00 PM ET', key: 'reach' });
++
++  // ---- Case 3: governed data access, waiting on Maya (Needs you)
++  const accessCase = 'case_northwind_payments_events_access';
++  log('Case 3: requesting governed access to production data');
++  await say(mayaOps, grace, accessCase, 'access-1', {
++    type: 'request', intent: 'request',
++    text: 'To backfill the affected charges, Payments needs read access to the payments_events table in production for about a month, through month-end close.',
++    payload: { request: { question: 'Read access to payments_events (production)', purpose: 'Backfill duplicate charge events', requestedDays: 30 } }
++  });
++  await instruct(mayaOps, accessCase, 'access-instruction-1',
++    "We need at least 21 days to cover month-end. Don't accept anything without PII masking, and check with me before you agree.",
++    "Understood — at least 21 days, PII masking is required, and I'll ask you before agreeing to anything.");
++  const terms = await say(grace, mayaOps, accessCase, 'access-2', {
++    type: 'proposal', intent: 'offer',
++    text: 'Data Platform policy allows 14 days of read-only access with PII masked and every query audited.',
++    payload: { proposal: { dataset: 'payments_events (production)', access: 'read-only', days: 14, piiMasked: true, auditLogging: true } }
++  });
++  await say(mayaOps, grace, accessCase, 'access-3', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: 'The backfill has to span month-end close. Could we have 30 days, same masking and auditing?',
++    payload: { counterproposal: { proposalMessageId: terms.id, dataset: 'payments_events (production)', access: 'read-only', days: 30, piiMasked: true, auditLogging: true } }
++  });
++  await say(grace, mayaOps, accessCase, 'access-4', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: '21 days is the most Data Platform grants without a VP exception. Masked, audited, and limited to the payments-backfill service account.',
++    payload: { counterproposal: { proposalMessageId: terms.id, dataset: 'payments_events (production)', access: 'read-only', days: 21, piiMasked: true, auditLogging: true, principal: 'svc-payments-backfill' } }
++  });
++  await say(mayaOps, grace, accessCase, 'access-5', {
++    type: 'decision', intent: 'accept',
++    text: "21 days with PII masked meets Maya's requirements. Accepting, pending her approval.",
++    payload: { decision: { kind: 'accept', proposalMessageId: terms.id } },
++    authority: { claimedByAgent: true }
++  });
++  log('  Access case is now waiting for Maya (Needs you).');
++
++  return {
++    people: [maya, mayaOps, lena, daniel, grace], protagonist: maya,
++    pending: { who: mayaOps, counterparty: grace, caseId: accessCase, key: 'access', label: 'the data-access terms', result: 'payments_events read-only access granted for 21 days to svc-payments-backfill, PII masked, audited' }
++  };
++}
++
++// ================================================================ cross-organization scenario
++// Fictional companies. Helio Robotics' CFO runs one finance agent that works with an outside recruiting
++// agency, a consultancy and an investment bank. Every person signs up separately, so every
++// counterparty really is another organization. The finance agent is enrolled WITHOUT "Share files".
++async function crossOrgScenario() {
++  const elena = await onboard({ phone: '+14165559201', name: 'Elena Brooks', workspace: 'Helio Robotics · Finance', agentName: 'Helio Finance · OpenClaw', slug: 'helio-finance', runtime: 'openclaw',
++    permissions: ['send_agent_messages', 'receive_agent_messages', 'execute_cases'] });
++  const marcus = await onboard({ phone: '+14165559202', name: 'Marcus Lee', workspace: 'Talentbridge Recruiting', agentName: 'Talentbridge · Hermes', slug: 'talentbridge', runtime: 'hermes' });
++  const sofia = await onboard({ phone: '+14165559203', name: 'Sofia Marin', workspace: 'Crestline Advisory', agentName: 'Sofia · Dots', slug: 'sofia-dots' });
++  const ravi = await onboard({ phone: '+14165559204', name: 'Ravi Menon', workspace: 'Helio Robotics · Operations', agentName: 'Helio Ops · Grok', slug: 'helio-ops', runtime: 'grok' });
++  const dana = await onboard({ phone: '+14165559205', name: 'Dana Kim', workspace: 'Helio Robotics · Technology', agentName: 'Helio Tech · Hermes', slug: 'helio-tech', runtime: 'hermes' });
++  const owen = await onboard({ phone: '+14165559206', name: 'Owen Hart', workspace: 'Kestrel Partners', agentName: 'Kestrel · OpenClaw', slug: 'kestrel', runtime: 'openclaw' });
++  log('People and agents created:', [elena, marcus, sofia, ravi, dana, owen].map(item => item.agent.address).join(', '));
++
++  // ---- Use case 1: finance + outside recruiting agency agree a hiring plan (waiting on Elena)
++  const hiringCase = 'case_helio_q1_hiring_plan';
++  log('Case 1: Q1 hiring plan with Talentbridge');
++  await say(elena, marcus, hiringCase, 'hire-1', {
++    type: 'request', intent: 'request',
++    text: "Helio closed Q3 at $18.4M revenue, up 12%, but burn is up too. Elena has set a Q1 hiring budget of $1.15M, fully loaded with agency fees. Can Talentbridge propose a recruiting plan that fits?",
++    payload: { request: { question: 'Q1 recruiting plan within budget', budgetUsd: 1_150_000, basis: 'Q3 results' } }
++  });
++  await instruct(elena, hiringCase, 'hire-instruction-1',
++    'Stay at or under $1.15M including fees. Engineering hires come first. Check with me before you agree to anything.',
++    "Understood: $1.15M ceiling including fees, engineering first, and I'll bring the final plan to you before agreeing.");
++  const plan = await say(marcus, elena, hiringCase, 'hire-2', {
++    type: 'proposal', intent: 'offer',
++    text: "Based on Helio's open roles: 9 hires (5 engineers, 2 account executives, 1 operations lead, 1 FP&A analyst). $1.42M fully loaded at an 18% fee.",
++    payload: { proposal: { hires: 9, mix: { engineering: 5, sales: 2, operations: 1, finance: 1 }, totalUsd: 1_420_000, feePercent: 18 } }
++  });
++  await say(elena, marcus, hiringCase, 'hire-3', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: "That's $270K over budget. Keep all 5 engineers, move the two account executives to Q2, and bring the fee to 15%.",
++    payload: { counterproposal: { proposalMessageId: plan.id, hires: 7, mix: { engineering: 5, operations: 1, finance: 1 }, feePercent: 15 } }
++  });
++  await say(marcus, elena, hiringCase, 'hire-4', {
++    type: 'counterproposal', intent: 'counteroffer',
++    text: '7 hires (5 engineers, 1 operations lead, 1 FP&A analyst) at a 15% fee: $1.12M fully loaded, first offers out by Feb 14.',
++    payload: { counterproposal: { proposalMessageId: plan.id, hires: 7, mix: { engineering: 5, operations: 1, finance: 1 }, totalUsd: 1_120_000, feePercent: 15, firstOffersBy: '2027-02-14' } }
++  });
++  await say(elena, marcus, hiringCase, 'hire-5', {
++    type: 'decision', intent: 'accept',
++    text: "$1.12M is under Elena's $1.15M ceiling with every engineering role kept. Accepting, pending her approval.",
++    payload: { decision: { kind: 'accept', proposalMessageId: plan.id } },
++    authority: { claimedByAgent: true }
++  });
++  log('  Hiring plan is now waiting for Elena (Needs you).');
++
++  // ---- Use case 2: a consultant's agent gathers steering-committee input from three client teams
++  log('Case 2: steering-committee prep across three Helio teams');
++  const teams = [
++    { key: 'sc-fin', caseId: 'case_crestline_sc_finance', agent: elena, team: 'finance',
++      ask: "Sofia is preparing Tuesday's ERP steering committee for Helio. Could Finance send budget versus plan and any open finance risks?",
++      update: 'ERP program: $2.1M of $2.4M spent at 70% complete, forecasting a $180K overrun. Risk: the year-end audit freeze starts Dec 15.',
++      receipt: 'Finance update received: $180K forecast overrun; risk flagged, audit freeze from Dec 15' },
++    { key: 'sc-ops', caseId: 'case_crestline_sc_operations', agent: ravi, team: 'operations',
++      ask: "Sofia is preparing Tuesday's ERP steering committee for Helio. Could Operations send the warehouse cutover status and any risks?",
++      update: 'Two of three warehouses are live. Reno slipped to Nov 18 because of the scanner integration. Risk: peak season starts Nov 20.',
++      receipt: 'Operations update received: Reno cutover Nov 18; risk flagged, two days before peak season' },
++    { key: 'sc-tech', caseId: 'case_crestline_sc_technology', agent: dana, team: 'technology',
++      ask: "Sofia is preparing Tuesday's ERP steering committee for Helio. Could Technology send migration status and any risks?",
++      update: 'Data migration is 94% reconciled and the scanner API fix ships Nov 12. Risk: one engineer owns every SAP connector.',
++      receipt: 'Technology update received: migration 94% reconciled; risk flagged, single owner for SAP connectors' }
++  ];
++  for (const t of teams) {
++    await say(sofia, t.agent, t.caseId, `${t.key}-1`, {
++      type: 'request', intent: 'request', text: t.ask,
++      payload: { request: { question: `ERP steering committee input from ${t.team}`, meeting: 'Tue Nov 10' } }
++    });
++  }
++  for (const t of teams) {
++    await say(t.agent, sofia, t.caseId, `${t.key}-2`, { type: 'status', intent: 'status', text: t.update, payload: { progress: t.update } });
++  }
++  for (const t of teams) {
++    await shareFile(sofia, t.agent, t.caseId, `${t.key}-agenda`, 'ERP-steering-committee-agenda.pdf',
++      'ERP steering committee, Tue Nov 10: 1) $180K forecast overrun 2) Reno cutover vs. peak season 3) SAP connector staffing.');
++    await say(sofia, t.agent, t.caseId, `${t.key}-3`, {
++      type: 'completion', intent: 'receipt', text: `${t.receipt}. Draft agenda shared.`,
++      payload: { completion: { result: t.receipt } }
++    });
++  }
++
++  // ---- Use case 3: the bank asks for more than the CFO allows. Monad is switched on for her agent first.
++  log(`Restarting with Monad (${MONAD}) entitled for Helio Finance's organization`);
++  const organizationId = elena.inbox.organizationId || elena.workspace.organizationId;
++  if (!organizationId) throw new Error('Could not find the organization for Helio Finance');
++  await restartServer(await monadEnv(organizationId));
++  expect(await api(`/api/inboxes/${elena.inbox.id}/monad-settings`, { session: elena.session, body: { enabled: true } }), [200], 'enable Monad');
++
++  const investorCase = 'case_kestrel_q3_portfolio_review';
++  log('Case 3: Kestrel requests financials; Envoi blocks the ledger export');
++  await say(owen, elena, investorCase, 'inv-1', {
++    type: 'request', intent: 'request',
++    text: "Kestrel's quarterly portfolio review is due. Please send Helio's Q3 summary, plus the full general ledger export and payroll by employee. Our model needs line-item detail.",
++    payload: { request: { question: 'Q3 financials for the portfolio review', items: ['Q3 summary', 'general ledger export', 'payroll by employee'] } }
++  });
++  // The finance agent tries to attach the ledger. Elena never gave it "Share files", so Envoi refuses
++  // the upload, and because Monad is on, the denied attempt is committed to the chain.
++  const ledger = Buffer.from('account,period,amount\n');
++  const denied = await api(`/api/inboxes/${elena.inbox.id}/asset-uploads`, {
++    token: elena.agentApiToken, key: 'inv-ledger-upload',
++    body: { filename: 'Helio-GL-export-Q3.csv', mimeType: 'text/csv', size: ledger.length, checksumSha256: crypto.createHash('sha256').update(ledger).digest('base64'), caseId: investorCase }
++  });
++  if (denied.status !== 403) throw new Error(`Expected Envoi to block the ledger upload, got ${denied.status}: ${JSON.stringify(denied.payload)}`);
++  log('  Ledger upload blocked (403); denied attempt sent to Monad.');
++  await say(elena, owen, investorCase, 'inv-2', {
++    type: 'status', intent: 'status',
++    text: "Envoi blocked the ledger export: Elena hasn't authorized me to share files. Under the investor agreement I can share the board-approved summary: revenue $18.4M, gross margin 41%, net burn $1.2M a month, 26 months of runway. Line-item ledgers and payroll need Elena's sign-off.",
++    payload: { progress: 'Shared board-approved Q3 summary; ledger and payroll withheld', summary: { revenueUsd: 18_400_000, grossMarginPercent: 41, monthlyNetBurnUsd: 1_200_000, runwayMonths: 26 } }
++  });
++  await say(owen, elena, investorCase, 'inv-3', {
++    type: 'status', intent: 'status',
++    text: "Understood. The summary covers the portfolio review. We'll request line-item detail from Elena directly.",
++    payload: { progress: 'Summary accepted' }
++  });
++  await say(elena, owen, investorCase, 'inv-4', {
++    type: 'completion', intent: 'receipt',
++    text: 'Q3 summary delivered under the investor agreement. Ledger and payroll withheld pending Elena.',
++    payload: { completion: { result: 'Q3 summary delivered; ledger and payroll withheld' } }
++  });
++
++  return {
++    people: [elena, marcus, sofia, ravi, dana, owen], protagonist: elena, alsoSignIn: [sofia],
++    pending: { who: elena, counterparty: marcus, caseId: hiringCase, key: 'hire', label: 'the Q1 hiring plan', result: 'Q1 hiring plan approved: 7 hires (5 engineering), $1.12M fully loaded, first offers by Feb 14' }
++  };
++}
++
++const startedAt = Date.now();
++const scenarios = { personal: personalScenario, enterprise: enterpriseScenario, crossorg: crossOrgScenario };
++const { people, protagonist: lead, alsoSignIn = [], pending } = await scenarios[SCENARIO]();
++const logins = [lead, ...alsoSignIn];
++await writeFile(LOGIN_FILE, JSON.stringify(logins.map(who => ({ name: who.name, phone: who.phone, totpSecret: who.totpSecret }))), 'utf8');
++
++// Let every agent mark its queued messages processed so delivery receipts look complete.
++for (const who of people) await drain(who);
++
++// The local sign-in allows one verification code per phone per minute; wait it out so the first on-camera sign-in works.
++await pause(Math.max(0, 61_000 - (Date.now() - startedAt)));
++
++log('\n================ Demo ready ================');
++log(`Scenario: ${SCENARIO}`);
++log(`Open ${baseUrl}`);
++for (const who of logins) log(`Sign in as ${who.name}: phone ${who.phone}, then the one-time code shown on screen, then an authenticator code.`);
++log('Get fresh authenticator codes with:  node scripts/demo-scenario.mjs --code   (or press Enter here)');
++const printCode = () => { for (const who of logins) log(`Authenticator code for ${who.name}: ${generateSync({ secret: who.totpSecret })}  (valid ~30s)`); };
++printCode();
++if (SCENARIO === 'crossorg' && MONAD === 'local') {
++  log('\nNOTE: Monad is running against a local stand-in chain. Its transaction hashes and explorer links are not real;');
++  log('rehearse with it, but record the published video with --monad testnet.');
++}
++
++// The UI's Approve Once needs a policy evaluation, which negotiated cases do not create, so the
++// approval is sent as the person's real signed-in session when you type "approve" here.
++let approvalSent = false;
++async function approvePending() {
++  if (approvalSent) return log('Already approved.');
++  approvalSent = true;
++  await approve(pending.who, pending.caseId, pending.result, `${pending.key}-human-approve`);
++  log(`${lead.name} approved ${pending.label}.`);
++}
++log(`Type "approve" here to record ${lead.name} approving ${pending.label}.`);
++readline.createInterface({ input: process.stdin }).on('line', line => {
++  if (line.trim().toLowerCase() === 'approve') approvePending().catch(error => log('Approve failed:', error.message));
++  else printCode();
++});
++
++// Once the approval lands, the agent completes the case so the receipt appears live.
++async function watchForApproval() {
++  while (!stopping) {
++    await pause(1000);
++    const current = await readCase(pending.who, pending.caseId).catch(() => null);
++    const action = current?.payload?.events?.find(event => event.type === 'humanAction' && event.payload?.action?.actionKey === 'approveOnce')?.payload?.action;
++    if (!action) continue;
++    await pause(2500);
++    const result = action.externalRefs?.result || pending.result;
++    await say(pending.who, pending.counterparty, pending.caseId, `${pending.key}-complete`, {
++      type: 'completion', intent: 'receipt', text: result,
++      payload: { completion: { result, authorityBasis: action.id } }
++    });
++    await drain(pending.counterparty);
++    log(`Approved: the agent completed ${pending.label}.`);
++    return;
++  }
++}
++if (WATCH) {
++  log(`Watching for ${lead.name}'s approval; the agent will then file the receipt.`);
++  watchForApproval().catch(error => log('Approval watcher stopped:', error.message));
++}
