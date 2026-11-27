@@ -89,7 +89,7 @@ const toIso = times => times.map(time => new Date(time).toISOString());
 // ENVOI_DATA_ENCRYPTION_KEY, as src/server.js derives the code key), so the IPv4 space cannot be
 // enumerated back from them. They were plain SHA-256 before; counters written under those names
 // are not carried over. The flags were off everywhere, so no deployed counters existed.
-export function createRegistrationLimits({ store, now = () => new Date(), key = sourceKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')) }) {
+export function createRegistrationLimits({ store, now = () => new Date(), key = sourceKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'envoi-development-only')) }) {
   const nowMs = () => now().getTime();
   const hash = value => sourceHmac(value, key);
 

@@ -123,7 +123,7 @@ const consequentialActionsEnabled = process.env.ENVOI_ENABLE_CONSEQUENTIAL_ACTIO
 const policyActiveKeyId = process.env.ENVOI_POLICY_ACTIVE_KEY_ID || 'primary';
 const policySigningKeys = (() => {
   const configured = process.env.ENVOI_POLICY_SIGNING_KEYS ? JSON.parse(process.env.ENVOI_POLICY_SIGNING_KEYS) : {};
-  const single = process.env.ENVOI_POLICY_SIGNING_KEY || process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-policy-signing-key';
+  const single = process.env.ENVOI_POLICY_SIGNING_KEY || process.env.ENVOI_DATA_ENCRYPTION_KEY || 'envoi-development-policy-signing-key';
   return { ...configured, [policyActiveKeyId]: configured[policyActiveKeyId] || single };
 })();
 const policyKeyring = Object.freeze({ activeKeyId: policyActiveKeyId, keys: Object.freeze(policySigningKeys) });
@@ -431,7 +431,7 @@ const publicIdentity = (slug) => ({
   externalAddress: emailTransport.addressForSlug(slug),
   externalTransportStatus: emailTransport.ready ? 'ready' : 'unconfigured'
 });
-const connectorEncryptionKey = () => crypto.createHash('sha256').update(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only').digest();
+const connectorEncryptionKey = () => crypto.createHash('sha256').update(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'envoi-development-only').digest();
 const encryptConnectorTokens = value => {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', connectorEncryptionKey(), iv);
@@ -1237,7 +1237,7 @@ async function reportedOnDemand(inboxId, agentId) {
 }
 const registrations = createAgentRegistrations({
   store, flags: onboardingFlags, ownerPermissions: ownerPermissionsEnabled,
-  codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
+  codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'envoi-development-only')),
   limits: registrationLimits, pollLimiter: createPollLimiter(), agentSlots, installations, withInboxMutation,
   canManageLive: (human, inbox) => canManageInbox(human, inbox, { maxAgeMs: 0 }),
   normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest,

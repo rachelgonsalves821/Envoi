@@ -80,6 +80,15 @@ test('the data encryption key may still come from its one honoured legacy name',
     error => /Conflicting Envoi environment settings: ENVOI_DATA_ENCRYPTION_KEY and SINALOA_DATA_ENCRYPTION_KEY/.test(error.message) && !error.message.includes(key));
 });
 
+test('production refuses the current and former development fallback encryption keys', () => {
+  for (const fallback of ['envoi-development-only', 'sinaloa-development-only']) {
+    for (const value of [fallback, fallback.padEnd(32, 'x')]) {
+      assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_DATA_ENCRYPTION_KEY: value })),
+        /ENVOI_DATA_ENCRYPTION_KEY must not use a development or example value/);
+    }
+  }
+});
+
 test('production requires an exact invite list without SMS credentials', () => {
   assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: '' })), /ENVOI_BETA_INVITED_EMAILS is required/);
   assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: 'example.com' })), /exact email addresses/);

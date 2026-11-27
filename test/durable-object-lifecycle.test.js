@@ -5,17 +5,17 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateContainerLifecycle } from '../scripts/check-deployment.mjs';
+import { validateAppContainerBindings, validateContainerLifecycle } from '../scripts/check-deployment.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const fixture = () => ({
   exports: { SinaloaContainer: { type: 'durable-object', storage: 'sqlite' } },
-  durable_objects: { bindings: [{ name: 'SINALOA_CONTAINER', class_name: 'SinaloaContainer' }] },
+  durable_objects: { bindings: [{ name: 'ENVOI_CONTAINER', class_name: 'SinaloaContainer' }] },
   containers: [{ class_name: 'SinaloaContainer' }]
 });
 
 test('ordinary deployment guard refuses destructive lifecycle or binding drift', () => {
-  assert.doesNotThrow(() => validateContainerLifecycle(fixture(), 'SinaloaContainer', 'SINALOA_CONTAINER'));
+  assert.doesNotThrow(() => validateContainerLifecycle(fixture(), 'SinaloaContainer', 'ENVOI_CONTAINER'));
   for (const mutate of [
     c => { c.migrations = []; },
     c => { c.migrations = [{ tag: 'v1', new_sqlite_classes: ['SinaloaContainer'] }]; },
@@ -29,11 +29,26 @@ test('ordinary deployment guard refuses destructive lifecycle or binding drift',
     c => { c.exports.Extra = { type: 'durable-object', storage: 'sqlite' }; },
     c => { c.durable_objects.bindings[0].script_name = 'another-worker'; },
     c => { c.durable_objects.bindings[0].name = 'REPLACEMENT'; },
+    c => { c.durable_objects.bindings[0].name = 'SINALOA_CONTAINER'; },
     c => { c.durable_objects.bindings[0].class_name = 'Replacement'; },
     c => { c.containers[0].class_name = 'Replacement'; }
   ]) {
     const changed = fixture(); mutate(changed);
-    assert.throws(() => validateContainerLifecycle(changed, 'SinaloaContainer', 'SINALOA_CONTAINER'));
+    assert.throws(() => validateContainerLifecycle(changed, 'SinaloaContainer', 'ENVOI_CONTAINER'));
+  }
+});
+
+test('deployment guard refuses the former SINALOA_CONTAINER binding name in any app environment', () => {
+  const config = () => ({ ...fixture(), env: { staging: fixture(), beta: fixture() } });
+  assert.doesNotThrow(() => validateAppContainerBindings(config()));
+  for (const mutate of [
+    c => { c.durable_objects.bindings[0].name = 'SINALOA_CONTAINER'; },
+    c => { c.env.staging.durable_objects.bindings[0].name = 'SINALOA_CONTAINER'; },
+    c => { c.env.beta.durable_objects.bindings[0].name = 'SINALOA_CONTAINER'; },
+    c => { c.env.beta.durable_objects.bindings.push({ name: 'SINALOA_CONTAINER', class_name: 'SinaloaContainer' }); }
+  ]) {
+    const changed = config(); mutate(changed);
+    assert.throws(() => validateAppContainerBindings(changed), /SINALOA_CONTAINER|ENVOI_CONTAINER/);
   }
 });
 
@@ -41,8 +56,8 @@ test('ordinary deployment guard refuses destructive lifecycle or binding drift',
 // migration-tag logic. --dry-run writes a local upload file and cannot deploy;
 // credentials are fake and the API origin is an unreachable loopback port.
 for (const [name, args, className, bindingName] of [
-  ['app staging', ['--env', 'staging'], 'SinaloaContainer', 'SINALOA_CONTAINER'],
-  ['app beta', ['--env', 'beta'], 'SinaloaContainer', 'SINALOA_CONTAINER'],
+  ['app staging', ['--env', 'staging'], 'SinaloaContainer', 'ENVOI_CONTAINER'],
+  ['app beta', ['--env', 'beta'], 'SinaloaContainer', 'ENVOI_CONTAINER'],
   ['scanner staging', ['--config', 'scanner/wrangler.jsonc'], 'ClamAVContainer', 'CLAMAV_CONTAINER'],
   ['scanner beta', ['--config', 'scanner/wrangler.beta.jsonc'], 'ClamAVContainer', 'CLAMAV_CONTAINER']
 ]) test(`${name} serialized upload uses declarative SQLite exports, never migration tags`, async () => {
