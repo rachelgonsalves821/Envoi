@@ -18,7 +18,7 @@ const equal=(a:any,b:any)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
 const same=(a:any,b:any)=>a?.sha256===b?.sha256&&typeof a?.path==='string'&&typeof b?.path==='string'&&path.resolve(a.path)===path.resolve(b.path);
 function refuse():never{throw Object.assign(Error('EXACT_ACCEPTED_CHECKPOINT_RETRY_REQUIRED'),{code:'EXACT_ACCEPTED_CHECKPOINT_RETRY_REQUIRED'});}
 export interface AcceptedCheckpointCarry {
- descriptor:ProgressPin;workId:string;caseId:string;retainedOriginalWorkId:string;receipt:any;journal:ProgressPin;originalAllocation:ProgressPin;expectedAttempts:number;
+ descriptor:ProgressPin;workId:string;caseId:string;retainedOriginalWorkId:string;receipt:any;journal:ProgressPin;originalAllocation:ProgressPin;expectedAttempts:number;endedSessionsProof?:ProgressPin;
  followup:Readonly<{text:string;senderAgentId:string;recipientAgentId:string;caseId:string}>;
 }
 type Input={releaseRoot:string;ledger:RequestBudgetLedger;recovery:ControlledProgressRecovery};
