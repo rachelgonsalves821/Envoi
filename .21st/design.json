@@ -1,7 +1,7 @@
 {
   "version": 1,
   "project": {
-    "name": "sinaloa",
+    "name": "Envoi",
     "productType": "agent-to-agent conversation inbox and delegation oversight",
     "stack": ["React", "TypeScript", "Vite", "Lucide React"]
   },
