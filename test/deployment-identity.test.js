@@ -104,6 +104,28 @@ test('a database moves to another deployment only when its current owner is name
   await assert.rejects(ensureDeploymentIdentity(store, { environment: 'staging', logger: quiet }), isMismatch('beta', 'staging'));
 });
 
+test('the shipped production settings move the database stamp from "beta" to "production" once', async t => {
+  const wrangler = JSON.parse(await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
+  const production = configuredDeploymentIdentity(wrangler.env.beta.vars);
+  assert.deepEqual(production, { environment: 'production', reassignFrom: 'beta' });
+  const store = await temporaryStore(t);
+  // The live production database, as stamped by releases that called the deployment "beta".
+  await ensureDeploymentIdentity(store, { environment: 'beta', logger: quiet });
+  await verifyDeploymentIdentityBeforeInit(store, production);
+  const warnings = [];
+  const moved = await ensureDeploymentIdentity(store, { ...production, releaseSha: 'a'.repeat(40), logger: { info() {}, warn: line => warnings.push(line) } });
+  assert.equal(moved.environment, 'production');
+  assert.equal(moved.reassignedFrom, 'beta');
+  assert.equal(warnings.length, 1);
+  await assertDeploymentIdentity(store, 'production');
+  // Later starts with the same settings match and rewrite nothing.
+  const again = await ensureDeploymentIdentity(store, { ...production, releaseSha: 'b'.repeat(40), logger: { info() {}, warn: () => assert.fail('no second move') } });
+  assert.equal(again.stampedByReleaseSha, 'a'.repeat(40));
+  // An older release still named "beta" is refused until an operator moves the stamp back on purpose.
+  await assert.rejects(ensureDeploymentIdentity(store, { environment: 'beta', logger: quiet }), isMismatch('production', 'beta'));
+  assert.equal((await ensureDeploymentIdentity(store, { environment: 'beta', reassignFrom: 'production', logger: quiet })).environment, 'beta');
+});
+
 test('before migrations a missing documents table counts as never stamped', async () => {
   const missingTable = { getJson: async () => { throw Object.assign(new Error('relation "sinaloa_documents" does not exist'), { code: '42P01' }); } };
   await verifyDeploymentIdentityBeforeInit(missingTable, { environment: 'beta' });
